@@ -1891,28 +1891,31 @@ model XiaoniRecallShadowLog {
   @@map("xiaoni_recall_shadow_log")
 }
 
-// 她自己立的目标。一次只有一个 active —— 由部分唯一索引保证,不靠应用层。
-// 成败由她自己调 update_goal(complete/blocked) 声明;引擎不判定一轮有没有推进目标。
-// rounds_started 只在一轮 goal-round 输入被接纳时 +1,与空转失效计数是两个不同的量。
-// 建表 DDL 在 packages/persistence/xiaoni-goal.js 的 ensureXiaoniGoalSchema(与本仓库其它
+// 她自己起的一次深挖。一次只有一个 active —— 由部分唯一索引保证,不靠应用层。
+// 结论由她自己调 update_deep_dive(conclude/blocked) 声明;引擎不判定一轮有没有往下挖。
+// rounds_started 只在一轮 deep-dive-round 输入被接纳时 +1,与空转失效计数是两个不同的量。
+// 建表 DDL 在 packages/persistence/xiaoni-deep-dive.js 的 ensureXiaoniDeepDiveSchema(与本仓库其它
 // runtime 表同款 CREATE TABLE IF NOT EXISTS 路径);这里是 schema 事实源,避免 db pull 看到 drift。
-// 详见 docs/adr/0010-goal-and-its-outcome-are-hers-to-declare.md、docs/specs/xiaoni-goal-tools.md
-model XiaoniGoal {
-  id              String   @id @db.VarChar(64)
-  identity_key    String   @db.VarChar(64)
-  revision        Int      @default(1) // 每次 mutation +1;compare-and-set 用
-  objective       String // 她写的原文
-  phase           String   @db.VarChar(16) // active | paused | completed | blocked
-  rounds_started  Int      @default(0)
-  max_goal_rounds Int      @default(20)
-  blocked_reason  String? // 仅 phase='blocked' 时非空
-  created_at      DateTime @default(now()) @db.Timestamptz(3)
-  updated_at      DateTime @updatedAt @db.Timestamptz(3)
+// 详见 docs/adr/0010-goal-and-its-outcome-are-hers-to-declare.md、docs/specs/xiaoni-deep-dive-tools.md
+// 她自己起的一次深挖 —— 一个她要往下扎的问题,跨多轮。
+// 从 `XiaoniGoal` / `xiaoni_goals` 改名而来:`goal` 在模型先验里是「任务/待办」,把她带向
+// 「做完就收」。改名的活体依据与迁移见 ensureXiaoniDeepDiveSchema 的文件内注释。
+model XiaoniDeepDive {
+  id             String   @id @db.VarChar(64)
+  identity_key   String   @db.VarChar(64)
+  revision       Int      @default(1) // 每次 mutation +1;compare-and-set 用
+  question       String // 她写的原文:想弄明白什么
+  phase          String   @db.VarChar(16) // active | paused | concluded | blocked
+  rounds_started Int      @default(0) // 深度计数:为这个问题跑过几轮
+  max_rounds     Int      @default(20)
+  blocked_reason String? // 仅 phase='blocked' 时非空:哪儿想不通
+  created_at     DateTime @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime @updatedAt @db.Timestamptz(3)
 
   // 「同一 identity 最多一个 active」是部分唯一索引,Prisma schema 表达不了 WHERE 子句,
-  // 实际 DDL 见 ensureXiaoniGoalSchema。这里只声明普通复合索引,不声明那条唯一约束。
-  @@index([identity_key, phase, updated_at], map: "idx_xiaoni_goals_identity_phase_updated")
-  @@map("xiaoni_goals")
+  // 实际 DDL 见 ensureXiaoniDeepDiveSchema。这里只声明普通复合索引,不声明那条唯一约束。
+  @@index([identity_key, phase, updated_at], map: "idx_xiaoni_deep_dives_identity_phase_updated")
+  @@map("xiaoni_deep_dives")
 }
 
 // 复核 fork 的 slice 账本。**独立成表,不复用 subconscious_agent_fork_slices** ——
@@ -1928,7 +1931,7 @@ model FailureReviewForkSlice {
   fork_run_id            String    @db.VarChar(191)
   llm_call_id            String?   @db.VarChar(128)
   identity_key           String    @default("xiaoni") @db.VarChar(191)
-  goal_id                String?   @db.VarChar(64)
+  deep_dive_id           String?   @db.VarChar(64)
   input_start_index      BigInt?
   input_end_index        BigInt?
   input_stack_item_ids   Json      @default("[]")

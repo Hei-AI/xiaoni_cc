@@ -1498,15 +1498,14 @@ function summarizeFailureReviewForkSlice(row) {
 }
 
 // 一次复核 = 一个 fork_run_id = 多条 slice(每轮一条)。与 psych 的「一次派发一条 slice」
-// 不同,这里按 fork_run_id 收拢,body 给她当时想做成的那件事。
+// 不同,这里按 fork_run_id 收拢,body 给她当时想弄明白的那个问题。
 function summarizeFailureReviewForkRun(forkRunId, rows, events) {
   const first = rows[0] || {};
   const metadata = normalizeJsonObject(first.metadata, {});
   // 键名必须与**真实写入侧**一致:agent-loop-service 的 baseForkMetadata 写的是
-  // `goal_objective`(不是 `objective`)。第九轮 Spec 轴抓到这里恒为 null ——
-  // 而我上一条 commit 的「端到端实测」是拿手工按读取侧形状插的 slice 验的,
-  // 所以绿的是同义反复。两个键都认,写入侧改名不至于又静默变空。
-  const objective = firstString(metadata.goal_objective, metadata.objective);
+  // `deep_dive_question`。第九轮 Spec 轴抓到这里恒为 null,2026-08-23 改名时**又犯了一次** ——
+  // 两次都是拿读取侧的形状手工造测试数据,绿的是同义反复。改键名必须两端一起改、一起验。
+  const question = firstString(metadata.deep_dive_question);
   const blockedReason = firstString(metadata.blocked_reason);
   const startedAt = eventTimestamp(
     rows.reduce((min, row) => {
@@ -1532,8 +1531,8 @@ function summarizeFailureReviewForkRun(forkRunId, rows, events) {
     source: 'failure_review_fork',
     kind: 'failure_review_fork',
     title: '失败复核 Agent',
-    // 目标 + 她说卡在哪。只给目标的话,列表上看不出这次复核到底在复核什么。
-    body: truncateText([objective, blockedReason].filter(Boolean).join(' —— '), 520),
+    // 问题 + 她说哪儿想不通。只给问题的话,列表上看不出这次复核到底在复核什么。
+    body: truncateText([question, blockedReason].filter(Boolean).join(' —— '), 520),
     status: firstString(first.status) || null,
     startedAt,
     completedAt,
@@ -1548,8 +1547,8 @@ function summarizeFailureReviewForkRun(forkRunId, rows, events) {
     metadata: normalizeValue({
       forkRunId,
       forkKind: 'failure_review',
-      goalId: firstString(first.goalId, first.goal_id),
-      objective,
+      diveId: firstString(first.diveId, first.deep_dive_id),
+      question,
       blockedReason,
       turns: rows.length
     })
@@ -2122,7 +2121,7 @@ async function loadFailureReviewForkTimeline(sql, {
   try {
     const sliceRows = await sql.query(`
       SELECT ${FORK_SLICE_ACTION_STREAM_SELECT},
-             goal_id
+             deep_dive_id
       FROM failure_review_fork_slices
       WHERE identity_key = ?
       ${overlapClause ? `AND ${overlapClause}` : ''}

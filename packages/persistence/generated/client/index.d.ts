@@ -379,10 +379,10 @@ export type XiaoniRecallCue = $Result.DefaultSelection<Prisma.$XiaoniRecallCuePa
  */
 export type XiaoniRecallShadowLog = $Result.DefaultSelection<Prisma.$XiaoniRecallShadowLogPayload>
 /**
- * Model XiaoniGoal
+ * Model XiaoniDeepDive
  * 
  */
-export type XiaoniGoal = $Result.DefaultSelection<Prisma.$XiaoniGoalPayload>
+export type XiaoniDeepDive = $Result.DefaultSelection<Prisma.$XiaoniDeepDivePayload>
 /**
  * Model FailureReviewForkSlice
  * 
@@ -1238,14 +1238,14 @@ export class PrismaClient<
   get xiaoniRecallShadowLog(): Prisma.XiaoniRecallShadowLogDelegate<ExtArgs, ClientOptions>;
 
   /**
-   * `prisma.xiaoniGoal`: Exposes CRUD operations for the **XiaoniGoal** model.
+   * `prisma.xiaoniDeepDive`: Exposes CRUD operations for the **XiaoniDeepDive** model.
     * Example usage:
     * ```ts
-    * // Fetch zero or more XiaoniGoals
-    * const xiaoniGoals = await prisma.xiaoniGoal.findMany()
+    * // Fetch zero or more XiaoniDeepDives
+    * const xiaoniDeepDives = await prisma.xiaoniDeepDive.findMany()
     * ```
     */
-  get xiaoniGoal(): Prisma.XiaoniGoalDelegate<ExtArgs, ClientOptions>;
+  get xiaoniDeepDive(): Prisma.XiaoniDeepDiveDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.failureReviewForkSlice`: Exposes CRUD operations for the **FailureReviewForkSlice** model.
@@ -1770,7 +1770,7 @@ export namespace Prisma {
     GoldenChatCase: 'GoldenChatCase',
     XiaoniRecallCue: 'XiaoniRecallCue',
     XiaoniRecallShadowLog: 'XiaoniRecallShadowLog',
-    XiaoniGoal: 'XiaoniGoal',
+    XiaoniDeepDive: 'XiaoniDeepDive',
     FailureReviewForkSlice: 'FailureReviewForkSlice'
   };
 
@@ -1790,7 +1790,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "codexProviderUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniGoal" | "failureReviewForkSlice"
+      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "codexProviderUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniDeepDive" | "failureReviewForkSlice"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -7196,77 +7196,77 @@ export namespace Prisma {
           }
         }
       }
-      XiaoniGoal: {
-        payload: Prisma.$XiaoniGoalPayload<ExtArgs>
-        fields: Prisma.XiaoniGoalFieldRefs
+      XiaoniDeepDive: {
+        payload: Prisma.$XiaoniDeepDivePayload<ExtArgs>
+        fields: Prisma.XiaoniDeepDiveFieldRefs
         operations: {
           findUnique: {
-            args: Prisma.XiaoniGoalFindUniqueArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload> | null
+            args: Prisma.XiaoniDeepDiveFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload> | null
           }
           findUniqueOrThrow: {
-            args: Prisma.XiaoniGoalFindUniqueOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+            args: Prisma.XiaoniDeepDiveFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>
           }
           findFirst: {
-            args: Prisma.XiaoniGoalFindFirstArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload> | null
+            args: Prisma.XiaoniDeepDiveFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload> | null
           }
           findFirstOrThrow: {
-            args: Prisma.XiaoniGoalFindFirstOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+            args: Prisma.XiaoniDeepDiveFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>
           }
           findMany: {
-            args: Prisma.XiaoniGoalFindManyArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>[]
+            args: Prisma.XiaoniDeepDiveFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>[]
           }
           create: {
-            args: Prisma.XiaoniGoalCreateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+            args: Prisma.XiaoniDeepDiveCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>
           }
           createMany: {
-            args: Prisma.XiaoniGoalCreateManyArgs<ExtArgs>
+            args: Prisma.XiaoniDeepDiveCreateManyArgs<ExtArgs>
             result: BatchPayload
           }
           createManyAndReturn: {
-            args: Prisma.XiaoniGoalCreateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>[]
+            args: Prisma.XiaoniDeepDiveCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>[]
           }
           delete: {
-            args: Prisma.XiaoniGoalDeleteArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+            args: Prisma.XiaoniDeepDiveDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>
           }
           update: {
-            args: Prisma.XiaoniGoalUpdateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+            args: Prisma.XiaoniDeepDiveUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>
           }
           deleteMany: {
-            args: Prisma.XiaoniGoalDeleteManyArgs<ExtArgs>
+            args: Prisma.XiaoniDeepDiveDeleteManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateMany: {
-            args: Prisma.XiaoniGoalUpdateManyArgs<ExtArgs>
+            args: Prisma.XiaoniDeepDiveUpdateManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateManyAndReturn: {
-            args: Prisma.XiaoniGoalUpdateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>[]
+            args: Prisma.XiaoniDeepDiveUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>[]
           }
           upsert: {
-            args: Prisma.XiaoniGoalUpsertArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+            args: Prisma.XiaoniDeepDiveUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniDeepDivePayload>
           }
           aggregate: {
-            args: Prisma.XiaoniGoalAggregateArgs<ExtArgs>
-            result: $Utils.Optional<AggregateXiaoniGoal>
+            args: Prisma.XiaoniDeepDiveAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateXiaoniDeepDive>
           }
           groupBy: {
-            args: Prisma.XiaoniGoalGroupByArgs<ExtArgs>
-            result: $Utils.Optional<XiaoniGoalGroupByOutputType>[]
+            args: Prisma.XiaoniDeepDiveGroupByArgs<ExtArgs>
+            result: $Utils.Optional<XiaoniDeepDiveGroupByOutputType>[]
           }
           count: {
-            args: Prisma.XiaoniGoalCountArgs<ExtArgs>
-            result: $Utils.Optional<XiaoniGoalCountAggregateOutputType> | number
+            args: Prisma.XiaoniDeepDiveCountArgs<ExtArgs>
+            result: $Utils.Optional<XiaoniDeepDiveCountAggregateOutputType> | number
           }
         }
       }
@@ -7513,7 +7513,7 @@ export namespace Prisma {
     goldenChatCase?: GoldenChatCaseOmit
     xiaoniRecallCue?: XiaoniRecallCueOmit
     xiaoniRecallShadowLog?: XiaoniRecallShadowLogOmit
-    xiaoniGoal?: XiaoniGoalOmit
+    xiaoniDeepDive?: XiaoniDeepDiveOmit
     failureReviewForkSlice?: FailureReviewForkSliceOmit
   }
 
@@ -95930,63 +95930,63 @@ export namespace Prisma {
 
 
   /**
-   * Model XiaoniGoal
+   * Model XiaoniDeepDive
    */
 
-  export type AggregateXiaoniGoal = {
-    _count: XiaoniGoalCountAggregateOutputType | null
-    _avg: XiaoniGoalAvgAggregateOutputType | null
-    _sum: XiaoniGoalSumAggregateOutputType | null
-    _min: XiaoniGoalMinAggregateOutputType | null
-    _max: XiaoniGoalMaxAggregateOutputType | null
+  export type AggregateXiaoniDeepDive = {
+    _count: XiaoniDeepDiveCountAggregateOutputType | null
+    _avg: XiaoniDeepDiveAvgAggregateOutputType | null
+    _sum: XiaoniDeepDiveSumAggregateOutputType | null
+    _min: XiaoniDeepDiveMinAggregateOutputType | null
+    _max: XiaoniDeepDiveMaxAggregateOutputType | null
   }
 
-  export type XiaoniGoalAvgAggregateOutputType = {
+  export type XiaoniDeepDiveAvgAggregateOutputType = {
     revision: number | null
     rounds_started: number | null
-    max_goal_rounds: number | null
+    max_rounds: number | null
   }
 
-  export type XiaoniGoalSumAggregateOutputType = {
+  export type XiaoniDeepDiveSumAggregateOutputType = {
     revision: number | null
     rounds_started: number | null
-    max_goal_rounds: number | null
+    max_rounds: number | null
   }
 
-  export type XiaoniGoalMinAggregateOutputType = {
+  export type XiaoniDeepDiveMinAggregateOutputType = {
     id: string | null
     identity_key: string | null
     revision: number | null
-    objective: string | null
+    question: string | null
     phase: string | null
     rounds_started: number | null
-    max_goal_rounds: number | null
+    max_rounds: number | null
     blocked_reason: string | null
     created_at: Date | null
     updated_at: Date | null
   }
 
-  export type XiaoniGoalMaxAggregateOutputType = {
+  export type XiaoniDeepDiveMaxAggregateOutputType = {
     id: string | null
     identity_key: string | null
     revision: number | null
-    objective: string | null
+    question: string | null
     phase: string | null
     rounds_started: number | null
-    max_goal_rounds: number | null
+    max_rounds: number | null
     blocked_reason: string | null
     created_at: Date | null
     updated_at: Date | null
   }
 
-  export type XiaoniGoalCountAggregateOutputType = {
+  export type XiaoniDeepDiveCountAggregateOutputType = {
     id: number
     identity_key: number
     revision: number
-    objective: number
+    question: number
     phase: number
     rounds_started: number
-    max_goal_rounds: number
+    max_rounds: number
     blocked_reason: number
     created_at: number
     updated_at: number
@@ -95994,374 +95994,374 @@ export namespace Prisma {
   }
 
 
-  export type XiaoniGoalAvgAggregateInputType = {
+  export type XiaoniDeepDiveAvgAggregateInputType = {
     revision?: true
     rounds_started?: true
-    max_goal_rounds?: true
+    max_rounds?: true
   }
 
-  export type XiaoniGoalSumAggregateInputType = {
+  export type XiaoniDeepDiveSumAggregateInputType = {
     revision?: true
     rounds_started?: true
-    max_goal_rounds?: true
+    max_rounds?: true
   }
 
-  export type XiaoniGoalMinAggregateInputType = {
+  export type XiaoniDeepDiveMinAggregateInputType = {
     id?: true
     identity_key?: true
     revision?: true
-    objective?: true
+    question?: true
     phase?: true
     rounds_started?: true
-    max_goal_rounds?: true
+    max_rounds?: true
     blocked_reason?: true
     created_at?: true
     updated_at?: true
   }
 
-  export type XiaoniGoalMaxAggregateInputType = {
+  export type XiaoniDeepDiveMaxAggregateInputType = {
     id?: true
     identity_key?: true
     revision?: true
-    objective?: true
+    question?: true
     phase?: true
     rounds_started?: true
-    max_goal_rounds?: true
+    max_rounds?: true
     blocked_reason?: true
     created_at?: true
     updated_at?: true
   }
 
-  export type XiaoniGoalCountAggregateInputType = {
+  export type XiaoniDeepDiveCountAggregateInputType = {
     id?: true
     identity_key?: true
     revision?: true
-    objective?: true
+    question?: true
     phase?: true
     rounds_started?: true
-    max_goal_rounds?: true
+    max_rounds?: true
     blocked_reason?: true
     created_at?: true
     updated_at?: true
     _all?: true
   }
 
-  export type XiaoniGoalAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which XiaoniGoal to aggregate.
+     * Filter which XiaoniDeepDive to aggregate.
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of XiaoniGoals to fetch.
+     * Determine the order of XiaoniDeepDives to fetch.
      */
-    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    orderBy?: XiaoniDeepDiveOrderByWithRelationInput | XiaoniDeepDiveOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
      * Sets the start position
      */
-    cursor?: XiaoniGoalWhereUniqueInput
+    cursor?: XiaoniDeepDiveWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` XiaoniGoals from the position of the cursor.
+     * Take `±n` XiaoniDeepDives from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` XiaoniGoals.
+     * Skip the first `n` XiaoniDeepDives.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
-     * Count returned XiaoniGoals
+     * Count returned XiaoniDeepDives
     **/
-    _count?: true | XiaoniGoalCountAggregateInputType
+    _count?: true | XiaoniDeepDiveCountAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to average
     **/
-    _avg?: XiaoniGoalAvgAggregateInputType
+    _avg?: XiaoniDeepDiveAvgAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to sum
     **/
-    _sum?: XiaoniGoalSumAggregateInputType
+    _sum?: XiaoniDeepDiveSumAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the minimum value
     **/
-    _min?: XiaoniGoalMinAggregateInputType
+    _min?: XiaoniDeepDiveMinAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the maximum value
     **/
-    _max?: XiaoniGoalMaxAggregateInputType
+    _max?: XiaoniDeepDiveMaxAggregateInputType
   }
 
-  export type GetXiaoniGoalAggregateType<T extends XiaoniGoalAggregateArgs> = {
-        [P in keyof T & keyof AggregateXiaoniGoal]: P extends '_count' | 'count'
+  export type GetXiaoniDeepDiveAggregateType<T extends XiaoniDeepDiveAggregateArgs> = {
+        [P in keyof T & keyof AggregateXiaoniDeepDive]: P extends '_count' | 'count'
       ? T[P] extends true
         ? number
-        : GetScalarType<T[P], AggregateXiaoniGoal[P]>
-      : GetScalarType<T[P], AggregateXiaoniGoal[P]>
+        : GetScalarType<T[P], AggregateXiaoniDeepDive[P]>
+      : GetScalarType<T[P], AggregateXiaoniDeepDive[P]>
   }
 
 
 
 
-  export type XiaoniGoalGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    where?: XiaoniGoalWhereInput
-    orderBy?: XiaoniGoalOrderByWithAggregationInput | XiaoniGoalOrderByWithAggregationInput[]
-    by: XiaoniGoalScalarFieldEnum[] | XiaoniGoalScalarFieldEnum
-    having?: XiaoniGoalScalarWhereWithAggregatesInput
+  export type XiaoniDeepDiveGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: XiaoniDeepDiveWhereInput
+    orderBy?: XiaoniDeepDiveOrderByWithAggregationInput | XiaoniDeepDiveOrderByWithAggregationInput[]
+    by: XiaoniDeepDiveScalarFieldEnum[] | XiaoniDeepDiveScalarFieldEnum
+    having?: XiaoniDeepDiveScalarWhereWithAggregatesInput
     take?: number
     skip?: number
-    _count?: XiaoniGoalCountAggregateInputType | true
-    _avg?: XiaoniGoalAvgAggregateInputType
-    _sum?: XiaoniGoalSumAggregateInputType
-    _min?: XiaoniGoalMinAggregateInputType
-    _max?: XiaoniGoalMaxAggregateInputType
+    _count?: XiaoniDeepDiveCountAggregateInputType | true
+    _avg?: XiaoniDeepDiveAvgAggregateInputType
+    _sum?: XiaoniDeepDiveSumAggregateInputType
+    _min?: XiaoniDeepDiveMinAggregateInputType
+    _max?: XiaoniDeepDiveMaxAggregateInputType
   }
 
-  export type XiaoniGoalGroupByOutputType = {
+  export type XiaoniDeepDiveGroupByOutputType = {
     id: string
     identity_key: string
     revision: number
-    objective: string
+    question: string
     phase: string
     rounds_started: number
-    max_goal_rounds: number
+    max_rounds: number
     blocked_reason: string | null
     created_at: Date
     updated_at: Date
-    _count: XiaoniGoalCountAggregateOutputType | null
-    _avg: XiaoniGoalAvgAggregateOutputType | null
-    _sum: XiaoniGoalSumAggregateOutputType | null
-    _min: XiaoniGoalMinAggregateOutputType | null
-    _max: XiaoniGoalMaxAggregateOutputType | null
+    _count: XiaoniDeepDiveCountAggregateOutputType | null
+    _avg: XiaoniDeepDiveAvgAggregateOutputType | null
+    _sum: XiaoniDeepDiveSumAggregateOutputType | null
+    _min: XiaoniDeepDiveMinAggregateOutputType | null
+    _max: XiaoniDeepDiveMaxAggregateOutputType | null
   }
 
-  type GetXiaoniGoalGroupByPayload<T extends XiaoniGoalGroupByArgs> = Prisma.PrismaPromise<
+  type GetXiaoniDeepDiveGroupByPayload<T extends XiaoniDeepDiveGroupByArgs> = Prisma.PrismaPromise<
     Array<
-      PickEnumerable<XiaoniGoalGroupByOutputType, T['by']> &
+      PickEnumerable<XiaoniDeepDiveGroupByOutputType, T['by']> &
         {
-          [P in ((keyof T) & (keyof XiaoniGoalGroupByOutputType))]: P extends '_count'
+          [P in ((keyof T) & (keyof XiaoniDeepDiveGroupByOutputType))]: P extends '_count'
             ? T[P] extends boolean
               ? number
-              : GetScalarType<T[P], XiaoniGoalGroupByOutputType[P]>
-            : GetScalarType<T[P], XiaoniGoalGroupByOutputType[P]>
+              : GetScalarType<T[P], XiaoniDeepDiveGroupByOutputType[P]>
+            : GetScalarType<T[P], XiaoniDeepDiveGroupByOutputType[P]>
         }
       >
     >
 
 
-  export type XiaoniGoalSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type XiaoniDeepDiveSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
     revision?: boolean
-    objective?: boolean
+    question?: boolean
     phase?: boolean
     rounds_started?: boolean
-    max_goal_rounds?: boolean
+    max_rounds?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["xiaoniGoal"]>
+  }, ExtArgs["result"]["xiaoniDeepDive"]>
 
-  export type XiaoniGoalSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type XiaoniDeepDiveSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
     revision?: boolean
-    objective?: boolean
+    question?: boolean
     phase?: boolean
     rounds_started?: boolean
-    max_goal_rounds?: boolean
+    max_rounds?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["xiaoniGoal"]>
+  }, ExtArgs["result"]["xiaoniDeepDive"]>
 
-  export type XiaoniGoalSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type XiaoniDeepDiveSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
     revision?: boolean
-    objective?: boolean
+    question?: boolean
     phase?: boolean
     rounds_started?: boolean
-    max_goal_rounds?: boolean
+    max_rounds?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["xiaoniGoal"]>
+  }, ExtArgs["result"]["xiaoniDeepDive"]>
 
-  export type XiaoniGoalSelectScalar = {
+  export type XiaoniDeepDiveSelectScalar = {
     id?: boolean
     identity_key?: boolean
     revision?: boolean
-    objective?: boolean
+    question?: boolean
     phase?: boolean
     rounds_started?: boolean
-    max_goal_rounds?: boolean
+    max_rounds?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
   }
 
-  export type XiaoniGoalOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "revision" | "objective" | "phase" | "rounds_started" | "max_goal_rounds" | "blocked_reason" | "created_at" | "updated_at", ExtArgs["result"]["xiaoniGoal"]>
+  export type XiaoniDeepDiveOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "revision" | "question" | "phase" | "rounds_started" | "max_rounds" | "blocked_reason" | "created_at" | "updated_at", ExtArgs["result"]["xiaoniDeepDive"]>
 
-  export type $XiaoniGoalPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    name: "XiaoniGoal"
+  export type $XiaoniDeepDivePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "XiaoniDeepDive"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: string
       identity_key: string
       revision: number
-      objective: string
+      question: string
       phase: string
       rounds_started: number
-      max_goal_rounds: number
+      max_rounds: number
       blocked_reason: string | null
       created_at: Date
       updated_at: Date
-    }, ExtArgs["result"]["xiaoniGoal"]>
+    }, ExtArgs["result"]["xiaoniDeepDive"]>
     composites: {}
   }
 
-  type XiaoniGoalGetPayload<S extends boolean | null | undefined | XiaoniGoalDefaultArgs> = $Result.GetResult<Prisma.$XiaoniGoalPayload, S>
+  type XiaoniDeepDiveGetPayload<S extends boolean | null | undefined | XiaoniDeepDiveDefaultArgs> = $Result.GetResult<Prisma.$XiaoniDeepDivePayload, S>
 
-  type XiaoniGoalCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
-    Omit<XiaoniGoalFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
-      select?: XiaoniGoalCountAggregateInputType | true
+  type XiaoniDeepDiveCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<XiaoniDeepDiveFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: XiaoniDeepDiveCountAggregateInputType | true
     }
 
-  export interface XiaoniGoalDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
-    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['XiaoniGoal'], meta: { name: 'XiaoniGoal' } }
+  export interface XiaoniDeepDiveDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['XiaoniDeepDive'], meta: { name: 'XiaoniDeepDive' } }
     /**
-     * Find zero or one XiaoniGoal that matches the filter.
-     * @param {XiaoniGoalFindUniqueArgs} args - Arguments to find a XiaoniGoal
+     * Find zero or one XiaoniDeepDive that matches the filter.
+     * @param {XiaoniDeepDiveFindUniqueArgs} args - Arguments to find a XiaoniDeepDive
      * @example
-     * // Get one XiaoniGoal
-     * const xiaoniGoal = await prisma.xiaoniGoal.findUnique({
+     * // Get one XiaoniDeepDive
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.findUnique({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUnique<T extends XiaoniGoalFindUniqueArgs>(args: SelectSubset<T, XiaoniGoalFindUniqueArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findUnique<T extends XiaoniDeepDiveFindUniqueArgs>(args: SelectSubset<T, XiaoniDeepDiveFindUniqueArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find one XiaoniGoal that matches the filter or throw an error with `error.code='P2025'`
+     * Find one XiaoniDeepDive that matches the filter or throw an error with `error.code='P2025'`
      * if no matches were found.
-     * @param {XiaoniGoalFindUniqueOrThrowArgs} args - Arguments to find a XiaoniGoal
+     * @param {XiaoniDeepDiveFindUniqueOrThrowArgs} args - Arguments to find a XiaoniDeepDive
      * @example
-     * // Get one XiaoniGoal
-     * const xiaoniGoal = await prisma.xiaoniGoal.findUniqueOrThrow({
+     * // Get one XiaoniDeepDive
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.findUniqueOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUniqueOrThrow<T extends XiaoniGoalFindUniqueOrThrowArgs>(args: SelectSubset<T, XiaoniGoalFindUniqueOrThrowArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findUniqueOrThrow<T extends XiaoniDeepDiveFindUniqueOrThrowArgs>(args: SelectSubset<T, XiaoniDeepDiveFindUniqueOrThrowArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first XiaoniGoal that matches the filter.
+     * Find the first XiaoniDeepDive that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalFindFirstArgs} args - Arguments to find a XiaoniGoal
+     * @param {XiaoniDeepDiveFindFirstArgs} args - Arguments to find a XiaoniDeepDive
      * @example
-     * // Get one XiaoniGoal
-     * const xiaoniGoal = await prisma.xiaoniGoal.findFirst({
+     * // Get one XiaoniDeepDive
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.findFirst({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirst<T extends XiaoniGoalFindFirstArgs>(args?: SelectSubset<T, XiaoniGoalFindFirstArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findFirst<T extends XiaoniDeepDiveFindFirstArgs>(args?: SelectSubset<T, XiaoniDeepDiveFindFirstArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first XiaoniGoal that matches the filter or
+     * Find the first XiaoniDeepDive that matches the filter or
      * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalFindFirstOrThrowArgs} args - Arguments to find a XiaoniGoal
+     * @param {XiaoniDeepDiveFindFirstOrThrowArgs} args - Arguments to find a XiaoniDeepDive
      * @example
-     * // Get one XiaoniGoal
-     * const xiaoniGoal = await prisma.xiaoniGoal.findFirstOrThrow({
+     * // Get one XiaoniDeepDive
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.findFirstOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirstOrThrow<T extends XiaoniGoalFindFirstOrThrowArgs>(args?: SelectSubset<T, XiaoniGoalFindFirstOrThrowArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findFirstOrThrow<T extends XiaoniDeepDiveFindFirstOrThrowArgs>(args?: SelectSubset<T, XiaoniDeepDiveFindFirstOrThrowArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find zero or more XiaoniGoals that matches the filter.
+     * Find zero or more XiaoniDeepDives that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @param {XiaoniDeepDiveFindManyArgs} args - Arguments to filter and select certain fields only.
      * @example
-     * // Get all XiaoniGoals
-     * const xiaoniGoals = await prisma.xiaoniGoal.findMany()
+     * // Get all XiaoniDeepDives
+     * const xiaoniDeepDives = await prisma.xiaoniDeepDive.findMany()
      * 
-     * // Get first 10 XiaoniGoals
-     * const xiaoniGoals = await prisma.xiaoniGoal.findMany({ take: 10 })
+     * // Get first 10 XiaoniDeepDives
+     * const xiaoniDeepDives = await prisma.xiaoniDeepDive.findMany({ take: 10 })
      * 
      * // Only select the `id`
-     * const xiaoniGoalWithIdOnly = await prisma.xiaoniGoal.findMany({ select: { id: true } })
+     * const xiaoniDeepDiveWithIdOnly = await prisma.xiaoniDeepDive.findMany({ select: { id: true } })
      * 
      */
-    findMany<T extends XiaoniGoalFindManyArgs>(args?: SelectSubset<T, XiaoniGoalFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+    findMany<T extends XiaoniDeepDiveFindManyArgs>(args?: SelectSubset<T, XiaoniDeepDiveFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
 
     /**
-     * Create a XiaoniGoal.
-     * @param {XiaoniGoalCreateArgs} args - Arguments to create a XiaoniGoal.
+     * Create a XiaoniDeepDive.
+     * @param {XiaoniDeepDiveCreateArgs} args - Arguments to create a XiaoniDeepDive.
      * @example
-     * // Create one XiaoniGoal
-     * const XiaoniGoal = await prisma.xiaoniGoal.create({
+     * // Create one XiaoniDeepDive
+     * const XiaoniDeepDive = await prisma.xiaoniDeepDive.create({
      *   data: {
-     *     // ... data to create a XiaoniGoal
+     *     // ... data to create a XiaoniDeepDive
      *   }
      * })
      * 
      */
-    create<T extends XiaoniGoalCreateArgs>(args: SelectSubset<T, XiaoniGoalCreateArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    create<T extends XiaoniDeepDiveCreateArgs>(args: SelectSubset<T, XiaoniDeepDiveCreateArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Create many XiaoniGoals.
-     * @param {XiaoniGoalCreateManyArgs} args - Arguments to create many XiaoniGoals.
+     * Create many XiaoniDeepDives.
+     * @param {XiaoniDeepDiveCreateManyArgs} args - Arguments to create many XiaoniDeepDives.
      * @example
-     * // Create many XiaoniGoals
-     * const xiaoniGoal = await prisma.xiaoniGoal.createMany({
+     * // Create many XiaoniDeepDives
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.createMany({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      *     
      */
-    createMany<T extends XiaoniGoalCreateManyArgs>(args?: SelectSubset<T, XiaoniGoalCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    createMany<T extends XiaoniDeepDiveCreateManyArgs>(args?: SelectSubset<T, XiaoniDeepDiveCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Create many XiaoniGoals and returns the data saved in the database.
-     * @param {XiaoniGoalCreateManyAndReturnArgs} args - Arguments to create many XiaoniGoals.
+     * Create many XiaoniDeepDives and returns the data saved in the database.
+     * @param {XiaoniDeepDiveCreateManyAndReturnArgs} args - Arguments to create many XiaoniDeepDives.
      * @example
-     * // Create many XiaoniGoals
-     * const xiaoniGoal = await prisma.xiaoniGoal.createManyAndReturn({
+     * // Create many XiaoniDeepDives
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.createManyAndReturn({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      * 
-     * // Create many XiaoniGoals and only return the `id`
-     * const xiaoniGoalWithIdOnly = await prisma.xiaoniGoal.createManyAndReturn({
+     * // Create many XiaoniDeepDives and only return the `id`
+     * const xiaoniDeepDiveWithIdOnly = await prisma.xiaoniDeepDive.createManyAndReturn({
      *   select: { id: true },
      *   data: [
      *     // ... provide data here
@@ -96371,28 +96371,28 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    createManyAndReturn<T extends XiaoniGoalCreateManyAndReturnArgs>(args?: SelectSubset<T, XiaoniGoalCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+    createManyAndReturn<T extends XiaoniDeepDiveCreateManyAndReturnArgs>(args?: SelectSubset<T, XiaoniDeepDiveCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Delete a XiaoniGoal.
-     * @param {XiaoniGoalDeleteArgs} args - Arguments to delete one XiaoniGoal.
+     * Delete a XiaoniDeepDive.
+     * @param {XiaoniDeepDiveDeleteArgs} args - Arguments to delete one XiaoniDeepDive.
      * @example
-     * // Delete one XiaoniGoal
-     * const XiaoniGoal = await prisma.xiaoniGoal.delete({
+     * // Delete one XiaoniDeepDive
+     * const XiaoniDeepDive = await prisma.xiaoniDeepDive.delete({
      *   where: {
-     *     // ... filter to delete one XiaoniGoal
+     *     // ... filter to delete one XiaoniDeepDive
      *   }
      * })
      * 
      */
-    delete<T extends XiaoniGoalDeleteArgs>(args: SelectSubset<T, XiaoniGoalDeleteArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    delete<T extends XiaoniDeepDiveDeleteArgs>(args: SelectSubset<T, XiaoniDeepDiveDeleteArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Update one XiaoniGoal.
-     * @param {XiaoniGoalUpdateArgs} args - Arguments to update one XiaoniGoal.
+     * Update one XiaoniDeepDive.
+     * @param {XiaoniDeepDiveUpdateArgs} args - Arguments to update one XiaoniDeepDive.
      * @example
-     * // Update one XiaoniGoal
-     * const xiaoniGoal = await prisma.xiaoniGoal.update({
+     * // Update one XiaoniDeepDive
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.update({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -96402,30 +96402,30 @@ export namespace Prisma {
      * })
      * 
      */
-    update<T extends XiaoniGoalUpdateArgs>(args: SelectSubset<T, XiaoniGoalUpdateArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    update<T extends XiaoniDeepDiveUpdateArgs>(args: SelectSubset<T, XiaoniDeepDiveUpdateArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Delete zero or more XiaoniGoals.
-     * @param {XiaoniGoalDeleteManyArgs} args - Arguments to filter XiaoniGoals to delete.
+     * Delete zero or more XiaoniDeepDives.
+     * @param {XiaoniDeepDiveDeleteManyArgs} args - Arguments to filter XiaoniDeepDives to delete.
      * @example
-     * // Delete a few XiaoniGoals
-     * const { count } = await prisma.xiaoniGoal.deleteMany({
+     * // Delete a few XiaoniDeepDives
+     * const { count } = await prisma.xiaoniDeepDive.deleteMany({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      * 
      */
-    deleteMany<T extends XiaoniGoalDeleteManyArgs>(args?: SelectSubset<T, XiaoniGoalDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    deleteMany<T extends XiaoniDeepDiveDeleteManyArgs>(args?: SelectSubset<T, XiaoniDeepDiveDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more XiaoniGoals.
+     * Update zero or more XiaoniDeepDives.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalUpdateManyArgs} args - Arguments to update one or more rows.
+     * @param {XiaoniDeepDiveUpdateManyArgs} args - Arguments to update one or more rows.
      * @example
-     * // Update many XiaoniGoals
-     * const xiaoniGoal = await prisma.xiaoniGoal.updateMany({
+     * // Update many XiaoniDeepDives
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.updateMany({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -96435,14 +96435,14 @@ export namespace Prisma {
      * })
      * 
      */
-    updateMany<T extends XiaoniGoalUpdateManyArgs>(args: SelectSubset<T, XiaoniGoalUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    updateMany<T extends XiaoniDeepDiveUpdateManyArgs>(args: SelectSubset<T, XiaoniDeepDiveUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more XiaoniGoals and returns the data updated in the database.
-     * @param {XiaoniGoalUpdateManyAndReturnArgs} args - Arguments to update many XiaoniGoals.
+     * Update zero or more XiaoniDeepDives and returns the data updated in the database.
+     * @param {XiaoniDeepDiveUpdateManyAndReturnArgs} args - Arguments to update many XiaoniDeepDives.
      * @example
-     * // Update many XiaoniGoals
-     * const xiaoniGoal = await prisma.xiaoniGoal.updateManyAndReturn({
+     * // Update many XiaoniDeepDives
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.updateManyAndReturn({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -96451,8 +96451,8 @@ export namespace Prisma {
      *   ]
      * })
      * 
-     * // Update zero or more XiaoniGoals and only return the `id`
-     * const xiaoniGoalWithIdOnly = await prisma.xiaoniGoal.updateManyAndReturn({
+     * // Update zero or more XiaoniDeepDives and only return the `id`
+     * const xiaoniDeepDiveWithIdOnly = await prisma.xiaoniDeepDive.updateManyAndReturn({
      *   select: { id: true },
      *   where: {
      *     // ... provide filter here
@@ -96465,56 +96465,56 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    updateManyAndReturn<T extends XiaoniGoalUpdateManyAndReturnArgs>(args: SelectSubset<T, XiaoniGoalUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+    updateManyAndReturn<T extends XiaoniDeepDiveUpdateManyAndReturnArgs>(args: SelectSubset<T, XiaoniDeepDiveUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Create or update one XiaoniGoal.
-     * @param {XiaoniGoalUpsertArgs} args - Arguments to update or create a XiaoniGoal.
+     * Create or update one XiaoniDeepDive.
+     * @param {XiaoniDeepDiveUpsertArgs} args - Arguments to update or create a XiaoniDeepDive.
      * @example
-     * // Update or create a XiaoniGoal
-     * const xiaoniGoal = await prisma.xiaoniGoal.upsert({
+     * // Update or create a XiaoniDeepDive
+     * const xiaoniDeepDive = await prisma.xiaoniDeepDive.upsert({
      *   create: {
-     *     // ... data to create a XiaoniGoal
+     *     // ... data to create a XiaoniDeepDive
      *   },
      *   update: {
      *     // ... in case it already exists, update
      *   },
      *   where: {
-     *     // ... the filter for the XiaoniGoal we want to update
+     *     // ... the filter for the XiaoniDeepDive we want to update
      *   }
      * })
      */
-    upsert<T extends XiaoniGoalUpsertArgs>(args: SelectSubset<T, XiaoniGoalUpsertArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    upsert<T extends XiaoniDeepDiveUpsertArgs>(args: SelectSubset<T, XiaoniDeepDiveUpsertArgs<ExtArgs>>): Prisma__XiaoniDeepDiveClient<$Result.GetResult<Prisma.$XiaoniDeepDivePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
 
     /**
-     * Count the number of XiaoniGoals.
+     * Count the number of XiaoniDeepDives.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalCountArgs} args - Arguments to filter XiaoniGoals to count.
+     * @param {XiaoniDeepDiveCountArgs} args - Arguments to filter XiaoniDeepDives to count.
      * @example
-     * // Count the number of XiaoniGoals
-     * const count = await prisma.xiaoniGoal.count({
+     * // Count the number of XiaoniDeepDives
+     * const count = await prisma.xiaoniDeepDive.count({
      *   where: {
-     *     // ... the filter for the XiaoniGoals we want to count
+     *     // ... the filter for the XiaoniDeepDives we want to count
      *   }
      * })
     **/
-    count<T extends XiaoniGoalCountArgs>(
-      args?: Subset<T, XiaoniGoalCountArgs>,
+    count<T extends XiaoniDeepDiveCountArgs>(
+      args?: Subset<T, XiaoniDeepDiveCountArgs>,
     ): Prisma.PrismaPromise<
       T extends $Utils.Record<'select', any>
         ? T['select'] extends true
           ? number
-          : GetScalarType<T['select'], XiaoniGoalCountAggregateOutputType>
+          : GetScalarType<T['select'], XiaoniDeepDiveCountAggregateOutputType>
         : number
     >
 
     /**
-     * Allows you to perform aggregations operations on a XiaoniGoal.
+     * Allows you to perform aggregations operations on a XiaoniDeepDive.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @param {XiaoniDeepDiveAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
      * @example
      * // Ordered by age ascending
      * // Where email contains prisma.io
@@ -96534,13 +96534,13 @@ export namespace Prisma {
      *   take: 10,
      * })
     **/
-    aggregate<T extends XiaoniGoalAggregateArgs>(args: Subset<T, XiaoniGoalAggregateArgs>): Prisma.PrismaPromise<GetXiaoniGoalAggregateType<T>>
+    aggregate<T extends XiaoniDeepDiveAggregateArgs>(args: Subset<T, XiaoniDeepDiveAggregateArgs>): Prisma.PrismaPromise<GetXiaoniDeepDiveAggregateType<T>>
 
     /**
-     * Group by XiaoniGoal.
+     * Group by XiaoniDeepDive.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {XiaoniGoalGroupByArgs} args - Group by arguments.
+     * @param {XiaoniDeepDiveGroupByArgs} args - Group by arguments.
      * @example
      * // Group by city, order by createdAt, get count
      * const result = await prisma.user.groupBy({
@@ -96555,14 +96555,14 @@ export namespace Prisma {
      * 
     **/
     groupBy<
-      T extends XiaoniGoalGroupByArgs,
+      T extends XiaoniDeepDiveGroupByArgs,
       HasSelectOrTake extends Or<
         Extends<'skip', Keys<T>>,
         Extends<'take', Keys<T>>
       >,
       OrderByArg extends True extends HasSelectOrTake
-        ? { orderBy: XiaoniGoalGroupByArgs['orderBy'] }
-        : { orderBy?: XiaoniGoalGroupByArgs['orderBy'] },
+        ? { orderBy: XiaoniDeepDiveGroupByArgs['orderBy'] }
+        : { orderBy?: XiaoniDeepDiveGroupByArgs['orderBy'] },
       OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
       ByFields extends MaybeTupleToUnion<T['by']>,
       ByValid extends Has<ByFields, OrderFields>,
@@ -96611,20 +96611,20 @@ export namespace Prisma {
             ? never
             : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
         }[OrderFields]
-    >(args: SubsetIntersection<T, XiaoniGoalGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetXiaoniGoalGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+    >(args: SubsetIntersection<T, XiaoniDeepDiveGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetXiaoniDeepDiveGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
   /**
-   * Fields of the XiaoniGoal model
+   * Fields of the XiaoniDeepDive model
    */
-  readonly fields: XiaoniGoalFieldRefs;
+  readonly fields: XiaoniDeepDiveFieldRefs;
   }
 
   /**
-   * The delegate class that acts as a "Promise-like" for XiaoniGoal.
+   * The delegate class that acts as a "Promise-like" for XiaoniDeepDive.
    * Why is this prefixed with `Prisma__`?
    * Because we want to prevent naming conflicts as mentioned in
    * https://github.com/prisma/prisma-client-js/issues/707
    */
-  export interface Prisma__XiaoniGoalClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+  export interface Prisma__XiaoniDeepDiveClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
     readonly [Symbol.toStringTag]: "PrismaPromise"
     /**
      * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -96652,382 +96652,382 @@ export namespace Prisma {
 
 
   /**
-   * Fields of the XiaoniGoal model
+   * Fields of the XiaoniDeepDive model
    */
-  interface XiaoniGoalFieldRefs {
-    readonly id: FieldRef<"XiaoniGoal", 'String'>
-    readonly identity_key: FieldRef<"XiaoniGoal", 'String'>
-    readonly revision: FieldRef<"XiaoniGoal", 'Int'>
-    readonly objective: FieldRef<"XiaoniGoal", 'String'>
-    readonly phase: FieldRef<"XiaoniGoal", 'String'>
-    readonly rounds_started: FieldRef<"XiaoniGoal", 'Int'>
-    readonly max_goal_rounds: FieldRef<"XiaoniGoal", 'Int'>
-    readonly blocked_reason: FieldRef<"XiaoniGoal", 'String'>
-    readonly created_at: FieldRef<"XiaoniGoal", 'DateTime'>
-    readonly updated_at: FieldRef<"XiaoniGoal", 'DateTime'>
+  interface XiaoniDeepDiveFieldRefs {
+    readonly id: FieldRef<"XiaoniDeepDive", 'String'>
+    readonly identity_key: FieldRef<"XiaoniDeepDive", 'String'>
+    readonly revision: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly question: FieldRef<"XiaoniDeepDive", 'String'>
+    readonly phase: FieldRef<"XiaoniDeepDive", 'String'>
+    readonly rounds_started: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly max_rounds: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly blocked_reason: FieldRef<"XiaoniDeepDive", 'String'>
+    readonly created_at: FieldRef<"XiaoniDeepDive", 'DateTime'>
+    readonly updated_at: FieldRef<"XiaoniDeepDive", 'DateTime'>
   }
     
 
   // Custom InputTypes
   /**
-   * XiaoniGoal findUnique
+   * XiaoniDeepDive findUnique
    */
-  export type XiaoniGoalFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * Filter, which XiaoniGoal to fetch.
+     * Filter, which XiaoniDeepDive to fetch.
      */
-    where: XiaoniGoalWhereUniqueInput
+    where: XiaoniDeepDiveWhereUniqueInput
   }
 
   /**
-   * XiaoniGoal findUniqueOrThrow
+   * XiaoniDeepDive findUniqueOrThrow
    */
-  export type XiaoniGoalFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * Filter, which XiaoniGoal to fetch.
+     * Filter, which XiaoniDeepDive to fetch.
      */
-    where: XiaoniGoalWhereUniqueInput
+    where: XiaoniDeepDiveWhereUniqueInput
   }
 
   /**
-   * XiaoniGoal findFirst
+   * XiaoniDeepDive findFirst
    */
-  export type XiaoniGoalFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * Filter, which XiaoniGoal to fetch.
+     * Filter, which XiaoniDeepDive to fetch.
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of XiaoniGoals to fetch.
+     * Determine the order of XiaoniDeepDives to fetch.
      */
-    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    orderBy?: XiaoniDeepDiveOrderByWithRelationInput | XiaoniDeepDiveOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for XiaoniGoals.
+     * Sets the position for searching for XiaoniDeepDives.
      */
-    cursor?: XiaoniGoalWhereUniqueInput
+    cursor?: XiaoniDeepDiveWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` XiaoniGoals from the position of the cursor.
+     * Take `±n` XiaoniDeepDives from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` XiaoniGoals.
+     * Skip the first `n` XiaoniDeepDives.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of XiaoniGoals.
+     * Filter by unique combinations of XiaoniDeepDives.
      */
-    distinct?: XiaoniGoalScalarFieldEnum | XiaoniGoalScalarFieldEnum[]
+    distinct?: XiaoniDeepDiveScalarFieldEnum | XiaoniDeepDiveScalarFieldEnum[]
   }
 
   /**
-   * XiaoniGoal findFirstOrThrow
+   * XiaoniDeepDive findFirstOrThrow
    */
-  export type XiaoniGoalFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * Filter, which XiaoniGoal to fetch.
+     * Filter, which XiaoniDeepDive to fetch.
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of XiaoniGoals to fetch.
+     * Determine the order of XiaoniDeepDives to fetch.
      */
-    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    orderBy?: XiaoniDeepDiveOrderByWithRelationInput | XiaoniDeepDiveOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for XiaoniGoals.
+     * Sets the position for searching for XiaoniDeepDives.
      */
-    cursor?: XiaoniGoalWhereUniqueInput
+    cursor?: XiaoniDeepDiveWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` XiaoniGoals from the position of the cursor.
+     * Take `±n` XiaoniDeepDives from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` XiaoniGoals.
+     * Skip the first `n` XiaoniDeepDives.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of XiaoniGoals.
+     * Filter by unique combinations of XiaoniDeepDives.
      */
-    distinct?: XiaoniGoalScalarFieldEnum | XiaoniGoalScalarFieldEnum[]
+    distinct?: XiaoniDeepDiveScalarFieldEnum | XiaoniDeepDiveScalarFieldEnum[]
   }
 
   /**
-   * XiaoniGoal findMany
+   * XiaoniDeepDive findMany
    */
-  export type XiaoniGoalFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * Filter, which XiaoniGoals to fetch.
+     * Filter, which XiaoniDeepDives to fetch.
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of XiaoniGoals to fetch.
+     * Determine the order of XiaoniDeepDives to fetch.
      */
-    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    orderBy?: XiaoniDeepDiveOrderByWithRelationInput | XiaoniDeepDiveOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for listing XiaoniGoals.
+     * Sets the position for listing XiaoniDeepDives.
      */
-    cursor?: XiaoniGoalWhereUniqueInput
+    cursor?: XiaoniDeepDiveWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` XiaoniGoals from the position of the cursor.
+     * Take `±n` XiaoniDeepDives from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` XiaoniGoals.
+     * Skip the first `n` XiaoniDeepDives.
      */
     skip?: number
-    distinct?: XiaoniGoalScalarFieldEnum | XiaoniGoalScalarFieldEnum[]
+    distinct?: XiaoniDeepDiveScalarFieldEnum | XiaoniDeepDiveScalarFieldEnum[]
   }
 
   /**
-   * XiaoniGoal create
+   * XiaoniDeepDive create
    */
-  export type XiaoniGoalCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * The data needed to create a XiaoniGoal.
+     * The data needed to create a XiaoniDeepDive.
      */
-    data: XOR<XiaoniGoalCreateInput, XiaoniGoalUncheckedCreateInput>
+    data: XOR<XiaoniDeepDiveCreateInput, XiaoniDeepDiveUncheckedCreateInput>
   }
 
   /**
-   * XiaoniGoal createMany
+   * XiaoniDeepDive createMany
    */
-  export type XiaoniGoalCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to create many XiaoniGoals.
+     * The data used to create many XiaoniDeepDives.
      */
-    data: XiaoniGoalCreateManyInput | XiaoniGoalCreateManyInput[]
+    data: XiaoniDeepDiveCreateManyInput | XiaoniDeepDiveCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * XiaoniGoal createManyAndReturn
+   * XiaoniDeepDive createManyAndReturn
    */
-  export type XiaoniGoalCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelectCreateManyAndReturn<ExtArgs> | null
+    select?: XiaoniDeepDiveSelectCreateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * The data used to create many XiaoniGoals.
+     * The data used to create many XiaoniDeepDives.
      */
-    data: XiaoniGoalCreateManyInput | XiaoniGoalCreateManyInput[]
+    data: XiaoniDeepDiveCreateManyInput | XiaoniDeepDiveCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * XiaoniGoal update
+   * XiaoniDeepDive update
    */
-  export type XiaoniGoalUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * The data needed to update a XiaoniGoal.
+     * The data needed to update a XiaoniDeepDive.
      */
-    data: XOR<XiaoniGoalUpdateInput, XiaoniGoalUncheckedUpdateInput>
+    data: XOR<XiaoniDeepDiveUpdateInput, XiaoniDeepDiveUncheckedUpdateInput>
     /**
-     * Choose, which XiaoniGoal to update.
+     * Choose, which XiaoniDeepDive to update.
      */
-    where: XiaoniGoalWhereUniqueInput
+    where: XiaoniDeepDiveWhereUniqueInput
   }
 
   /**
-   * XiaoniGoal updateMany
+   * XiaoniDeepDive updateMany
    */
-  export type XiaoniGoalUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to update XiaoniGoals.
+     * The data used to update XiaoniDeepDives.
      */
-    data: XOR<XiaoniGoalUpdateManyMutationInput, XiaoniGoalUncheckedUpdateManyInput>
+    data: XOR<XiaoniDeepDiveUpdateManyMutationInput, XiaoniDeepDiveUncheckedUpdateManyInput>
     /**
-     * Filter which XiaoniGoals to update
+     * Filter which XiaoniDeepDives to update
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
-     * Limit how many XiaoniGoals to update.
+     * Limit how many XiaoniDeepDives to update.
      */
     limit?: number
   }
 
   /**
-   * XiaoniGoal updateManyAndReturn
+   * XiaoniDeepDive updateManyAndReturn
    */
-  export type XiaoniGoalUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelectUpdateManyAndReturn<ExtArgs> | null
+    select?: XiaoniDeepDiveSelectUpdateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * The data used to update XiaoniGoals.
+     * The data used to update XiaoniDeepDives.
      */
-    data: XOR<XiaoniGoalUpdateManyMutationInput, XiaoniGoalUncheckedUpdateManyInput>
+    data: XOR<XiaoniDeepDiveUpdateManyMutationInput, XiaoniDeepDiveUncheckedUpdateManyInput>
     /**
-     * Filter which XiaoniGoals to update
+     * Filter which XiaoniDeepDives to update
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
-     * Limit how many XiaoniGoals to update.
+     * Limit how many XiaoniDeepDives to update.
      */
     limit?: number
   }
 
   /**
-   * XiaoniGoal upsert
+   * XiaoniDeepDive upsert
    */
-  export type XiaoniGoalUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * The filter to search for the XiaoniGoal to update in case it exists.
+     * The filter to search for the XiaoniDeepDive to update in case it exists.
      */
-    where: XiaoniGoalWhereUniqueInput
+    where: XiaoniDeepDiveWhereUniqueInput
     /**
-     * In case the XiaoniGoal found by the `where` argument doesn't exist, create a new XiaoniGoal with this data.
+     * In case the XiaoniDeepDive found by the `where` argument doesn't exist, create a new XiaoniDeepDive with this data.
      */
-    create: XOR<XiaoniGoalCreateInput, XiaoniGoalUncheckedCreateInput>
+    create: XOR<XiaoniDeepDiveCreateInput, XiaoniDeepDiveUncheckedCreateInput>
     /**
-     * In case the XiaoniGoal was found with the provided `where` argument, update it with this data.
+     * In case the XiaoniDeepDive was found with the provided `where` argument, update it with this data.
      */
-    update: XOR<XiaoniGoalUpdateInput, XiaoniGoalUncheckedUpdateInput>
+    update: XOR<XiaoniDeepDiveUpdateInput, XiaoniDeepDiveUncheckedUpdateInput>
   }
 
   /**
-   * XiaoniGoal delete
+   * XiaoniDeepDive delete
    */
-  export type XiaoniGoalDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
     /**
-     * Filter which XiaoniGoal to delete.
+     * Filter which XiaoniDeepDive to delete.
      */
-    where: XiaoniGoalWhereUniqueInput
+    where: XiaoniDeepDiveWhereUniqueInput
   }
 
   /**
-   * XiaoniGoal deleteMany
+   * XiaoniDeepDive deleteMany
    */
-  export type XiaoniGoalDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which XiaoniGoals to delete
+     * Filter which XiaoniDeepDives to delete
      */
-    where?: XiaoniGoalWhereInput
+    where?: XiaoniDeepDiveWhereInput
     /**
-     * Limit how many XiaoniGoals to delete.
+     * Limit how many XiaoniDeepDives to delete.
      */
     limit?: number
   }
 
   /**
-   * XiaoniGoal without action
+   * XiaoniDeepDive without action
    */
-  export type XiaoniGoalDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type XiaoniDeepDiveDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the XiaoniGoal
+     * Select specific fields to fetch from the XiaoniDeepDive
      */
-    select?: XiaoniGoalSelect<ExtArgs> | null
+    select?: XiaoniDeepDiveSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the XiaoniGoal
+     * Omit specific fields from the XiaoniDeepDive
      */
-    omit?: XiaoniGoalOmit<ExtArgs> | null
+    omit?: XiaoniDeepDiveOmit<ExtArgs> | null
   }
 
 
@@ -97069,7 +97069,7 @@ export namespace Prisma {
     fork_run_id: string | null
     llm_call_id: string | null
     identity_key: string | null
-    goal_id: string | null
+    deep_dive_id: string | null
     input_start_index: bigint | null
     input_end_index: bigint | null
     output_start_index: bigint | null
@@ -97094,7 +97094,7 @@ export namespace Prisma {
     fork_run_id: string | null
     llm_call_id: string | null
     identity_key: string | null
-    goal_id: string | null
+    deep_dive_id: string | null
     input_start_index: bigint | null
     input_end_index: bigint | null
     output_start_index: bigint | null
@@ -97119,7 +97119,7 @@ export namespace Prisma {
     fork_run_id: number
     llm_call_id: number
     identity_key: number
-    goal_id: number
+    deep_dive_id: number
     input_start_index: number
     input_end_index: number
     input_stack_item_ids: number
@@ -97175,7 +97175,7 @@ export namespace Prisma {
     fork_run_id?: true
     llm_call_id?: true
     identity_key?: true
-    goal_id?: true
+    deep_dive_id?: true
     input_start_index?: true
     input_end_index?: true
     output_start_index?: true
@@ -97200,7 +97200,7 @@ export namespace Prisma {
     fork_run_id?: true
     llm_call_id?: true
     identity_key?: true
-    goal_id?: true
+    deep_dive_id?: true
     input_start_index?: true
     input_end_index?: true
     output_start_index?: true
@@ -97225,7 +97225,7 @@ export namespace Prisma {
     fork_run_id?: true
     llm_call_id?: true
     identity_key?: true
-    goal_id?: true
+    deep_dive_id?: true
     input_start_index?: true
     input_end_index?: true
     input_stack_item_ids?: true
@@ -97346,7 +97346,7 @@ export namespace Prisma {
     fork_run_id: string
     llm_call_id: string | null
     identity_key: string
-    goal_id: string | null
+    deep_dive_id: string | null
     input_start_index: bigint | null
     input_end_index: bigint | null
     input_stack_item_ids: JsonValue
@@ -97399,7 +97399,7 @@ export namespace Prisma {
     fork_run_id?: boolean
     llm_call_id?: boolean
     identity_key?: boolean
-    goal_id?: boolean
+    deep_dive_id?: boolean
     input_start_index?: boolean
     input_end_index?: boolean
     input_stack_item_ids?: boolean
@@ -97433,7 +97433,7 @@ export namespace Prisma {
     fork_run_id?: boolean
     llm_call_id?: boolean
     identity_key?: boolean
-    goal_id?: boolean
+    deep_dive_id?: boolean
     input_start_index?: boolean
     input_end_index?: boolean
     input_stack_item_ids?: boolean
@@ -97467,7 +97467,7 @@ export namespace Prisma {
     fork_run_id?: boolean
     llm_call_id?: boolean
     identity_key?: boolean
-    goal_id?: boolean
+    deep_dive_id?: boolean
     input_start_index?: boolean
     input_end_index?: boolean
     input_stack_item_ids?: boolean
@@ -97501,7 +97501,7 @@ export namespace Prisma {
     fork_run_id?: boolean
     llm_call_id?: boolean
     identity_key?: boolean
-    goal_id?: boolean
+    deep_dive_id?: boolean
     input_start_index?: boolean
     input_end_index?: boolean
     input_stack_item_ids?: boolean
@@ -97529,7 +97529,7 @@ export namespace Prisma {
     updated_at?: boolean
   }
 
-  export type FailureReviewForkSliceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "slice_id" | "fork_run_id" | "llm_call_id" | "identity_key" | "goal_id" | "input_start_index" | "input_end_index" | "input_stack_item_ids" | "output_start_index" | "output_end_index" | "canonical_request" | "wire_request" | "canonical_response" | "wire_response" | "raw_response" | "output_items" | "status" | "token_usage" | "trace_id" | "run_id" | "agent_turn" | "model_name" | "model_provider" | "request_format_version" | "wire_provider_format" | "processing_time_ms" | "metadata" | "created_at" | "completed_at" | "updated_at", ExtArgs["result"]["failureReviewForkSlice"]>
+  export type FailureReviewForkSliceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "slice_id" | "fork_run_id" | "llm_call_id" | "identity_key" | "deep_dive_id" | "input_start_index" | "input_end_index" | "input_stack_item_ids" | "output_start_index" | "output_end_index" | "canonical_request" | "wire_request" | "canonical_response" | "wire_response" | "raw_response" | "output_items" | "status" | "token_usage" | "trace_id" | "run_id" | "agent_turn" | "model_name" | "model_provider" | "request_format_version" | "wire_provider_format" | "processing_time_ms" | "metadata" | "created_at" | "completed_at" | "updated_at", ExtArgs["result"]["failureReviewForkSlice"]>
 
   export type $FailureReviewForkSlicePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "FailureReviewForkSlice"
@@ -97540,7 +97540,7 @@ export namespace Prisma {
       fork_run_id: string
       llm_call_id: string | null
       identity_key: string
-      goal_id: string | null
+      deep_dive_id: string | null
       input_start_index: bigint | null
       input_end_index: bigint | null
       input_stack_item_ids: Prisma.JsonValue
@@ -97994,7 +97994,7 @@ export namespace Prisma {
     readonly fork_run_id: FieldRef<"FailureReviewForkSlice", 'String'>
     readonly llm_call_id: FieldRef<"FailureReviewForkSlice", 'String'>
     readonly identity_key: FieldRef<"FailureReviewForkSlice", 'String'>
-    readonly goal_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly deep_dive_id: FieldRef<"FailureReviewForkSlice", 'String'>
     readonly input_start_index: FieldRef<"FailureReviewForkSlice", 'BigInt'>
     readonly input_end_index: FieldRef<"FailureReviewForkSlice", 'BigInt'>
     readonly input_stack_item_ids: FieldRef<"FailureReviewForkSlice", 'Json'>
@@ -100139,20 +100139,20 @@ export namespace Prisma {
   export type XiaoniRecallShadowLogScalarFieldEnum = (typeof XiaoniRecallShadowLogScalarFieldEnum)[keyof typeof XiaoniRecallShadowLogScalarFieldEnum]
 
 
-  export const XiaoniGoalScalarFieldEnum: {
+  export const XiaoniDeepDiveScalarFieldEnum: {
     id: 'id',
     identity_key: 'identity_key',
     revision: 'revision',
-    objective: 'objective',
+    question: 'question',
     phase: 'phase',
     rounds_started: 'rounds_started',
-    max_goal_rounds: 'max_goal_rounds',
+    max_rounds: 'max_rounds',
     blocked_reason: 'blocked_reason',
     created_at: 'created_at',
     updated_at: 'updated_at'
   };
 
-  export type XiaoniGoalScalarFieldEnum = (typeof XiaoniGoalScalarFieldEnum)[keyof typeof XiaoniGoalScalarFieldEnum]
+  export type XiaoniDeepDiveScalarFieldEnum = (typeof XiaoniDeepDiveScalarFieldEnum)[keyof typeof XiaoniDeepDiveScalarFieldEnum]
 
 
   export const FailureReviewForkSliceScalarFieldEnum: {
@@ -100161,7 +100161,7 @@ export namespace Prisma {
     fork_run_id: 'fork_run_id',
     llm_call_id: 'llm_call_id',
     identity_key: 'identity_key',
-    goal_id: 'goal_id',
+    deep_dive_id: 'deep_dive_id',
     input_start_index: 'input_start_index',
     input_end_index: 'input_end_index',
     input_stack_item_ids: 'input_stack_item_ids',
@@ -109024,83 +109024,83 @@ export namespace Prisma {
     dropped_sample?: JsonWithAggregatesFilter<"XiaoniRecallShadowLog">
   }
 
-  export type XiaoniGoalWhereInput = {
-    AND?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
-    OR?: XiaoniGoalWhereInput[]
-    NOT?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
-    id?: StringFilter<"XiaoniGoal"> | string
-    identity_key?: StringFilter<"XiaoniGoal"> | string
-    revision?: IntFilter<"XiaoniGoal"> | number
-    objective?: StringFilter<"XiaoniGoal"> | string
-    phase?: StringFilter<"XiaoniGoal"> | string
-    rounds_started?: IntFilter<"XiaoniGoal"> | number
-    max_goal_rounds?: IntFilter<"XiaoniGoal"> | number
-    blocked_reason?: StringNullableFilter<"XiaoniGoal"> | string | null
-    created_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
-    updated_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
+  export type XiaoniDeepDiveWhereInput = {
+    AND?: XiaoniDeepDiveWhereInput | XiaoniDeepDiveWhereInput[]
+    OR?: XiaoniDeepDiveWhereInput[]
+    NOT?: XiaoniDeepDiveWhereInput | XiaoniDeepDiveWhereInput[]
+    id?: StringFilter<"XiaoniDeepDive"> | string
+    identity_key?: StringFilter<"XiaoniDeepDive"> | string
+    revision?: IntFilter<"XiaoniDeepDive"> | number
+    question?: StringFilter<"XiaoniDeepDive"> | string
+    phase?: StringFilter<"XiaoniDeepDive"> | string
+    rounds_started?: IntFilter<"XiaoniDeepDive"> | number
+    max_rounds?: IntFilter<"XiaoniDeepDive"> | number
+    blocked_reason?: StringNullableFilter<"XiaoniDeepDive"> | string | null
+    created_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
+    updated_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
   }
 
-  export type XiaoniGoalOrderByWithRelationInput = {
+  export type XiaoniDeepDiveOrderByWithRelationInput = {
     id?: SortOrder
     identity_key?: SortOrder
     revision?: SortOrder
-    objective?: SortOrder
+    question?: SortOrder
     phase?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
     blocked_reason?: SortOrderInput | SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type XiaoniGoalWhereUniqueInput = Prisma.AtLeast<{
+  export type XiaoniDeepDiveWhereUniqueInput = Prisma.AtLeast<{
     id?: string
-    AND?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
-    OR?: XiaoniGoalWhereInput[]
-    NOT?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
-    identity_key?: StringFilter<"XiaoniGoal"> | string
-    revision?: IntFilter<"XiaoniGoal"> | number
-    objective?: StringFilter<"XiaoniGoal"> | string
-    phase?: StringFilter<"XiaoniGoal"> | string
-    rounds_started?: IntFilter<"XiaoniGoal"> | number
-    max_goal_rounds?: IntFilter<"XiaoniGoal"> | number
-    blocked_reason?: StringNullableFilter<"XiaoniGoal"> | string | null
-    created_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
-    updated_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
+    AND?: XiaoniDeepDiveWhereInput | XiaoniDeepDiveWhereInput[]
+    OR?: XiaoniDeepDiveWhereInput[]
+    NOT?: XiaoniDeepDiveWhereInput | XiaoniDeepDiveWhereInput[]
+    identity_key?: StringFilter<"XiaoniDeepDive"> | string
+    revision?: IntFilter<"XiaoniDeepDive"> | number
+    question?: StringFilter<"XiaoniDeepDive"> | string
+    phase?: StringFilter<"XiaoniDeepDive"> | string
+    rounds_started?: IntFilter<"XiaoniDeepDive"> | number
+    max_rounds?: IntFilter<"XiaoniDeepDive"> | number
+    blocked_reason?: StringNullableFilter<"XiaoniDeepDive"> | string | null
+    created_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
+    updated_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
   }, "id">
 
-  export type XiaoniGoalOrderByWithAggregationInput = {
+  export type XiaoniDeepDiveOrderByWithAggregationInput = {
     id?: SortOrder
     identity_key?: SortOrder
     revision?: SortOrder
-    objective?: SortOrder
+    question?: SortOrder
     phase?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
     blocked_reason?: SortOrderInput | SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
-    _count?: XiaoniGoalCountOrderByAggregateInput
-    _avg?: XiaoniGoalAvgOrderByAggregateInput
-    _max?: XiaoniGoalMaxOrderByAggregateInput
-    _min?: XiaoniGoalMinOrderByAggregateInput
-    _sum?: XiaoniGoalSumOrderByAggregateInput
+    _count?: XiaoniDeepDiveCountOrderByAggregateInput
+    _avg?: XiaoniDeepDiveAvgOrderByAggregateInput
+    _max?: XiaoniDeepDiveMaxOrderByAggregateInput
+    _min?: XiaoniDeepDiveMinOrderByAggregateInput
+    _sum?: XiaoniDeepDiveSumOrderByAggregateInput
   }
 
-  export type XiaoniGoalScalarWhereWithAggregatesInput = {
-    AND?: XiaoniGoalScalarWhereWithAggregatesInput | XiaoniGoalScalarWhereWithAggregatesInput[]
-    OR?: XiaoniGoalScalarWhereWithAggregatesInput[]
-    NOT?: XiaoniGoalScalarWhereWithAggregatesInput | XiaoniGoalScalarWhereWithAggregatesInput[]
-    id?: StringWithAggregatesFilter<"XiaoniGoal"> | string
-    identity_key?: StringWithAggregatesFilter<"XiaoniGoal"> | string
-    revision?: IntWithAggregatesFilter<"XiaoniGoal"> | number
-    objective?: StringWithAggregatesFilter<"XiaoniGoal"> | string
-    phase?: StringWithAggregatesFilter<"XiaoniGoal"> | string
-    rounds_started?: IntWithAggregatesFilter<"XiaoniGoal"> | number
-    max_goal_rounds?: IntWithAggregatesFilter<"XiaoniGoal"> | number
-    blocked_reason?: StringNullableWithAggregatesFilter<"XiaoniGoal"> | string | null
-    created_at?: DateTimeWithAggregatesFilter<"XiaoniGoal"> | Date | string
-    updated_at?: DateTimeWithAggregatesFilter<"XiaoniGoal"> | Date | string
+  export type XiaoniDeepDiveScalarWhereWithAggregatesInput = {
+    AND?: XiaoniDeepDiveScalarWhereWithAggregatesInput | XiaoniDeepDiveScalarWhereWithAggregatesInput[]
+    OR?: XiaoniDeepDiveScalarWhereWithAggregatesInput[]
+    NOT?: XiaoniDeepDiveScalarWhereWithAggregatesInput | XiaoniDeepDiveScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"XiaoniDeepDive"> | string
+    identity_key?: StringWithAggregatesFilter<"XiaoniDeepDive"> | string
+    revision?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    question?: StringWithAggregatesFilter<"XiaoniDeepDive"> | string
+    phase?: StringWithAggregatesFilter<"XiaoniDeepDive"> | string
+    rounds_started?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    max_rounds?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    blocked_reason?: StringNullableWithAggregatesFilter<"XiaoniDeepDive"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"XiaoniDeepDive"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"XiaoniDeepDive"> | Date | string
   }
 
   export type FailureReviewForkSliceWhereInput = {
@@ -109112,7 +109112,7 @@ export namespace Prisma {
     fork_run_id?: StringFilter<"FailureReviewForkSlice"> | string
     llm_call_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
     identity_key?: StringFilter<"FailureReviewForkSlice"> | string
-    goal_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    deep_dive_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
     input_start_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
     input_end_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
     input_stack_item_ids?: JsonFilter<"FailureReviewForkSlice">
@@ -109146,7 +109146,7 @@ export namespace Prisma {
     fork_run_id?: SortOrder
     llm_call_id?: SortOrderInput | SortOrder
     identity_key?: SortOrder
-    goal_id?: SortOrderInput | SortOrder
+    deep_dive_id?: SortOrderInput | SortOrder
     input_start_index?: SortOrderInput | SortOrder
     input_end_index?: SortOrderInput | SortOrder
     input_stack_item_ids?: SortOrder
@@ -109183,7 +109183,7 @@ export namespace Prisma {
     fork_run_id?: StringFilter<"FailureReviewForkSlice"> | string
     llm_call_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
     identity_key?: StringFilter<"FailureReviewForkSlice"> | string
-    goal_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    deep_dive_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
     input_start_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
     input_end_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
     input_stack_item_ids?: JsonFilter<"FailureReviewForkSlice">
@@ -109217,7 +109217,7 @@ export namespace Prisma {
     fork_run_id?: SortOrder
     llm_call_id?: SortOrderInput | SortOrder
     identity_key?: SortOrder
-    goal_id?: SortOrderInput | SortOrder
+    deep_dive_id?: SortOrderInput | SortOrder
     input_start_index?: SortOrderInput | SortOrder
     input_end_index?: SortOrderInput | SortOrder
     input_stack_item_ids?: SortOrder
@@ -109259,7 +109259,7 @@ export namespace Prisma {
     fork_run_id?: StringWithAggregatesFilter<"FailureReviewForkSlice"> | string
     llm_call_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
     identity_key?: StringWithAggregatesFilter<"FailureReviewForkSlice"> | string
-    goal_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    deep_dive_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
     input_start_index?: BigIntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number | null
     input_end_index?: BigIntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number | null
     input_stack_item_ids?: JsonWithAggregatesFilter<"FailureReviewForkSlice">
@@ -119945,92 +119945,92 @@ export namespace Prisma {
     dropped_sample?: JsonNullValueInput | InputJsonValue
   }
 
-  export type XiaoniGoalCreateInput = {
+  export type XiaoniDeepDiveCreateInput = {
     id: string
     identity_key: string
     revision?: number
-    objective: string
+    question: string
     phase: string
     rounds_started?: number
-    max_goal_rounds?: number
+    max_rounds?: number
     blocked_reason?: string | null
     created_at?: Date | string
     updated_at?: Date | string
   }
 
-  export type XiaoniGoalUncheckedCreateInput = {
+  export type XiaoniDeepDiveUncheckedCreateInput = {
     id: string
     identity_key: string
     revision?: number
-    objective: string
+    question: string
     phase: string
     rounds_started?: number
-    max_goal_rounds?: number
+    max_rounds?: number
     blocked_reason?: string | null
     created_at?: Date | string
     updated_at?: Date | string
   }
 
-  export type XiaoniGoalUpdateInput = {
+  export type XiaoniDeepDiveUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     identity_key?: StringFieldUpdateOperationsInput | string
     revision?: IntFieldUpdateOperationsInput | number
-    objective?: StringFieldUpdateOperationsInput | string
+    question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
     rounds_started?: IntFieldUpdateOperationsInput | number
-    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    max_rounds?: IntFieldUpdateOperationsInput | number
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type XiaoniGoalUncheckedUpdateInput = {
+  export type XiaoniDeepDiveUncheckedUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     identity_key?: StringFieldUpdateOperationsInput | string
     revision?: IntFieldUpdateOperationsInput | number
-    objective?: StringFieldUpdateOperationsInput | string
+    question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
     rounds_started?: IntFieldUpdateOperationsInput | number
-    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    max_rounds?: IntFieldUpdateOperationsInput | number
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type XiaoniGoalCreateManyInput = {
+  export type XiaoniDeepDiveCreateManyInput = {
     id: string
     identity_key: string
     revision?: number
-    objective: string
+    question: string
     phase: string
     rounds_started?: number
-    max_goal_rounds?: number
+    max_rounds?: number
     blocked_reason?: string | null
     created_at?: Date | string
     updated_at?: Date | string
   }
 
-  export type XiaoniGoalUpdateManyMutationInput = {
+  export type XiaoniDeepDiveUpdateManyMutationInput = {
     id?: StringFieldUpdateOperationsInput | string
     identity_key?: StringFieldUpdateOperationsInput | string
     revision?: IntFieldUpdateOperationsInput | number
-    objective?: StringFieldUpdateOperationsInput | string
+    question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
     rounds_started?: IntFieldUpdateOperationsInput | number
-    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    max_rounds?: IntFieldUpdateOperationsInput | number
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type XiaoniGoalUncheckedUpdateManyInput = {
+  export type XiaoniDeepDiveUncheckedUpdateManyInput = {
     id?: StringFieldUpdateOperationsInput | string
     identity_key?: StringFieldUpdateOperationsInput | string
     revision?: IntFieldUpdateOperationsInput | number
-    objective?: StringFieldUpdateOperationsInput | string
+    question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
     rounds_started?: IntFieldUpdateOperationsInput | number
-    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    max_rounds?: IntFieldUpdateOperationsInput | number
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -120042,7 +120042,7 @@ export namespace Prisma {
     fork_run_id: string
     llm_call_id?: string | null
     identity_key?: string
-    goal_id?: string | null
+    deep_dive_id?: string | null
     input_start_index?: bigint | number | null
     input_end_index?: bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -120076,7 +120076,7 @@ export namespace Prisma {
     fork_run_id: string
     llm_call_id?: string | null
     identity_key?: string
-    goal_id?: string | null
+    deep_dive_id?: string | null
     input_start_index?: bigint | number | null
     input_end_index?: bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -120110,7 +120110,7 @@ export namespace Prisma {
     fork_run_id?: StringFieldUpdateOperationsInput | string
     llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
     identity_key?: StringFieldUpdateOperationsInput | string
-    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    deep_dive_id?: NullableStringFieldUpdateOperationsInput | string | null
     input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -120144,7 +120144,7 @@ export namespace Prisma {
     fork_run_id?: StringFieldUpdateOperationsInput | string
     llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
     identity_key?: StringFieldUpdateOperationsInput | string
-    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    deep_dive_id?: NullableStringFieldUpdateOperationsInput | string | null
     input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -120178,7 +120178,7 @@ export namespace Prisma {
     fork_run_id: string
     llm_call_id?: string | null
     identity_key?: string
-    goal_id?: string | null
+    deep_dive_id?: string | null
     input_start_index?: bigint | number | null
     input_end_index?: bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -120212,7 +120212,7 @@ export namespace Prisma {
     fork_run_id?: StringFieldUpdateOperationsInput | string
     llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
     identity_key?: StringFieldUpdateOperationsInput | string
-    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    deep_dive_id?: NullableStringFieldUpdateOperationsInput | string | null
     input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -120246,7 +120246,7 @@ export namespace Prisma {
     fork_run_id?: StringFieldUpdateOperationsInput | string
     llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
     identity_key?: StringFieldUpdateOperationsInput | string
-    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    deep_dive_id?: NullableStringFieldUpdateOperationsInput | string | null
     input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     input_stack_item_ids?: JsonNullValueInput | InputJsonValue
@@ -125979,55 +125979,55 @@ export namespace Prisma {
     top_k?: SortOrder
   }
 
-  export type XiaoniGoalCountOrderByAggregateInput = {
+  export type XiaoniDeepDiveCountOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
     revision?: SortOrder
-    objective?: SortOrder
+    question?: SortOrder
     phase?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
     blocked_reason?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type XiaoniGoalAvgOrderByAggregateInput = {
+  export type XiaoniDeepDiveAvgOrderByAggregateInput = {
     revision?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
   }
 
-  export type XiaoniGoalMaxOrderByAggregateInput = {
+  export type XiaoniDeepDiveMaxOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
     revision?: SortOrder
-    objective?: SortOrder
+    question?: SortOrder
     phase?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
     blocked_reason?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type XiaoniGoalMinOrderByAggregateInput = {
+  export type XiaoniDeepDiveMinOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
     revision?: SortOrder
-    objective?: SortOrder
+    question?: SortOrder
     phase?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
     blocked_reason?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type XiaoniGoalSumOrderByAggregateInput = {
+  export type XiaoniDeepDiveSumOrderByAggregateInput = {
     revision?: SortOrder
     rounds_started?: SortOrder
-    max_goal_rounds?: SortOrder
+    max_rounds?: SortOrder
   }
 
   export type FailureReviewForkSliceCountOrderByAggregateInput = {
@@ -126036,7 +126036,7 @@ export namespace Prisma {
     fork_run_id?: SortOrder
     llm_call_id?: SortOrder
     identity_key?: SortOrder
-    goal_id?: SortOrder
+    deep_dive_id?: SortOrder
     input_start_index?: SortOrder
     input_end_index?: SortOrder
     input_stack_item_ids?: SortOrder
@@ -126080,7 +126080,7 @@ export namespace Prisma {
     fork_run_id?: SortOrder
     llm_call_id?: SortOrder
     identity_key?: SortOrder
-    goal_id?: SortOrder
+    deep_dive_id?: SortOrder
     input_start_index?: SortOrder
     input_end_index?: SortOrder
     output_start_index?: SortOrder
@@ -126105,7 +126105,7 @@ export namespace Prisma {
     fork_run_id?: SortOrder
     llm_call_id?: SortOrder
     identity_key?: SortOrder
-    goal_id?: SortOrder
+    deep_dive_id?: SortOrder
     input_start_index?: SortOrder
     input_end_index?: SortOrder
     output_start_index?: SortOrder

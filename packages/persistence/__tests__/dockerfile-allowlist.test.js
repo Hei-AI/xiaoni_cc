@@ -52,8 +52,10 @@ function requiredPersistenceFiles() {
 test('闭包解析出一批 persistence 文件(断言本身没失效)', () => {
   const files = requiredPersistenceFiles();
   assert.ok(files.length > 20, `只解析到 ${files.length} 个,正则大概率已经失配`);
-  // 本分支新增的那个必须在里面,否则下面的覆盖断言对它是空转
-  assert.ok(files.includes('xiaoni-goal.js'), 'xiaoni-goal.js 应当被 index.js require');
+  // 最近一次新增/改名的那个必须在里面,否则下面的覆盖断言对它是空转。
+  // xiaoni-goal.js → xiaoni-deep-dive.js（2026-08-23 改名），三个 Dockerfile 的
+  // allowlist 都是按文件名逐个列的，改名漏掉任何一个都会让镜像启动即崩。
+  assert.ok(files.includes('xiaoni-deep-dive.js'), 'xiaoni-deep-dive.js 应当被 index.js require');
 });
 
 for (const dockerfile of DOCKERFILES) {

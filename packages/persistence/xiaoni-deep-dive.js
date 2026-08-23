@@ -1,28 +1,28 @@
 'use strict';
 
-// 她自己立的目标的持久化层。
+// 她自己起的深挖的持久化层。
 //
 // 这一层是**机械的**:它只负责存、取、和保住两条存储不变量,不判断任何语义。
-// 「这一轮算不算推进」「什么时候该 complete」全部是她的判断,由 update_goal 工具透传下来 ——
+// 「这一轮算不算推进」「什么时候该 conclude」全部是她的判断,由 update_deep_dive 工具透传下来 ——
 // 四家主流 harness 都不判定语义产出,理由见 docs/adr/0010-*。
 //
 // 两条存储不变量:
 //   ① 同一 identity 最多一个 phase='active'  —— 部分唯一索引,不靠应用层 if
-//   ② compare-and-set  —— 她的 parallel_tool_calls 是开的,可能一次发多个 update_goal;
+//   ② compare-and-set  —— 她的 parallel_tool_calls 是开的,可能一次发多个 update_deep_dive;
 //      不带上读到的 revision 就改,后发的会静默盖掉先发的
 //
 // revision 的语义要点(容易写错):**只有她发起的 mutation 才 +1**。引擎侧的 round 计数
-// 走 incrementXiaoniGoalRound,故意不动 revision —— 否则她 get_goal 拿到 revision 之后、
-// 还没来得及 update_goal,引擎恰好推进一轮就把她的 revision 作废了,她会陷入
+// 走 incrementXiaoniDeepDiveRound,故意不动 revision —— 否则她 get_deep_dive 拿到 revision 之后、
+// 还没来得及 update_deep_dive,引擎恰好推进一轮就把她的 revision 作废了,她会陷入
 // 「读→改→被拒→再读」的循环。round 不是她 CAS 的对象。
 //
-// 详见 docs/specs/xiaoni-goal-tools.md §2。
+// 详见 docs/specs/xiaoni-deep-dive-tools.md §2。
 
 const { randomUUID } = require('node:crypto');
 
 const IDENTITY_KEY = 'xiaoni';
-const PHASES = new Set(['active', 'paused', 'completed', 'blocked']);
-const DEFAULT_MAX_GOAL_ROUNDS = 20;
+const PHASES = new Set(['active', 'paused', 'concluded', 'blocked']);
+const DEFAULT_MAX_ROUNDS = 20;
 
 function normalizeText(value) {
   if (typeof value !== 'string') return null;
@@ -42,16 +42,16 @@ function normalizePositiveInt(value, fallback) {
   return truncated > 0 ? truncated : fallback;
 }
 
-function normalizeGoal(row) {
+function normalizeDive(row) {
   if (!row) return null;
   return {
     id: String(row.id),
     identityKey: String(row.identity_key),
     revision: Number(row.revision),
-    objective: typeof row.objective === 'string' ? row.objective : '',
+    question: typeof row.question === 'string' ? row.question : '',
     phase: String(row.phase),
     roundsStarted: Number(row.rounds_started),
-    maxGoalRounds: Number(row.max_goal_rounds),
+    maxRounds: Number(row.max_rounds),
     blockedReason: typeof row.blocked_reason === 'string' && row.blocked_reason !== ''
       ? row.blocked_reason
       : null,
@@ -60,7 +60,7 @@ function normalizeGoal(row) {
   };
 }
 
-function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
+function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) {
   function getClient(config) {
     return getPrismaClient(config);
   }
@@ -69,100 +69,133 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     return normalizeText(input && (input.identityKey || input.identity_key)) || IDENTITY_KEY;
   }
 
-  async function ensureXiaoniGoalSchema(config = {}) {
+  // 建表 + 从旧的 goal 命名迁移过来。
+  //
+  // 改名的理由:`goal` 在模型先验里就是「任务/待办」(CC 的 TodoWrite、codex 的 update_plan、
+  // dsh 的 task-goal 都占这个词)。这套机制服务的业务目标是**深度探索/深度思考** —— 让她在
+  // 一个问题上跨多轮往下扎,而不是记一件待办。活体证据:改名前唯一一次使用是 78 秒内
+  // create → complete、rounds_started=0,当成了事后标签。见 docs/adr/0010-*。
+  //
+  // 迁移是**幂等重命名**,不是重建:上线半天只有 1 行数据,现在改代价最低。
+  // 顺序要紧 —— 先 ALTER 老表,再 CREATE IF NOT EXISTS。反过来会先建一张空的新表,
+  // 老表的行就永远留在旧名字下面了。
+  async function ensureXiaoniDeepDiveSchema(config = {}) {
     const sql = createSqlAdapter(config);
     try {
-      await sql.query("SELECT pg_advisory_lock(hashtext('qqbot_xiaoni_goal_schema'))");
+      await sql.query("SELECT pg_advisory_lock(hashtext('qqbot_xiaoni_deep_dive_schema'))");
+
+      // ① 老表在、新表不在 → 整体改名(含列、索引、phase 取值)。
       await sql.execute(`
-        CREATE TABLE IF NOT EXISTS xiaoni_goals (
+        DO $$
+        BEGIN
+          IF to_regclass('public.xiaoni_goals') IS NOT NULL
+             AND to_regclass('public.xiaoni_deep_dives') IS NULL THEN
+            ALTER TABLE xiaoni_goals RENAME TO xiaoni_deep_dives;
+            ALTER TABLE xiaoni_deep_dives RENAME COLUMN objective TO question;
+            ALTER TABLE xiaoni_deep_dives RENAME COLUMN max_goal_rounds TO max_rounds;
+            UPDATE xiaoni_deep_dives SET phase = 'concluded' WHERE phase = 'completed';
+            IF to_regclass('public.uniq_xiaoni_goals_one_active') IS NOT NULL THEN
+              ALTER INDEX uniq_xiaoni_goals_one_active RENAME TO uniq_xiaoni_deep_dives_one_active;
+            END IF;
+            IF to_regclass('public.idx_xiaoni_goals_identity_phase_updated') IS NOT NULL THEN
+              ALTER INDEX idx_xiaoni_goals_identity_phase_updated
+                RENAME TO idx_xiaoni_deep_dives_identity_phase_updated;
+            END IF;
+          END IF;
+        END $$;
+      `);
+
+      // ② 全新库走这条。
+      await sql.execute(`
+        CREATE TABLE IF NOT EXISTS xiaoni_deep_dives (
           id VARCHAR(64) PRIMARY KEY,
           identity_key VARCHAR(64) NOT NULL,
           revision INTEGER NOT NULL DEFAULT 1,
-          objective TEXT NOT NULL,
+          question TEXT NOT NULL,
           phase VARCHAR(16) NOT NULL,
           rounds_started INTEGER NOT NULL DEFAULT 0,
-          max_goal_rounds INTEGER NOT NULL DEFAULT 20,
+          max_rounds INTEGER NOT NULL DEFAULT 20,
           blocked_reason TEXT NULL,
           created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      // 不变量①:同一 identity 最多一个 active。部分唯一索引 —— 并发 create 时由 DB 拒绝
+      // 不变量①:同一 identity 最多一件在挖的。部分唯一索引 —— 并发 create 时由 DB 拒绝
       // 第二个,应用层不需要先查后写(那中间有窗口)。
       await sql.execute(`
-        CREATE UNIQUE INDEX IF NOT EXISTS uniq_xiaoni_goals_one_active
-        ON xiaoni_goals (identity_key) WHERE phase = 'active'
+        CREATE UNIQUE INDEX IF NOT EXISTS uniq_xiaoni_deep_dives_one_active
+        ON xiaoni_deep_dives (identity_key) WHERE phase = 'active'
       `);
       await sql.execute(`
-        CREATE INDEX IF NOT EXISTS idx_xiaoni_goals_identity_phase_updated
-        ON xiaoni_goals (identity_key, phase, updated_at DESC)
+        CREATE INDEX IF NOT EXISTS idx_xiaoni_deep_dives_identity_phase_updated
+        ON xiaoni_deep_dives (identity_key, phase, updated_at DESC)
       `);
     } finally {
-      await sql.query("SELECT pg_advisory_unlock(hashtext('qqbot_xiaoni_goal_schema'))").catch(() => undefined);
+      await sql.query("SELECT pg_advisory_unlock(hashtext('qqbot_xiaoni_deep_dive_schema'))").catch(() => undefined);
       await sql.close();
     }
   }
 
-  async function getActiveXiaoniGoal(input = {}, config = {}) {
+  async function getActiveXiaoniDeepDive(input = {}, config = {}) {
     const prisma = getClient(config);
-    const row = await prisma.xiaoniGoal.findFirst({
+    const row = await prisma.xiaoniDeepDive.findFirst({
       where: { identity_key: resolveIdentityKey(input), phase: 'active' }
     });
-    return normalizeGoal(row);
+    return normalizeDive(row);
   }
 
-  async function getXiaoniGoalById(input = {}, config = {}) {
-    const goalId = normalizeText(input.goalId || input.goal_id || input.id);
-    if (!goalId) return null;
+  async function getXiaoniDeepDiveById(input = {}, config = {}) {
+    const diveId = normalizeText(input.diveId || input.deep_dive_id || input.id);
+    if (!diveId) return null;
     const prisma = getClient(config);
-    const row = await prisma.xiaoniGoal.findUnique({ where: { id: goalId } });
-    return normalizeGoal(row);
+    const row = await prisma.xiaoniDeepDive.findUnique({ where: { id: diveId } });
+    return normalizeDive(row);
   }
 
   // 已有 active 时由部分唯一索引拒绝 —— 抛 Prisma P2002。调用方把它翻译成
   // 「你已经有一件在做的事」而不是内部错误。
-  async function createXiaoniGoal(input = {}, config = {}) {
-    const objective = normalizeText(input.objective);
-    if (!objective) {
-      throw new Error('createXiaoniGoal requires a non-empty objective');
+  async function createXiaoniDeepDive(input = {}, config = {}) {
+    const question = normalizeText(input.question);
+    if (!question) {
+      throw new Error('createXiaoniDeepDive requires a non-empty question');
     }
     const prisma = getClient(config);
-    const row = await prisma.xiaoniGoal.create({
+    const row = await prisma.xiaoniDeepDive.create({
       data: {
-        id: normalizeText(input.id) || `goal_${Date.now()}_${randomUUID().slice(0, 8)}`,
+        id: normalizeText(input.id) || `dive_${Date.now()}_${randomUUID().slice(0, 8)}`,
         identity_key: resolveIdentityKey(input),
         revision: 1,
-        objective,
+        question,
         phase: 'active',
         rounds_started: 0,
-        max_goal_rounds: normalizePositiveInt(
-          input.maxGoalRounds ?? input.max_goal_rounds,
-          DEFAULT_MAX_GOAL_ROUNDS
+        max_rounds: normalizePositiveInt(
+          input.maxRounds ?? input.max_rounds,
+          DEFAULT_MAX_ROUNDS
         ),
         blocked_reason: null
       }
     });
-    return normalizeGoal(row);
+    return normalizeDive(row);
   }
 
-  // compare-and-set。revision 不匹配 → 返回 { ok:false, goal:<当前值> },不抛。
+  // compare-and-set。revision 不匹配 → 返回 { ok:false, dive:<当前值> },不抛。
   // 调用方把当前值回给她,她重读再改(这就是 dsh 的 read-before-update 契约)。
   //
   // 只改传进来的字段:phase 必给(它是这次 mutation 的意义),其余 undefined 表示不动。
   // blocked_reason 只有转 blocked 时才写;转出 blocked 时清空,免得一条陈旧的理由跟着
-  // 一个 active 目标到处跑。
-  async function updateXiaoniGoal(input = {}, config = {}) {
-    const goalId = normalizeText(input.goalId || input.goal_id || input.id);
+  // 一个 active 深挖到处跑。
+  async function updateXiaoniDeepDive(input = {}, config = {}) {
+    const diveId = normalizeText(input.diveId || input.deep_dive_id || input.id);
     const expectedRevision = Number(input.revision);
     const phase = normalizePhase(input.phase);
-    if (!goalId) throw new Error('updateXiaoniGoal requires goalId');
-    if (!Number.isInteger(expectedRevision)) throw new Error('updateXiaoniGoal requires an integer revision');
-    if (!phase) throw new Error('updateXiaoniGoal requires a valid phase');
+    if (!diveId) throw new Error('updateXiaoniDeepDive requires diveId');
+    if (!Number.isInteger(expectedRevision)) throw new Error('updateXiaoniDeepDive requires an integer revision');
+    if (!phase) throw new Error('updateXiaoniDeepDive requires a valid phase');
 
     const prisma = getClient(config);
-    const objective = normalizeText(input.objective);
+    const question = normalizeText(input.question);
     const blockedReason = normalizeText(input.blockedReason || input.blocked_reason);
-    const maxGoalRounds = input.maxGoalRounds ?? input.max_goal_rounds;
+    const maxRounds = input.maxRounds ?? input.max_rounds;
 
     const data = {
       phase,
@@ -179,34 +212,34 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     } else if (blockedReason !== null) {
       data.blocked_reason = blockedReason;
     }
-    if (objective !== null) data.objective = objective;
-    if (maxGoalRounds !== undefined && maxGoalRounds !== null) {
-      data.max_goal_rounds = normalizePositiveInt(maxGoalRounds, DEFAULT_MAX_GOAL_ROUNDS);
+    if (question !== null) data.question = question;
+    if (maxRounds !== undefined && maxRounds !== null) {
+      data.max_rounds = normalizePositiveInt(maxRounds, DEFAULT_MAX_ROUNDS);
     }
 
-    const result = await prisma.xiaoniGoal.updateMany({
-      where: { id: goalId, revision: expectedRevision },
+    const result = await prisma.xiaoniDeepDive.updateMany({
+      where: { id: diveId, revision: expectedRevision },
       data
     });
-    const current = await getXiaoniGoalById({ goalId }, config);
+    const current = await getXiaoniDeepDiveById({ diveId }, config);
     if (result.count === 0) {
-      return { ok: false, reason: 'revision_mismatch', goal: current };
+      return { ok: false, reason: 'revision_mismatch', dive: current };
     }
-    return { ok: true, goal: current };
+    return { ok: true, dive: current };
   }
 
   // 引擎侧的轮次推进。**故意不动 revision**(理由见文件头)。
   // 只对 active 目标生效;返回 null 表示这一轮没被记上(目标已不是 active,或 id 不存在)。
-  async function incrementXiaoniGoalRound(input = {}, config = {}) {
-    const goalId = normalizeText(input.goalId || input.goal_id || input.id);
-    if (!goalId) throw new Error('incrementXiaoniGoalRound requires goalId');
+  async function incrementXiaoniDeepDiveRound(input = {}, config = {}) {
+    const diveId = normalizeText(input.diveId || input.deep_dive_id || input.id);
+    if (!diveId) throw new Error('incrementXiaoniDeepDiveRound requires diveId');
     const prisma = getClient(config);
-    const result = await prisma.xiaoniGoal.updateMany({
-      where: { id: goalId, phase: 'active' },
+    const result = await prisma.xiaoniDeepDive.updateMany({
+      where: { id: diveId, phase: 'active' },
       data: { rounds_started: { increment: 1 } }
     });
     if (result.count === 0) return null;
-    return getXiaoniGoalById({ goalId }, config);
+    return getXiaoniDeepDiveById({ diveId }, config);
   }
 
   // ── 复核 fork 的 slice 账本 ────────────────────────────────────────────────
@@ -217,12 +250,12 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
   // 列表口。**只给尺寸,不给正文** —— canonical_request / wire_request 每条都是主 agent
   // 上下文的完整克隆(几十万 token),列表里回吐它们会让响应到 GB 级。要看正文按单条取。
   //
-  // goalIds 传进来时按 goal 过滤,不再靠「全局 top-N × 倍数」的启发式 —— 那种写法在
-  // 某个 goal 的 slice 特别多时,会让更早的 goal 静默拿到空数组,和「这次没产出」不可区分。
+  // diveIds 传进来时按这一次深挖过滤,不再靠「全局 top-N × 倍数」的启发式 —— 那种写法在
+  // 某一次深挖的 slice 特别多时,会让更早的深挖静默拿到空数组,和「这次没产出」不可区分。
   // 列表口:**按 fork_run_id 分组,每次复核各自的 top-N**。
   //
-  // 分组单元是 fork_run_id 而不是 goal_id —— 这是前三轮反复没修对的地方。一个 goal 可以
-  // 反复 blocked,每次都是独立一跑;按 goal 归组既会把多次复核的 slice 混成一堆,又拿不到
+  // 分组单元是 fork_run_id 而不是 deep_dive_id —— 这是前三轮反复没修对的地方。一次深挖可以
+  // 反复 blocked,每次都是独立一跑;按 deep_dive 归组既会把多次复核的 slice 混成一堆,又拿不到
   // 硬上界(调用方只能拍「32 × 猜的复核次数」)。按 fork_run_id 归组,
   // FAILURE_REVIEW_FORK_MAX_TURNS = 32 就是**真上界**,不用猜。
   //
@@ -251,7 +284,7 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     params.push(perForkLimit);
     const rows = await prisma.$queryRawUnsafe(
       `
-        SELECT id, slice_id, fork_run_id, goal_id, status, agent_turn, token_usage,
+        SELECT id, slice_id, fork_run_id, deep_dive_id, status, agent_turn, token_usage,
                model_name, metadata, created_at,
                octet_length(canonical_request::text) AS canonical_request_bytes,
                octet_length(wire_request::text) AS wire_request_bytes
@@ -271,7 +304,7 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
       id: Number(row.id),
       sliceId: row.slice_id,
       forkRunId: row.fork_run_id,
-      goalId: row.goal_id,
+      diveId: row.deep_dive_id,
       status: row.status,
       agentTurn: row.agent_turn === null ? null : Number(row.agent_turn),
       tokenUsage: row.token_usage,
@@ -284,52 +317,52 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     }));
   }
 
-  // 她 get_goal 时该看到的那一件。
+  // 她 get_deep_dive 时该看到的那一件。
   //
-  // **不是** getActiveXiaoniGoal —— 那个只认 active。只认 active 的话,paused / blocked 的
-  // 目标她**永远拿不到 goal_id 和 revision**,而 update_goal 必须带这两个;
+  // **不是** getActiveXiaoniDeepDive —— 那个只认 active。只认 active 的话,paused / blocked 的
+  // 她**永远拿不到 dive_id 和 revision**,而 update_deep_dive 必须带这两个;
   // 于是 resume 结构性不可达、pause 等于永久放弃、blocked 之后她也再看不到自己写的
   // blocked_reason。spec 的 action 集合里有 resume,就必须能读到 paused 的那件。
   //
   // 顺序:先 active(同一时刻至多一件,存储层的部分唯一索引保证),没有再取最近动过的
-  // 未完成那件。completed 不回 —— 收掉了就是收掉了,不该再摆到她眼前。
-  async function getCurrentXiaoniGoal(input = {}, config = {}) {
-    const active = await getActiveXiaoniGoal(input, config);
+  // 未收口那个。concluded 不回 —— 收掉了就是收掉了,不该再摆到她眼前。
+  async function getCurrentXiaoniDeepDive(input = {}, config = {}) {
+    const active = await getActiveXiaoniDeepDive(input, config);
     if (active) return active;
     const prisma = getClient(config);
-    const row = await prisma.xiaoniGoal.findFirst({
-      where: { identity_key: resolveIdentityKey(input), phase: { not: 'completed' } },
+    const row = await prisma.xiaoniDeepDive.findFirst({
+      where: { identity_key: resolveIdentityKey(input), phase: { not: 'concluded' } },
       orderBy: [{ updated_at: 'desc' }, { id: 'desc' }]
     });
-    return normalizeGoal(row);
+    return normalizeDive(row);
   }
 
-  async function listXiaoniGoals(input = {}, config = {}) {
+  async function listXiaoniDeepDives(input = {}, config = {}) {
     const prisma = getClient(config);
     const limit = normalizePositiveInt(input.limit, 20);
-    const rows = await prisma.xiaoniGoal.findMany({
+    const rows = await prisma.xiaoniDeepDive.findMany({
       where: { identity_key: resolveIdentityKey(input) },
       orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
       take: limit
     });
-    return rows.map(normalizeGoal).filter(Boolean);
+    return rows.map(normalizeDive).filter(Boolean);
   }
 
   return {
-    ensureXiaoniGoalSchema,
+    ensureXiaoniDeepDiveSchema,
     listFailureReviewForkSlices,
-    getActiveXiaoniGoal,
-    getCurrentXiaoniGoal,
-    getXiaoniGoalById,
-    createXiaoniGoal,
-    updateXiaoniGoal,
-    incrementXiaoniGoalRound,
-    listXiaoniGoals
+    getActiveXiaoniDeepDive,
+    getCurrentXiaoniDeepDive,
+    getXiaoniDeepDiveById,
+    createXiaoniDeepDive,
+    updateXiaoniDeepDive,
+    incrementXiaoniDeepDiveRound,
+    listXiaoniDeepDives
   };
 }
 
 module.exports = {
-  createXiaoniGoalPersistence,
-  XIAONI_GOAL_PHASES: PHASES,
-  XIAONI_GOAL_DEFAULT_MAX_ROUNDS: DEFAULT_MAX_GOAL_ROUNDS
+  createXiaoniDeepDivePersistence,
+  XIAONI_DEEP_DIVE_PHASES: PHASES,
+  XIAONI_DEEP_DIVE_DEFAULT_MAX_ROUNDS: DEFAULT_MAX_ROUNDS
 };

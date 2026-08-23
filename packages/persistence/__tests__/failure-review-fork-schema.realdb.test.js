@@ -88,7 +88,7 @@ function slice(sliceId, forkRunId, extra = {}) {
   return {
     sliceId,
     forkRunId,
-    goalId: 'goal_A',
+    diveId: 'dive_A',
     identityKey: 'xiaoni',
     canonicalRequest: { blob: 'x' },
     wireRequest: { blob: 'x' },
@@ -104,7 +104,7 @@ function slice(sliceId, forkRunId, extra = {}) {
 // ── 建表与索引 ──────────────────────────────────────────────────────────────
 
 dbTest('agent-stack 的 ensure 自己就能把表和三个索引建出来', async () => {
-  // 事故(第五轮 P0):DDL 曾放在 xiaoni-goal.js,而 usage rollup 的 UNION 无条件 FROM
+  // 事故(第五轮 P0):DDL 曾放在 xiaoni-goal.js(现 xiaoni-deep-dive.js),而 usage rollup 的 UNION 无条件 FROM
   // 这张表、且挂在「每一次持久化操作」的路径上 —— 新库上只要 admin-backend 先起,
   // 每一次持久化操作都 relation does not exist。
   await sql.execute('DROP TABLE IF EXISTS failure_review_fork_slices', []);
@@ -154,7 +154,7 @@ dbTest('旧库(无唯一约束 + 已有重复行)上 ensure 会收敛,而不是�
        fork_run_id VARCHAR(191) NOT NULL,
        llm_call_id VARCHAR(128),
        identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
-       goal_id VARCHAR(64),
+       deep_dive_id VARCHAR(64),
        canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
        wire_request JSONB, canonical_response JSONB, wire_response JSONB, raw_response JSONB,
        output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -194,9 +194,9 @@ dbTest('旧库(无唯一约束 + 已有重复行)上 ensure 会收敛,而不是�
 
 // ── 列表口 ──────────────────────────────────────────────────────────────────
 
-dbTest('分组单元是 fork_run_id:同一个 goal 反复 blocked,后一次不挤掉前一次', async () => {
-  // 事故(第七轮 P2,同一处被连着点名三轮):slice 属于一次 fork,不属于一个 goal。
-  // 按 goal 归组既把多次复核混成一堆,又拿不到硬上界 —— 调用方只能拍倍数,
+dbTest('分组单元是 fork_run_id:同一次深挖反复 blocked,后一次不挤掉前一次', async () => {
+  // 事故(第七轮 P2,同一处被连着点名三轮):slice 属于一次 fork,不属于一次深挖。
+  // 按深挖归组既把多次复核混成一堆,又拿不到硬上界 —— 调用方只能拍倍数,
   // 拍小了更早那次复核静默拿到空数组,与「这次没产出」不可区分。
   await ensureXiaoniAgentStackSchema({}, CFG);
   await sql.execute('TRUNCATE failure_review_fork_slices', []);
@@ -263,7 +263,7 @@ dbTest('slice 落库时增量进 usage rollup(不进就是这一路用量彻底�
 // 形状取列,少一列整条查询就抛,而 loader 的 catch 把它变成「这段时间没有复核」,
 // **与真的没跑过一模一样**。端到端跑了才发现,读代码看不出来。
 
-dbTest('表结构与 psych_assessment_fork_slices 逐列对齐(goal_id 是本表独有)', async () => {
+dbTest('表结构与 psych_assessment_fork_slices 逐列对齐(deep_dive_id 是本表独有)', async () => {
   const columnsOf = async (table) => {
     const rows = await sql.query(
       'SELECT column_name FROM information_schema.columns WHERE table_name = ?',
@@ -279,7 +279,7 @@ dbTest('表结构与 psych_assessment_fork_slices 逐列对齐(goal_id 是本表
   const missing = [...sibling].filter((c) => !mine.has(c));
   assert.deepEqual(missing, [], `少了兄弟有的列,共享 SELECT 会整条抛:${missing.join(', ')}`);
 
-  // 本表独有的只该是 goal_id —— 多出别的列说明形状又漂了
+  // 本表独有的只该是 deep_dive_id —— 多出别的列说明形状又漂了
   const extra = [...mine].filter((c) => !sibling.has(c));
-  assert.deepEqual(extra, ['goal_id'], `本表只该多一个 goal_id,实际多:${extra.join(', ')}`);
+  assert.deepEqual(extra, ['deep_dive_id'], `本表只该多一个 deep_dive_id,实际多:${extra.join(', ')}`);
 });

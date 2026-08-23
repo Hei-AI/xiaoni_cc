@@ -1764,15 +1764,15 @@ export function listAgentTasks(
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 
-export type XiaoniGoalPhase = 'active' | 'paused' | 'completed' | 'blocked';
-export type XiaoniGoalRecord = {
+export type XiaoniDeepDivePhase = 'active' | 'paused' | 'concluded' | 'blocked';
+export type XiaoniDeepDiveRecord = {
   id: string;
   identityKey: string;
   revision: number;
-  objective: string;
-  phase: XiaoniGoalPhase;
+  question: string;
+  phase: XiaoniDeepDivePhase;
   roundsStarted: number;
-  maxGoalRounds: number;
+  maxRounds: number;
   blockedReason: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -1791,7 +1791,7 @@ export function listRuntimeTimelineEvents(
   metadata: Record<string, any>;
   createdAt: string | Date | null;
 }>>;
-export function ensureXiaoniGoalSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureXiaoniDeepDiveSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function recordFailureReviewForkSlice(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<Record<string, any> | null>;
 /** limit 是**每个 fork_run_id** 各自的上限,不是全局上限(一次复核轮数硬上界 32)。 */
 export function listFailureReviewForkSlices(
@@ -1801,7 +1801,7 @@ export function listFailureReviewForkSlices(
   id: number;
   sliceId: string;
   forkRunId: string;
-  goalId: string | null;
+  diveId: string | null;
   status: string;
   agentTurn: number | null;
   tokenUsage: unknown;
@@ -1811,44 +1811,44 @@ export function listFailureReviewForkSlices(
   metadata: unknown;
   createdAt: string;
 }>>;
-/** 她 get_goal 时该看到的那一件:先 active,没有则取最近动过的未完成那件(paused/blocked)。 */
-export function getCurrentXiaoniGoal(
+/** 她 get_deep_dive 时该看到的那一件:先 active,没有则取最近动过的未收口那件(paused/blocked)。 */
+export function getCurrentXiaoniDeepDive(
   input?: { identityKey?: string; identity_key?: string },
   config?: DatabaseUrlConfig
-): Promise<XiaoniGoalRecord | null>;
-export function getActiveXiaoniGoal(
+): Promise<XiaoniDeepDiveRecord | null>;
+export function getActiveXiaoniDeepDive(
   input?: { identityKey?: string; identity_key?: string },
   config?: DatabaseUrlConfig
-): Promise<XiaoniGoalRecord | null>;
-export function getXiaoniGoalById(
-  input?: { goalId?: string; goal_id?: string; id?: string },
+): Promise<XiaoniDeepDiveRecord | null>;
+export function getXiaoniDeepDiveById(
+  input?: { diveId?: string; deep_dive_id?: string; id?: string },
   config?: DatabaseUrlConfig
-): Promise<XiaoniGoalRecord | null>;
-export function createXiaoniGoal(
-  input: { objective: string; maxGoalRounds?: number; max_goal_rounds?: number; id?: string; identityKey?: string },
+): Promise<XiaoniDeepDiveRecord | null>;
+export function createXiaoniDeepDive(
+  input: { question: string; maxRounds?: number; max_rounds?: number; id?: string; identityKey?: string },
   config?: DatabaseUrlConfig
-): Promise<XiaoniGoalRecord>;
-/** compare-and-set。revision 不匹配返回 { ok:false, reason:'revision_mismatch', goal:<当前值> },不抛。 */
-export function updateXiaoniGoal(
+): Promise<XiaoniDeepDiveRecord>;
+/** compare-and-set。revision 不匹配返回 { ok:false, reason:'revision_mismatch', dive:<当前值> },不抛。 */
+export function updateXiaoniDeepDive(
   input: {
-    goalId: string;
+    diveId: string;
     revision: number;
-    phase: XiaoniGoalPhase;
-    objective?: string;
-    maxGoalRounds?: number;
+    phase: XiaoniDeepDivePhase;
+    question?: string;
+    maxRounds?: number;
     blockedReason?: string | null;
   },
   config?: DatabaseUrlConfig
-): Promise<{ ok: boolean; reason?: string; goal: XiaoniGoalRecord | null }>;
+): Promise<{ ok: boolean; reason?: string; dive: XiaoniDeepDiveRecord | null }>;
 /** 引擎侧轮次推进,**故意不动 revision**。非 active 或 id 不存在时返回 null。 */
-export function incrementXiaoniGoalRound(
-  input: { goalId: string },
+export function incrementXiaoniDeepDiveRound(
+  input: { diveId: string },
   config?: DatabaseUrlConfig
-): Promise<XiaoniGoalRecord | null>;
-export function listXiaoniGoals(
+): Promise<XiaoniDeepDiveRecord | null>;
+export function listXiaoniDeepDives(
   input?: { identityKey?: string; limit?: number },
   config?: DatabaseUrlConfig
-): Promise<XiaoniGoalRecord[]>;
+): Promise<XiaoniDeepDiveRecord[]>;
 export type AbTurnSnapshotInput = {
   id?: string;
   sourceKey?: string;

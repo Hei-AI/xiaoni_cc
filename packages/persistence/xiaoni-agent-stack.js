@@ -2338,7 +2338,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           )
         `,
         // 复核 fork 的 slice 账本。**必须建在这里**,和 psych / image_vision 并排 ——
-        // 不能建在 xiaoni-goal.js 里:usageRollupSourceFromAllSlicesSelectSql 无条件
+        // 不能建在 xiaoni-deep-dive.js 里:usageRollupSourceFromAllSlicesSelectSql 无条件
         // FROM 这张表,而 initializeLlmUsageRollupsIfNeeded 就挂在本 ensure 内、
         // 「每一次持久化操作」都会走。表建在别的模块的 ensure 里的话,新库上只要
         // admin-backend 先起,每一次持久化操作都 relation does not exist。
@@ -2349,7 +2349,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             fork_run_id VARCHAR(191) NOT NULL,
             llm_call_id VARCHAR(128),
             identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
-            goal_id VARCHAR(64),
+            deep_dive_id VARCHAR(64),
             input_start_index BIGINT,
             input_end_index BIGINT,
             input_stack_item_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -2392,6 +2392,21 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             ADD COLUMN IF NOT EXISTS wire_provider_format VARCHAR(128),
             ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ(3),
             ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        `,
+        // goal_id → deep_dive_id(2026-08-23 改名)。**必须建在这里**,不在 xiaoni-deep-dive.js:
+        // 理由同上面建表那条 —— 这张表由本 ensure 建,而查它的 xiaoni-activity.js 跑在
+        // admin-backend。把改名放进只有 agent-service 才调的那个 ensure,admin-backend 先起
+        // 就会撞上「列不存在」,再被 loader 的 catch 变成「这段时间没有复核」。
+        `
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name = 'failure_review_fork_slices' AND column_name = 'goal_id')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_name = 'failure_review_fork_slices' AND column_name = 'deep_dive_id') THEN
+              ALTER TABLE failure_review_fork_slices RENAME COLUMN goal_id TO deep_dive_id;
+            END IF;
+          END $$;
         `,
         // Cache heartbeat fork ledger. The heartbeat is a fork agent that triggers a
         // model request (keeps the warm prompt cache alive) but runs store=false and
@@ -3827,7 +3842,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         const rows = await executor.query(
           `
             INSERT INTO failure_review_fork_slices (
-              slice_id, fork_run_id, llm_call_id, identity_key, goal_id,
+              slice_id, fork_run_id, llm_call_id, identity_key, deep_dive_id,
               canonical_request, wire_request, canonical_response, wire_response, raw_response,
               output_items, status, token_usage, trace_id, run_id,
               agent_turn, model_name, model_provider, processing_time_ms, metadata
@@ -3837,7 +3852,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             ON CONFLICT (slice_id) DO UPDATE SET
               fork_run_id = EXCLUDED.fork_run_id,
               llm_call_id = EXCLUDED.llm_call_id,
-              goal_id = EXCLUDED.goal_id,
+              deep_dive_id = EXCLUDED.deep_dive_id,
               canonical_request = EXCLUDED.canonical_request,
               wire_request = EXCLUDED.wire_request,
               canonical_response = EXCLUDED.canonical_response,
@@ -3860,7 +3875,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             forkRunId,
             firstString(input.llmCallId, input.llm_call_id),
             firstString(input.identityKey, input.identity_key, 'xiaoni'),
-            firstString(input.goalId, input.goal_id),
+            firstString(input.diveId, input.deep_dive_id),
             JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
             input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
             input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,

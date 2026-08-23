@@ -1641,14 +1641,14 @@ exports.Prisma.XiaoniRecallShadowLogScalarFieldEnum = {
   dropped_sample: 'dropped_sample'
 };
 
-exports.Prisma.XiaoniGoalScalarFieldEnum = {
+exports.Prisma.XiaoniDeepDiveScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
   revision: 'revision',
-  objective: 'objective',
+  question: 'question',
   phase: 'phase',
   rounds_started: 'rounds_started',
-  max_goal_rounds: 'max_goal_rounds',
+  max_rounds: 'max_rounds',
   blocked_reason: 'blocked_reason',
   created_at: 'created_at',
   updated_at: 'updated_at'
@@ -1660,7 +1660,7 @@ exports.Prisma.FailureReviewForkSliceScalarFieldEnum = {
   fork_run_id: 'fork_run_id',
   llm_call_id: 'llm_call_id',
   identity_key: 'identity_key',
-  goal_id: 'goal_id',
+  deep_dive_id: 'deep_dive_id',
   input_start_index: 'input_start_index',
   input_end_index: 'input_end_index',
   input_stack_item_ids: 'input_stack_item_ids',
@@ -1793,7 +1793,7 @@ exports.Prisma.ModelName = {
   GoldenChatCase: 'GoldenChatCase',
   XiaoniRecallCue: 'XiaoniRecallCue',
   XiaoniRecallShadowLog: 'XiaoniRecallShadowLog',
-  XiaoniGoal: 'XiaoniGoal',
+  XiaoniDeepDive: 'XiaoniDeepDive',
   FailureReviewForkSlice: 'FailureReviewForkSlice'
 };
 
