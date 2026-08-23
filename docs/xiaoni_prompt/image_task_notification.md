@@ -5,4 +5,4 @@
 {{PICTURE_PATH_LINE}}
 {{TARGET_DESCRIPTION_LINE}}
 
-这是你自己的图，就在上面那个路径。发给谁、还是自己留着，随你。
+图在上面那个路径。要发出去，用 `qq-send-image` 技能；路径原样抄，**禁止**自己拼路径。
