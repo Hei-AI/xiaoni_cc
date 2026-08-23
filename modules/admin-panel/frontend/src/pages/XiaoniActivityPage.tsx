@@ -765,7 +765,7 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'psych_assessment_fork') {
     return 'psych_assessment';
   }
-  // 复核 fork(她宣布 goal blocked 时替她再查一遍)。不认它的话,行动流会把它归进
+  // 复核 fork(她宣布深挖 blocked 时替她再查一遍)。不认它的话,行动流会把它归进
   // 最后那个兜底分支 compression_memory —— 显示成压缩 fork,是错的。
   if (run.source === 'failure_review_fork') {
     return 'failure_review';

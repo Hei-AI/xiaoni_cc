@@ -21,8 +21,8 @@ import {
   enqueueAgentQueueMessage,
   getAgentLifeState,
   getAgentRuntimeControl,
-  getActiveXiaoniGoal,
-  listXiaoniGoals,
+  getActiveXiaoniDeepDive,
+  listXiaoniDeepDives,
   listRuntimeTimelineEvents,
   listFailureReviewForkSlices,
   getLatestUnreadAgentInboundMessage,
@@ -1673,27 +1673,27 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
   // Read current energy/pressure snapshot (stored life projection) plus the thresholds that decide
   // whether Xiaoni can voluntarily fall asleep. Cheap read — the projection is maintained by
   // agent-service; this only reflects the last refresh (≤ a few seconds behind live).
-  // ── 目标(goal)观测面 ──────────────────────────────────────────────────────
+  // ── 深挖(deep dive)观测面 ──────────────────────────────────────────────────────
   // ADR-0010 §四 与 ADR-0009 §六 把这三块列为**必需项** —— 没有它们,两个 ADR 里明写的
   // 赌注无法判定输赢:
-  //   ① goal 创建率长期为零 = 这个设计失败了(她有 10 个工具,81% 的动作走 exec_command,
+  //   ① 深挖创建率长期为零 = 这个设计失败了(她有 12 个工具,81% 的动作走 exec_command,
   //      一个她从不调的工具就是死重)。**不要靠推断,要看数。**
-  //   ② blocked 时的 rounds_started 分布集中在 1 = 她拿 blocked 当逃生舱
+  //   ② blocked 时的 rounds_started 分布集中在 1 = 她拿 blocked 当逃生舱(或者根本没挖)
   //      (决定三取消了 dsh 的 3 轮硬闸,代价就是这个)。
   //   ③ 复核 fork 的输出原文要能按时间读 —— 「克隆 + 尾部改写身份」能不能挡住她的自我认知
   //      未经验证,判据是人工读前 20 条的人称语气。
-  router.get('/agent-runtime/goals', async (req, res) => {
+  router.get('/agent-runtime/deep-dives', async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
       const [active, history] = await Promise.all([
-        getActiveXiaoniGoal({ identityKey: 'xiaoni' }),
-        listXiaoniGoals({ identityKey: 'xiaoni', limit })
+        getActiveXiaoniDeepDive({ identityKey: 'xiaoni' }),
+        listXiaoniDeepDives({ identityKey: 'xiaoni', limit })
       ]);
       // ② blocked 时的轮次分布。样本少的时候直接看原始列表比看直方图清楚,所以两个都给。
-      const blocked = history.filter((goal) => goal.phase === 'blocked');
+      const blocked = history.filter((dive) => dive.phase === 'blocked');
       const blockedRounds: Record<string, number> = {};
-      for (const goal of blocked) {
-        const key = String(goal.roundsStarted);
+      for (const dive of blocked) {
+        const key = String(dive.roundsStarted);
         blockedRounds[key] = (blockedRounds[key] ?? 0) + 1;
       }
       res.json({
@@ -1703,17 +1703,17 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           history,
           stats: {
             total: history.length,
-            byPhase: history.reduce<Record<string, number>>((acc, goal) => {
-              acc[goal.phase] = (acc[goal.phase] ?? 0) + 1;
+            byPhase: history.reduce<Record<string, number>>((acc, dive) => {
+              acc[dive.phase] = (acc[dive.phase] ?? 0) + 1;
               return acc;
             }, {}),
             // 「集中在 1」就是逃生舱信号
             blockedRoundsHistogram: blockedRounds,
-            blockedRoundsSamples: blocked.map((goal) => ({
-              id: goal.id,
-              roundsStarted: goal.roundsStarted,
-              blockedReason: goal.blockedReason,
-              updatedAt: goal.updatedAt
+            blockedRoundsSamples: blocked.map((dive) => ({
+              id: dive.id,
+              roundsStarted: dive.roundsStarted,
+              blockedReason: dive.blockedReason,
+              updatedAt: dive.updatedAt
             }))
           }
         },
@@ -1722,7 +1722,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to load Xiaoni goals',
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni deep dives',
         timestamp: new Date().toISOString()
       });
     }
@@ -1737,9 +1737,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       // 两个来源合起来才是一次复核的全貌:timeline 有结论原文与成败,slice 有每轮的
       // canonical/wire request 与 token 用量。分开给会让人以为「查到原文」就等于「可观测」。
       const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit });
-      // 连接键是 fork_run_id,不是 goal_id。一次复核 = 一个 fork_run_id,轮数硬上界
+      // 连接键是 fork_run_id,不是 deep_dive_id。一次复核 = 一个 fork_run_id,轮数硬上界
       // FAILURE_REVIEW_FORK_MAX_TURNS = 32,所以 limit 是**算出来的**不是猜的。
-      // (按 goal 归组拿不到上界:同一个 goal 可以反复 blocked,每次都是独立一跑。)
+      // (按深挖归组拿不到上界:同一次深挖可以反复 blocked,每次都是独立一跑。)
       // start 与终态两条 phase 行共用同一个 fork_run_id,都会挂上这一跑的 slice —— 它们
       // 本来就是同一次复核的两端。
       const forkRunIds = new Set(
@@ -1765,8 +1765,11 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           id: row.id,
           createdAt: row.createdAt,
           phase: row.eventPhase,
-          goalId: row.metadata?.goal_id ?? null,
-          objective: row.metadata?.objective ?? null,
+          // 键名必须逐字对上写端(agent-loop-service 的 timeline metadata 与 baseForkMetadata,
+          // 两处现已统一为 deep_dive_*)。此处历史上恒为 null 过一次 —— 读写两端各写各的,
+          // 而当时的用例是拿读取侧的形状手工造数据验的,绿的是同义反复。
+          diveId: row.metadata?.deep_dive_id ?? null,
+          question: row.metadata?.deep_dive_question ?? null,
           blockedReason: row.metadata?.blocked_reason ?? null,
           toolCallsUsed: row.metadata?.tool_calls_used ?? null,
           turns: row.metadata?.turns ?? null,
