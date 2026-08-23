@@ -1,5 +1,22 @@
 # 目标由她自己立，成败也由她自己说
 
+> **2026-08-23 修订：`goal` 更名为 `deep dive`。** 本 ADR 的六条决定全部不变，改的是**名字与
+> 语义映射**。理由不是措辞：`goal` 在模型先验里就是待办（CC 的 TodoWrite、codex 的
+> `update_plan`、dsh 的 task-goal 都占这个词），活体证据是上线后唯一一次使用为 78 秒内
+> `create → complete`、`rounds_started=0` —— `<goal_round>` 一次都没渲染过，她把它当成了
+> 事后贴的任务标签。这套机制服务的业务目标是**深度探索 / 深度思考**，名字要说这件事。
+>
+> 映射：`create_goal`/`get_goal`/`update_goal` → `create_deep_dive`/`get_deep_dive`/`update_deep_dive`；
+> `objective`（想做成什么）→ `question`（想弄明白什么）；`complete`（做完了）→ `conclude`
+> （得出结论了）；`max_goal_rounds`（轮次上限）→ `max_rounds`（安全阀，不是省着用的预算）；
+> `rounds_started` 语义从「消耗」改读为**深度计数，越大越好**。表名 `xiaoni_goals` →
+> `xiaoni_deep_dives`，`failure_review_fork_slices.goal_id` → `deep_dive_id`（幂等重命名迁移，
+> 见 `ensureXiaoniDeepDiveSchema`）。
+>
+> 本文件名保留 —— ADR 是历史记录，改名会断掉引用它的那些链接。下文出现的 `goal` 一律读作
+> `deep dive`。
+
+
 2026-08-22 定。承接 `docs/adr/0008-*` 决定四（「干活途中的任务表示」当时因为「没有承载物」被推迟）——
 **承载物就是工具本身。**
 

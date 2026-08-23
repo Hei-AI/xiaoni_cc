@@ -13,16 +13,16 @@ PSQL=(docker exec qqbot-postgres psql -U qqbot_user -d qqbot_db -tAc)
 echo "分界线: $CUTOVER"
 echo
 
-echo "── ① goal 创建率（改前 11 小时 / 149 run = 0）──"
+echo "── ① 深挖创建率（改前 11 小时 / 149 run = 0）──"
 "${PSQL[@]}" "
 select
-  (select count(*) from xiaoni_goals where created_at > '$CUTOVER') as goals_after,
+  (select count(*) from xiaoni_deep_dives where created_at > '$CUTOVER') as dives_after,
   (select count(*) from agent_runs  where created_at > '$CUTOVER') as runs_after,
   (select count(*) from tool_executions
      where created_at > '$CUTOVER'
-       and tool_name in ('get_goal','create_goal','update_goal')) as goal_tool_calls,
+       and tool_name in ('get_deep_dive','create_deep_dive','update_deep_dive')) as dive_tool_calls,
   (select count(*) from failure_review_fork_slices where created_at > '$CUTOVER') as review_forks"
-echo "  列: goals_after | runs_after | goal_tool_calls | review_forks"
+echo "  列: dives_after | runs_after | dive_tool_calls | review_forks"
 echo
 
 echo "── ② exec_command 注释率（改前 67.9%，注释占字节 27.3%）──"

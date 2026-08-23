@@ -126,7 +126,7 @@ Agent stalled: no progress for {s}s
 证伪过（见 §一），而且实测「说」在她身上不产生行为改变——阿花逐条施压后动作数 15 → 35，
 **结局逐字相同**；`xiaoni_plan` 76% 零工具 run。
 
-**二、触发点是她自己调 `update_goal(action='blocked')` 那一刻。**
+**二、触发点是她自己调 `update_deep_dive(action='blocked')` 那一刻。**
 
 **这一条在 2026-08-22 当天改过一次，改动理由值得留着。** 初版触发是「引擎检测她说出失败结论」，
 先后试过两种做法，都不对：
@@ -137,13 +137,13 @@ Agent stalled: no progress for {s}s
 | 算术窄化 + 小模型判官（≥3 工具调用 → Haiku 判「达成没有」） | 可行，但每天多 146 次调用，而且仍然是**引擎替她判断成败** |
 
 正确做法是**让她自己声明**——四家 harness 里唯一的语义判定出口就是模型自己
-（`docs/investigations/harness-no-progress-detection.md`）。工具契约、goal 生命周期与
-「goal 活着时潜意识 fork 让位」见 `docs/adr/0010-goal-and-its-outcome-are-hers-to-declare.md`。
+（`docs/investigations/harness-no-progress-detection.md`）。工具契约、深挖生命周期与
+「深挖活着时潜意识 fork 让位」见 `docs/adr/0010-goal-and-its-outcome-are-hers-to-declare.md`。
 
 于是触发是**结构化字段，不是文本猜测**：她调 `blocked` 时必须带 `blocked_reason`，
 **复核 fork 拿到的问题是现成的**（objective + blocked_reason），不需要自己推断她刚才想干嘛。
 
-与潜意识 fork 的互斥也随之自然成立：goal 活着期间本来就不跑潜意识（ADR-0010 决定五）。
+与潜意识 fork 的互斥也随之自然成立：深挖活着期间本来就不跑潜意识（ADR-0010 决定五）。
 
 **三、它克隆她的上下文，靠尾部引导 prompt 换视角。**
 不是不知道全新上下文更彻底（§三验的就是真陌生人），而是：克隆骑热前缀，每轮冷读仅 ~1.5K

@@ -7,14 +7,14 @@
 
 ## Context
 
-主 agent 调 `update_goal(action='blocked')` 宣布自己卡住时，工程起一个 fork：
+主 agent 调 `update_deep_dive(action='blocked')` 宣布自己卡住时，工程起一个 fork：
 克隆她 settle 那一刻的完整请求，尾部换一段第三方引导，用受限 `exec_command` 自己查一遍，
 把**可核对的证据**经 Notify Bucket 交回。
 
 它在结构上是自驱动 fork 的孪生兄弟——同一份 seed、同一条出口——**只有触发点、尾部 prompt
 和输出契约不同**。因此实现的主体是复用，不是新建。
 
-**前置依赖**：goal 工具必须先落地，见 `docs/specs/xiaoni-goal-tools.md`。
+**前置依赖**：goal 工具必须先落地，见 `docs/specs/xiaoni-deep-dive-tools.md`。
 
 ---
 
@@ -22,7 +22,7 @@
 
 | # | 决策 | 选择 |
 |---|---|---|
-| D1 | 触发点 | 主 agent 调 `update_goal(action='blocked')` 成功之后（见 `docs/specs/xiaoni-goal-tools.md` §5） |
+| D1 | 触发点 | 主 agent 调 `update_deep_dive(action='blocked')` 成功之后（见 `docs/specs/xiaoni-deep-dive-tools.md` §5） |
 | D2 | 与自驱动 fork 的关系 | 自然互斥——goal 活着期间本来就不跑潜意识（ADR-0010 决定五） |
 | D3 | 上下文 | **克隆** `lastMainAgentForkSeed.canonicalRequest`（settle 那一刻的完整请求），尾部追加第三方引导 |
 | D4 | 输出 | **只许证据，不许指令**。每条须含 文件路径 + 原文 + 定位方式 |
@@ -49,7 +49,7 @@
 
 ### 1) 触发（D1）
 
-**她自己声明，引擎不猜。** `update_goal(action='blocked', blocked_reason=...)` 执行成功之后，
+**她自己声明，引擎不猜。** `update_deep_dive(action='blocked', blocked_reason=...)` 执行成功之后，
 在同一次工具执行的收尾同步起复核 fork。
 
 复核 fork 拿到的问题是**现成的结构化字段**：`objective`（她当初想做成什么）+
@@ -65,7 +65,7 @@
 ### 2) 与潜意识 fork 的关系（D2）
 
 **不需要显式互斥判断。** goal 处于 `active` 时，`maybeRunSubconsciousAgentFork` 已经改走
-goal-round 分支（`docs/specs/xiaoni-goal-tools.md` §3），本来就不跑潜意识。
+goal-round 分支（`docs/specs/xiaoni-deep-dive-tools.md` §3），本来就不跑潜意识。
 `blocked` 之后 goal 离开 `active`，续跑自然退回潜意识 fork——这正确：
 那时她需要的是「接下来干嘛」，而复核结论会作为一条独立 notify 到达。
 
@@ -155,7 +155,7 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 
 ## Acceptance Criteria
 
-1. `update_goal(action='blocked')` 成功 → 同步起一次复核 fork；同一 goal 的重复 `blocked` 不重复触发
+1. `update_deep_dive(action='blocked')` 成功 → 同步起一次复核 fork；同一 goal 的重复 `blocked` 不重复触发
 2. 没有 `blocked` 调用时 → 行为与今天逐字节一致（自驱动 fork 照旧）
 3. 复核 fork 只执行 `exec_command`；请求其它工具时返回纠正输出且**不执行**
 4. 输出 `NO_FINDING` → 不入队；否则入队一条 `reason='failure_review'` 的 notify
@@ -186,7 +186,7 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 
 | 文件 | 改动 |
 |---|---|
-| `agent-loop-service.ts` `update_goal` 执行分支 | `blocked` 成功后同步触发复核 |
+| `agent-loop-service.ts` `update_deep_dive` 执行分支 | `blocked` 成功后同步触发复核 |
 | `agent-loop-service.ts` 新增 | `buildFailureReviewForkRequest` / `runFailureReviewFork` / `enqueueFailureReviewNotify` |
 | `agent-loop-service.ts:1031` `recordIdlePlanSettle` | 增 `reason` 入参 + 豁免分支 |
 | `docs/xiaoni_prompt/review_fork_reminder.md` | ✅ 初稿已写 |
@@ -199,4 +199,4 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 
 - `review_fork_reminder.md` 与 `review_fork_notify.md` **初稿已写**，措辞归 user——
   给她看的那一面（`<xiaoni_recheck>` 块怎么说话）最终不由工程定
-- 前置依赖：本 spec 只有在 `docs/specs/xiaoni-goal-tools.md` 落地之后才可实现
+- 前置依赖：本 spec 只有在 `docs/specs/xiaoni-deep-dive-tools.md` 落地之后才可实现

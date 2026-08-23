@@ -7,10 +7,10 @@
 ## Agent Working Set
 - 小腻整体架构一次通读（全景 + 实测数字 + 结构性张力，不替代下面任何专项契约）：
   - `docs/XIAONI_ARCHITECTURE.md`
-- 小腻的目标（goal）、成败自述、卡住之后的第三方复核：
+- 小腻的深挖（deep dive）、成败自述、卡住之后的第三方复核：
   - `docs/adr/0010-goal-and-its-outcome-are-hers-to-declare.md`
   - `docs/adr/0009-failure-conclusions-need-an-outside-reviewer.md`
-  - `docs/specs/xiaoni-goal-tools.md`、`docs/specs/xiaoni-failure-conclusion-review-fork.md`
+  - `docs/specs/xiaoni-deep-dive-tools.md`、`docs/specs/xiaoni-failure-conclusion-review-fork.md`
 - 小腻当前活动、action/tool、LLM in_context、真实 trace、runtime busy flags：
   - 管理端“小腻活动”
 - 小腻主 loop、LLM request 组装、行动流事实源和 trace detail：
