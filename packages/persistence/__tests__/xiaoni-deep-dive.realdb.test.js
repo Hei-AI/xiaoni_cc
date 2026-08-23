@@ -380,3 +380,46 @@ dbTest('迁移:旧 xiaoni_goals 整体改名成 xiaoni_deep_dives,数据不丢',
   const again = await sql.query('SELECT COUNT(*)::int AS n FROM xiaoni_deep_dives', []);
   assert.equal(Number(again[0].n), 1, '第二次 ensure 不该改变行数');
 });
+
+// ── 半迁移库:表已经改名,主键还没改 ──────────────────────────────────────────────
+// 这**正是生产 2026-08-23 上线后的状态**:表改名那一版跑过了,而主键改名是后一版才补的。
+// 上面那条迁移用例从「全未迁移库」起跑,所以它走的是「老表在」那条分支 —— 对这个状态
+// 完全盲。第一版把主键改名嵌在表改名的 guard 里面,用例照样全绿,而生产上它一次都没执行过。
+// 拿一个恰好自洽的初始状态去验,验的是同义反复。
+dbTest('半迁移库:表已改名但主键仍是旧名,ensure 必须把它补上', async () => {
+  await sql.execute('DROP TABLE IF EXISTS xiaoni_deep_dives', []);
+  await sql.execute('DROP TABLE IF EXISTS xiaoni_goals', []);
+  // 造出生产当时的形状:新表名 + 新列名,但主键约束仍叫 xiaoni_goals_pkey。
+  await sql.execute(`
+    CREATE TABLE xiaoni_goals (
+      id VARCHAR(64) PRIMARY KEY,
+      identity_key VARCHAR(64) NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      question TEXT NOT NULL,
+      phase VARCHAR(16) NOT NULL,
+      rounds_started INTEGER NOT NULL DEFAULT 0,
+      max_rounds INTEGER NOT NULL DEFAULT 20,
+      blocked_reason TEXT NULL,
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`, []);
+  await sql.execute('ALTER TABLE xiaoni_goals RENAME TO xiaoni_deep_dives', []);
+  await sql.execute(
+    `INSERT INTO xiaoni_deep_dives (id, identity_key, question, phase) VALUES (?, ?, ?, ?)`,
+    ['half_1', 'xiaoni', '半迁移库里的一行', 'concluded']
+  );
+  const before = await sql.query(
+    "SELECT indexname FROM pg_indexes WHERE tablename = 'xiaoni_deep_dives'", []);
+  assert.ok(before.map((r) => r.indexname).includes('xiaoni_goals_pkey'),
+    '前提没造对:这条用例要的初始状态就是主键仍叫旧名');
+
+  await ensureXiaoniDeepDiveSchema(CFG);
+
+  const after = (await sql.query(
+    "SELECT indexname FROM pg_indexes WHERE tablename = 'xiaoni_deep_dives'", []))
+    .map((r) => r.indexname);
+  assert.ok(after.includes('xiaoni_deep_dives_pkey'), `主键没被补上: ${after.join(',')}`);
+  assert.ok(!after.includes('xiaoni_goals_pkey'), '旧主键名必须已经不存在');
+  const rows = await sql.query('SELECT * FROM xiaoni_deep_dives WHERE id = ?', ['half_1']);
+  assert.equal(rows.length, 1, '补主键不该动到数据');
+});

@@ -101,18 +101,31 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
               ALTER INDEX idx_xiaoni_goals_identity_phase_updated
                 RENAME TO idx_xiaoni_deep_dives_identity_phase_updated;
             END IF;
-            -- 主键约束由 Postgres 按 表名_pkey 隐式命名,ALTER TABLE RENAME TO 不会连带改它。
-            -- 漏掉的后果不是坏功能,是新库(建表时自动叫 xiaoni_deep_dives_pkey)和老库
-            -- (跟着表过来仍叫 xiaoni_goals_pkey)约束名不一致,按名字做的 DROP CONSTRAINT
-            -- 在两种库上就分叉了。注:这段在 JS 模板字符串里,注释内禁止出现反引号。
-            IF to_regclass('public.xiaoni_goals_pkey') IS NOT NULL THEN
-              ALTER INDEX xiaoni_goals_pkey RENAME TO xiaoni_deep_dives_pkey;
-            END IF;
           END IF;
         END $$;
       `);
 
-      // ② 全新库走这条。
+      // ② 主键约束改名。**必须自己一个 guard,不能嵌在①里面。**
+      //
+      // ① 的条件是「老表在 且 新表不在」—— 一个已经迁过表、但主键还没改的库(生产 2026-08-23
+      // 就是这个状态:①跑过了,而当时①里还没有这一段)永远走不到①里面。第一版把它塞进①,
+      // 上线后主键仍叫 xiaoni_goals_pkey,而迁移用例从「未迁移库」起跑、①恰好成立,所以全绿。
+      // 拿一个恰好自洽的初始状态去验,验的是同义反复 —— 这个错本轮已经犯到第三次。
+      //
+      // 主键约束由 Postgres 按 表名_pkey 隐式命名,ALTER TABLE RENAME TO 不连带改它。漏掉的
+      // 后果不是坏功能,是新库(建表时自动叫 xiaoni_deep_dives_pkey)与老库约束名分叉。
+      // 注:这段在 JS 模板字符串里,注释内禁止出现反引号。
+      await sql.execute(`
+        DO $$
+        BEGIN
+          IF to_regclass('public.xiaoni_deep_dives') IS NOT NULL
+             AND to_regclass('public.xiaoni_goals_pkey') IS NOT NULL THEN
+            ALTER INDEX xiaoni_goals_pkey RENAME TO xiaoni_deep_dives_pkey;
+          END IF;
+        END $$;
+      `);
+
+      // ③ 全新库走这条。
       await sql.execute(`
         CREATE TABLE IF NOT EXISTS xiaoni_deep_dives (
           id VARCHAR(64) PRIMARY KEY,
