@@ -101,6 +101,13 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
               ALTER INDEX idx_xiaoni_goals_identity_phase_updated
                 RENAME TO idx_xiaoni_deep_dives_identity_phase_updated;
             END IF;
+            -- 主键约束由 Postgres 按 表名_pkey 隐式命名,ALTER TABLE RENAME TO 不会连带改它。
+            -- 漏掉的后果不是坏功能,是新库(建表时自动叫 xiaoni_deep_dives_pkey)和老库
+            -- (跟着表过来仍叫 xiaoni_goals_pkey)约束名不一致,按名字做的 DROP CONSTRAINT
+            -- 在两种库上就分叉了。注:这段在 JS 模板字符串里,注释内禁止出现反引号。
+            IF to_regclass('public.xiaoni_goals_pkey') IS NOT NULL THEN
+              ALTER INDEX xiaoni_goals_pkey RENAME TO xiaoni_deep_dives_pkey;
+            END IF;
           END IF;
         END $$;
       `);

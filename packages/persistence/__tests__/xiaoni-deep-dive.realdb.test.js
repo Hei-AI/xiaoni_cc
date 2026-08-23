@@ -370,6 +370,10 @@ dbTest('迁移:旧 xiaoni_goals 整体改名成 xiaoni_deep_dives,数据不丢',
   const names = idx.map((r) => r.indexname);
   assert.ok(names.includes('uniq_xiaoni_deep_dives_one_active'), `唯一索引没改名: ${names.join(',')}`);
   assert.ok(names.includes('idx_xiaoni_deep_dives_identity_phase_updated'), `复合索引没改名: ${names.join(',')}`);
+  // 主键是 Postgres 隐式命名的,ALTER TABLE ... RENAME TO 不会带上它。漏掉会让新库与老库
+  // 的约束名分叉(新库自动叫 xiaoni_deep_dives_pkey)。生产上线时就漏了这一条,补测。
+  assert.ok(names.includes('xiaoni_deep_dives_pkey'), `主键约束没改名: ${names.join(',')}`);
+  assert.ok(!names.includes('xiaoni_goals_pkey'), '旧主键名必须已经不存在');
 
   // 幂等:再跑一遍不许报错,也不许把已经迁好的表再动一次。
   await ensureXiaoniDeepDiveSchema(CFG);
