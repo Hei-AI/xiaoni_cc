@@ -1678,7 +1678,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
   // 赌注无法判定输赢:
   //   ① 深挖创建率长期为零 = 这个设计失败了(她有 12 个工具,81% 的动作走 exec_command,
   //      一个她从不调的工具就是死重)。**不要靠推断,要看数。**
-  //   ② blocked 时的 rounds_started 分布集中在 1 = 她拿 blocked 当逃生舱(或者根本没挖)
+  //   ② need_outsider 时的 requests_spent 分布集中在 1 = 她拿 blocked 当逃生舱(或者根本没挖)
   //      (决定三取消了 dsh 的 3 轮硬闸,代价就是这个)。
   //   ③ 复核 fork 的输出原文要能按时间读 —— 「克隆 + 尾部改写身份」能不能挡住她的自我认知
   //      未经验证,判据是人工读前 20 条的人称语气。
@@ -1689,12 +1689,12 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         getActiveXiaoniDeepDive({ identityKey: 'xiaoni' }),
         listXiaoniDeepDives({ identityKey: 'xiaoni', limit })
       ]);
-      // ② blocked 时的轮次分布。样本少的时候直接看原始列表比看直方图清楚,所以两个都给。
+      // ② 求助时的请求数分布。样本少的时候直接看原始列表比看直方图清楚,所以两个都给。
       const blocked = history.filter((dive) => dive.phase === 'blocked');
-      const blockedRounds: Record<string, number> = {};
+      const blockedRequests: Record<string, number> = {};
       for (const dive of blocked) {
-        const key = String(dive.roundsStarted);
-        blockedRounds[key] = (blockedRounds[key] ?? 0) + 1;
+        const key = String(dive.requestsSpent);
+        blockedRequests[key] = (blockedRequests[key] ?? 0) + 1;
       }
       res.json({
         success: true,
@@ -1708,10 +1708,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
               return acc;
             }, {}),
             // 「集中在 1」就是逃生舱信号
-            blockedRoundsHistogram: blockedRounds,
-            blockedRoundsSamples: blocked.map((dive) => ({
+            blockedRequestsHistogram: blockedRequests,
+            blockedRequestsSamples: blocked.map((dive) => ({
               id: dive.id,
-              roundsStarted: dive.roundsStarted,
+              requestsSpent: dive.requestsSpent,
               blockedReason: dive.blockedReason,
               updatedAt: dive.updatedAt
             }))
