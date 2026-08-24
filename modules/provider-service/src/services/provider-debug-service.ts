@@ -112,6 +112,12 @@ export function identityKeyForProviderUsage(sourceKind: string, replayIdentityKe
   if (sourceKind === 'subconscious_agent_fork') {
     return 'xiaoni';
   }
+  // 召回的两条小模型腿(投递闸精排 / query 展开)也是小腻运行时自己发的请求,不是管理端
+  // 人工调试。落 'xiaoni-internal' 的话它们在小腻行动流(按 identity_key='xiaoni' 取数)里
+  // 整条不可见 —— 而「所有经过 LLM 的请求都要在行动流里看得见」。
+  if (sourceKind === 'recall_rerank' || sourceKind === 'recall_expand') {
+    return 'xiaoni';
+  }
   return replayIdentityKey || 'xiaoni-internal';
 }
 
