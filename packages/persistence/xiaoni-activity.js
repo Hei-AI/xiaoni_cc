@@ -1967,19 +1967,6 @@ function recallExpandBodyParts(work) {
   };
 }
 
-// token 一行。usage 行缺失(老数据 / 没记 llmCallId)时返回 null —— 不编造。
-function recallLlmTokenLabel(tokenSummary) {
-  if (!tokenSummary) {
-    return null;
-  }
-  const inputTokens = streamNumberOrNull(tokenSummary.inputTokens);
-  const outputTokens = streamNumberOrNull(tokenSummary.outputTokens);
-  if (inputTokens === null && outputTokens === null) {
-    return null;
-  }
-  return `${inputTokens ?? '-'}→${outputTokens ?? '-'} tok`;
-}
-
 function summarizeRecallLlmEvent(row, leg, usage) {
   const work = recallLlmWork(row);
   const shadowLogId = String(row.id ?? '');
@@ -1988,7 +1975,6 @@ function summarizeRecallLlmEvent(row, leg, usage) {
     : recallExpandBodyParts(work);
   const anchor = String(firstString(work.anchor, row.query_text, row.queryText) || '').trim();
   const tokenSummary = usage ? tokenSummaryFromCodexProviderUsageEvent(usage) : null;
-  const tokenLabel = recallLlmTokenLabel(tokenSummary);
   const modelName = usage ? firstString(usage.model_name, usage.modelName) : null;
 
   // 事件 id:能接回 provider usage 行时**就用那行的 event_id**(形如 `codex-provider:llm_…`)。
@@ -2007,7 +1993,9 @@ function summarizeRecallLlmEvent(row, leg, usage) {
     source: leg.eventSource,
     kind: leg.eventKind,
     title: leg.label,
-    body: truncateText([parts.summary, tokenLabel, ...parts.headline].filter(Boolean).join(' · '), 420),
+    // token 不进正文 —— 前端行尾单独渲染 in/cached/out(StreamRow 的 hasInlineTokens 分支),
+    // 写进正文只会在同一行出现两遍。
+    body: truncateText([parts.summary, ...parts.headline].filter(Boolean).join(' · '), 420),
     status: parts.status,
     actor: 'system',
     actorName: leg.label,

@@ -2059,7 +2059,9 @@ test('Xiaoni recall rerank joins its provider usage row for tokens, model and ra
   assert.equal(event.metadata.modelName, 'claude-haiku-4-5');
   assert.equal(event.metadata.inputTokens, 942);
   assert.equal(event.metadata.outputTokens, 135);
-  assert.match(event.body, /942→135 tok/u);
+  // token 不进正文（前端行尾单独渲染），但必须落在 metadata 上。
+  assert.equal(/tok/u.test(event.body), false);
+  assert.equal(event.metadata.cachedInputTokens, 0);
   // 事件 id 必须对齐 usage 行的 event_id —— raw-trace 路由按 `codex-provider:` 前缀分派,
   // 对齐了就白拿一条已经在线的原始报文通道。
   assert.equal(event.id, 'codex-provider:llm_1787537377702_873f5bfd');

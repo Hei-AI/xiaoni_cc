@@ -2214,10 +2214,17 @@ function StreamRow({
   const inputTokens = formatTokenCount(metadataNumber(item.metadata, 'inputTokens'));
   const cachedTokens = formatTokenCount(metadataNumber(item.metadata, 'cachedInputTokens'));
   const outputTokens = formatTokenCount(metadataNumber(item.metadata, 'outputTokens'));
-  // 生图/改图任务不进上方 LLM Cost 聚合，但卡片仍单独标出它自己的 token cost。
+  // 「模型请求」那套整行 token 布局会**吃掉正文**。有些行是一次真的 LLM 请求，但正文才是
+  // 重点（生图任务的提示词、召回精排挑中的钩子、召回展开换的问法），所以它们走这条:
+  // 正文照常显示，token 挂在行尾。不给 token 就等于「这次请求没花钱」，是错的。
   const isImageTask = item.source === 'task' && (item.kind === 'image_generate' || item.kind === 'image_edit');
-  const hasImageTokens = isImageTask
+  const hasInlineTokens = !isModelRequest
     && (metadataNumber(item.metadata, 'inputTokens') !== null || metadataNumber(item.metadata, 'outputTokens') !== null);
+  // 生图按图计费，口径和对话 token 不可比，被排除在 LLM Cost 聚合之外；召回两条腿是
+  // 正常的对话请求，**计入**聚合。两者提示语必须分开，否则读数会被误解。
+  const inlineTokenHint = isImageTask
+    ? '生图 token cost（不计入上方 LLM Cost）'
+    : 'token cost（已计入上方 LLM Cost）';
   return (
     <button
       type="button"
@@ -2244,10 +2251,12 @@ function StreamRow({
           <span className="shrink-0 font-mono"><span className="text-muted-foreground">cached</span> <span className="text-emerald-700">{cachedTokens ?? '0'}</span></span>
           <span className="shrink-0 font-mono"><span className="text-muted-foreground">out</span> <span className="text-violet-700">{outputTokens ?? '—'}</span></span>
         </span>
-      ) : hasImageTokens ? (
+      ) : hasInlineTokens ? (
         <span className="flex min-w-0 flex-1 items-center gap-2.5 text-[11px]">
           <span className="min-w-0 shrink truncate text-[12.5px] text-foreground/90">{snippet || '—'}</span>
-          <span className="ml-auto shrink-0 font-mono" title="生图 token cost（不计入上方 LLM Cost）"><span className="text-muted-foreground">in</span> <span className="text-sky-700">{inputTokens ?? '—'}</span></span>
+          {modelName ? <span className="ml-auto hidden shrink-0 text-muted-foreground xl:inline">{modelName}</span> : null}
+          <span className={cn('shrink-0 font-mono', modelName ? '' : 'ml-auto')} title={inlineTokenHint}><span className="text-muted-foreground">in</span> <span className="text-sky-700">{inputTokens ?? '—'}</span></span>
+          {cachedTokens ? <span className="shrink-0 font-mono"><span className="text-muted-foreground">cached</span> <span className="text-emerald-700">{cachedTokens}</span></span> : null}
           <span className="shrink-0 font-mono"><span className="text-muted-foreground">out</span> <span className="text-violet-700">{outputTokens ?? '—'}</span></span>
         </span>
       ) : (
