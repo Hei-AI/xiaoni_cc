@@ -309,6 +309,54 @@ def _build_action_statements(action, css, css_end):
     return ""  # unknown action -> screenshot only
 
 
+# Capture through CDP with fromSurface:false instead of playwright's
+# page.screenshot(). page.screenshot() maps to Page.captureScreenshot with
+# fromSurface:true, which asks the BROWSER COMPOSITOR for the frame the window is
+# presenting on screen. A locked or blanked GNOME/Wayland session stops sending
+# frame callbacks to ordinary windows, so that request never completes: the
+# foreground tab hangs until timeout, and background tabs quietly hand back the
+# frame cached from when they were last actually on screen — a stale picture that
+# does not look like an error. fromSurface:false makes the RENDERER paint the page
+# into a bitmap, which is independent of whether anything is on screen. Geometry is
+# identical either way (measured: 2560x1396 from both paths at DPR 1.333), so
+# coordinate mapping and _resize_png_to_declared are unaffected.
+_CDP_CAPTURE_JS = (
+    " await page.evaluate(() => { try { for (const a of document.getAnimations()) {"
+    " try { a.finish(); } catch (e) {} } } catch (e) {} });"
+    " const _cdp = await page.context().newCDPSession(page);"
+    " let _shot;"
+    " try {"
+    "   _shot = await Promise.race(["
+    "     _cdp.send('Page.captureScreenshot', {format:'png', fromSurface:false}),"
+    "     page.waitForTimeout(20000).then(() => { throw new Error('captureScreenshot timed out after 20s'); })"
+    "   ]);"
+    " } finally { try { await _cdp.detach(); } catch (e) {} }"
+    " return '" + _COMPUTER_SENTINEL + "' + _shot.data;"
+)
+
+
+def _crop_png_to_css_box(png_b64, box_css, css_vw):
+    """Crop a viewport capture to a CSS-pixel box (the `zoom` action).
+
+    map_region yields viewport-relative CSS px, while the capture is in device px,
+    so scale by the ratio the image itself reports rather than a separately-read
+    devicePixelRatio. Cropping here (instead of passing a clip through to the
+    capture) keeps `zoom` on exactly the semantics map_region documents: crop the
+    live screenshot.
+    """
+    raw = base64.b64decode(png_b64)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    scale = (img.width / css_vw) if css_vw else 1.0
+    x1, y1, x2, y2 = (int(round(v * scale)) for v in box_css)
+    x1 = max(0, min(x1, img.width - 1))
+    y1 = max(0, min(y1, img.height - 1))
+    x2 = max(x1 + 1, min(x2, img.width))
+    y2 = max(y1 + 1, min(y2, img.height))
+    buf = io.BytesIO()
+    img.crop((x1, y1, x2, y2)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def _resize_png_to_declared(png_b64, dw, dh):
     raw = base64.b64decode(png_b64)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
@@ -344,24 +392,20 @@ def _run_computer_action(action, dw, dh):
 
     # zoom: crop the live region, then resize the crop back to the declared display.
     if name == "zoom" and isinstance(region, list) and len(region) == 4:
-        x1, y1, x2, y2 = computer_coords.map_region(region, vw, vh, dw, dh)
-        w, h = max(1, x2 - x1), max(1, y2 - y1)
-        js = ("async (page) => { const b = await page.screenshot({type:'png', animations:'disabled', caret:'initial', timeout:15000, clip:{x:"
-              f"{x1},y:{y1},width:{w},height:{h}}}); return '" + _COMPUTER_SENTINEL + "' + b.toString('base64'); }")
+        crop_css = computer_coords.map_region(region, vw, vh, dw, dh)
+        js = "async (page) => {" + _CDP_CAPTURE_JS + "}"
     else:
+        crop_css = None
         statements = _build_action_statements(action, css, css_end)
-        # animations:'disabled' finishes+freezes CSS animations (incl. smooth
-        # scroll) before capture, so page.screenshot doesn't hang on the headed
-        # Wayland compositor after a mouse/scroll action; timeout bounds the wait.
-        js = ("async (page) => { " + statements +
-              " const b = await page.screenshot({type:'png', animations:'disabled', caret:'initial', timeout:15000}); return '" + _COMPUTER_SENTINEL +
-              "' + b.toString('base64'); }")
+        js = "async (page) => { " + statements + _CDP_CAPTURE_JS + "}"
 
     rc, out, err = _run_cli_capture(["run-code", js], timeout=90)
     raw_b64 = _extract_sentinel(out)
     if rc != 0 or not raw_b64:
         return {"ok": False, "error": (err or out or "action/screenshot failed").strip()[:400]}
     try:
+        if crop_css:
+            raw_b64 = _crop_png_to_css_box(raw_b64, crop_css, vw)
         resized = _resize_png_to_declared(raw_b64, dw, dh)
     except Exception as exc:
         return {"ok": False, "error": f"screenshot resize failed: {exc}"}
