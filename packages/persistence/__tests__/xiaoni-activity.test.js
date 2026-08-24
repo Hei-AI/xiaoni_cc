@@ -2135,3 +2135,34 @@ test('Xiaoni recall expansion that produced no usable query reads as a wasted ca
   // 模型原文要留在展开面里,否则「它到底答了什么」查无此事。
   assert.match(event.metadata.responsePreview, /模型跑题了/u);
 });
+
+test('codex-provider trace target does not fabricate a forkRunId when the row has no source_id', async () => {
+  // source_id 为空的 provider usage 行(cache_heartbeat、召回精排/展开都是这种)。
+  // 以前这里拿 event_id 顶 forkRunId,下游 buildCodexProviderUsageRawTrace 会把它当
+  // source_id 下推成查询条件 → 库里那列是 NULL → 一行查不到 → 原始报文页签打不开。
+  const persistence = createPersistence({
+    codexProviderUsageRows: [{
+      id: 'usage-row-1',
+      eventId: 'codex-provider:llm_recall_1',
+      event_id: 'codex-provider:llm_recall_1',
+      sourceKind: 'recall_rerank',
+      source_kind: 'recall_rerank',
+      sourceId: null,
+      identityKey: 'xiaoni',
+      llmCallId: 'llm_recall_1',
+      llm_call_id: 'llm_recall_1',
+      modelName: 'claude-haiku-4-5',
+      status: 'completed',
+      createdAt: '2026-08-24T04:04:37.000Z',
+      tokenUsage: { input_tokens: 1066, output_tokens: 89 },
+      wireRequest: { model: 'claude-haiku-4-5' }
+    }]
+  });
+
+  const target = await persistence.findXiaoniActionEventTraceTarget('codex-provider:llm_recall_1');
+
+  assert.ok(target);
+  assert.equal(target.forkRunId ?? null, null);
+  assert.equal(target.sourceKind, 'recall_rerank');
+  assert.equal(target.llmRequestSliceId, 'codex-provider:llm_recall_1');
+});

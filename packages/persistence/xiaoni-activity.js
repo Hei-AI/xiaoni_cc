@@ -4591,7 +4591,12 @@ function createXiaoniActivityPersistence({
     return normalizeTraceTarget({
       ...event.traceTarget,
       sourceKind: row.sourceKind || 'codex_provider',
-      forkRunId: row.sourceId || row.eventId || eventId,
+      // 没有 source_id 就是**没有** fork run —— 别拿 event_id 顶上。顶上去的后果:
+      // buildCodexProviderUsageRawTrace 把 forkRunId 当 sourceId 下推成查询条件,
+      // 而库里那列是 NULL,于是一行都查不到、原始报文页签打不开。cache_heartbeat 一直
+      // 靠一句 `sourceKind === 'cache_heartbeat' ? null : ...` 的特例绕开这件事;召回
+      // 那两条腿(同样没有 source_id)就直接撞上了。这里改成不编造,特例也就不必再加。
+      forkRunId: row.sourceId || null,
       llmRequestSliceId: row.eventId,
       spanId: event.metadata?.providerRequestSpanId || event.traceTarget?.spanId || null
     });
