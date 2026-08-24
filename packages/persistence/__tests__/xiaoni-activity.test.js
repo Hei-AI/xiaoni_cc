@@ -84,6 +84,9 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM agent_queue_messages')) {
           return overrides.queueRows || [];
         }
+        if (statement.includes('FROM xiaoni_recall_shadow_log')) {
+          return overrides.recallRerankRows || [];
+        }
         return [];
       },
       close: async () => undefined
@@ -1910,4 +1913,121 @@ test('Xiaoni action stream keeps a voided run\'s model request out of the next r
   assert.equal(typeof voided.metadata.orderSeq, 'number');
   // 它发生得更早，位置必须排在 run_live 之前（否则页面上仍然读不出先后）
   assert.ok(voided.metadata.orderSeq < 1000, `voided orderSeq ${voided.metadata.orderSeq} 应排在 run_live 之前`);
+});
+
+// ── 召回精排(被动召回投递闸的那次 LLM) ─────────────────────────────────────
+// 它不落 llm_request_slices、也不是真 fork run,唯一留痕在 xiaoni_recall_shadow_log。
+// 这几条用例钉的是「它必须在事件流里看得见」:进 fork 时间线(左栏)、进 source:LLM 过滤、
+// 有 orderSeq(否则沉底)、正文说清判了什么。
+
+function recallJudgeShadowRow(overrides = {}) {
+  return {
+    id: 72307,
+    occurred_at: '2026-08-24T02:09:39.986Z',
+    query_text: 'the-bottom.md 通读一遍',
+    llm_work: {
+      kind: 'judge',
+      anchor: 'the-bottom.md 通读一遍,2946字',
+      candidates: [
+        { id: 'recall-surface:association:aaa', leg: 'association', text: '通读活人——备注栏的起源——第10天。那个女人。身上有伤。' },
+        { id: 'recall-surface:landing:bbb', leg: 'landing', text: '《交出去了》通读后决定不改。' },
+        { id: 'recall-surface:association:ccc', leg: 'association', text: '楠楠的诗:「葱」——炒了' }
+      ],
+      picks: [
+        { id: 'recall-surface:association:aaa', hook: '那个身上有伤、每次来都有的女人——值得再看一眼' }
+      ],
+      parsed: true,
+      error: null
+    },
+    ...overrides
+  };
+}
+
+test('Xiaoni action stream surfaces the recall rerank LLM call as its own fork run', async () => {
+  const persistence = createPersistence({
+    recallRerankRows: [recallJudgeShadowRow()]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.recallRerankTimeline.runs[0];
+
+  assert.ok(run, '召回精排必须自成一条 fork run —— 前端左栏只渲染 fork lane');
+  assert.equal(run.source, 'recall_rerank');
+  assert.equal(run.forkKind, 'recall_rerank');
+  assert.equal(run.metadata.candidateCount, 3);
+  assert.equal(run.metadata.pickCount, 1);
+  // 正文要说清「判了什么」,不能只是一句「已完成」。
+  assert.match(run.events[0].body, /候选 3 · 挑中 1/u);
+  assert.match(run.events[0].body, /值得再看一眼/u);
+  // 主 items 里不能重复出现 —— 它只走 fork 时间线。
+  assert.equal(stream.items.some((item) => item.source === 'recall_rerank_llm_request'), false);
+});
+
+test('Xiaoni recall rerank answers the LLM source tag', async () => {
+  const persistence = createPersistence({
+    recallRerankRows: [recallJudgeShadowRow()]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({
+    limit: 20,
+    tags: ['source:llm_request']
+  });
+  const run = stream.recallRerankTimeline.runs[0];
+
+  assert.ok(run, '按 source:LLM 过滤时,召回精排不能消失 —— 它就是一次 provider 请求');
+  assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true);
+});
+
+test('Xiaoni recall rerank gets a wall-clock orderSeq so it does not sink to the historical tier', async () => {
+  const persistence = createPersistence({
+    // 一条已 stamp 的主 agent 行当参照:精排发生在它之后,orderSeq 必须落在 4200 之上、下一个真 seq 之下。
+    agentStackRows: [{
+      id: 'stack-1',
+      eventId: 'stack-1',
+      identityKey: 'xiaoni',
+      itemKind: 'assistant_output',
+      item_kind: 'assistant_output',
+      role: 'assistant',
+      content: { text: '在写 the-bottom.md' },
+      occurredSeq: 4200,
+      occurred_seq: 4200,
+      createdAt: '2026-08-24T02:00:00.000Z',
+      created_at: '2026-08-24T02:00:00.000Z'
+    }],
+    recallRerankRows: [recallJudgeShadowRow()]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const orderSeq = stream.recallRerankTimeline.runs[0].events[0].metadata.orderSeq;
+
+  assert.equal(Number.isFinite(orderSeq), true, '没有 orderSeq 的行会被前端整体沉到页面最底部');
+  assert.ok(orderSeq > 4200 && orderSeq < 4201, `期望插在 4200 之后,实际 ${orderSeq}`);
+});
+
+test('Xiaoni recall rerank tells apart 判不出来 and 一条都不值得投', async () => {
+  const persistence = createPersistence({
+    recallRerankRows: [
+      recallJudgeShadowRow({
+        id: 72400,
+        occurred_at: '2026-08-24T02:19:00.000Z',
+        llm_work: { kind: 'judge', anchor: 'x', candidates: [{ id: 'a', leg: 'association', text: 'a' }], picks: [], parsed: true, error: null }
+      }),
+      recallJudgeShadowRow({
+        id: 72401,
+        occurred_at: '2026-08-24T02:29:00.000Z',
+        llm_work: { kind: 'judge', anchor: 'x', candidates: [{ id: 'a', leg: 'association', text: 'a' }], picks: [], parsed: false, error: 'recall-judge http 500' }
+      })
+    ]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const byId = new Map(stream.recallRerankTimeline.runs.map((run) => [run.metadata.recallShadowLogId, run]));
+
+  // 判官说「都不值得」= 正常结果,下游静默跳过。
+  assert.match(byId.get('72400').events[0].body, /一条都不值得投/u);
+  assert.equal(byId.get('72400').status, 'ok'); // normalizeActionStreamStatus: completed → ok
+  // 判官挂了 = 下游退回模板钩子 + 间隔节流 —— 完全不同的后果,不能渲染成同一句。
+  assert.match(byId.get('72401').events[0].body, /请求失败/u);
+  assert.equal(byId.get('72401').status, 'failed');
+  assert.equal(byId.get('72401').metadata.errorMessage, 'recall-judge http 500');
 });

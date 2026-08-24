@@ -2334,6 +2334,7 @@ export type XiaoniActivityFeedResult = {
   compressionForkTimeline?: XiaoniForkTimeline;
   psychAssessmentForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
+  recallRerankTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };
 export type XiaoniActionStreamResult = {
@@ -2381,6 +2382,7 @@ export type XiaoniActionStreamResult = {
   subconsciousForkTimeline?: XiaoniForkTimeline;
   psychAssessmentForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
+  recallRerankTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };
 export type RecordAgentLifeEventInput = {

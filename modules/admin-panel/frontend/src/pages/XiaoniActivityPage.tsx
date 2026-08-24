@@ -289,6 +289,7 @@ interface XiaoniActivityFeed {
   psychAssessmentForkTimeline?: CompressionForkTimeline;
   failureReviewForkTimeline?: CompressionForkTimeline;
   cacheHeartbeatTimeline?: CompressionForkTimeline;
+  recallRerankTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
 
@@ -596,6 +597,9 @@ function sourceLabel(source: string) {
       return 'vision step';
     case 'cache_heartbeat':
       return 'heartbeat';
+    case 'recall_rerank':
+    case 'recall_rerank_llm_request':
+      return '召回精排';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -770,6 +774,9 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'failure_review_fork') {
     return 'failure_review';
   }
+  if (run.source === 'recall_rerank') {
+    return 'recall_rerank';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -788,6 +795,9 @@ function forkAgentLabel(forkKind: string) {
   }
   if (forkKind === 'failure_review') {
     return '复核 Fork';
+  }
+  if (forkKind === 'recall_rerank') {
+    return '召回精排';
   }
   return 'Memory Compress Fork';
 }
@@ -841,7 +851,15 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
+  const recallRerankRuns = (feed?.recallRerankTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -876,6 +894,8 @@ function forkChipClass(kind: string): string {
       return 'border-emerald-200 bg-emerald-50 text-emerald-700';
     case 'compression_memory':
       return 'border-violet-200 bg-violet-50 text-violet-700';
+    case 'recall_rerank':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
     default:
       return 'border-border bg-muted text-muted-foreground';
   }
@@ -906,6 +926,11 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
     body = '收到图片 → 触发图像视觉 fork';
   } else if (forkKind === 'cache_heartbeat') {
     body = '缓存心跳定时触发 · 续 cache TTL';
+  } else if (forkKind === 'recall_rerank') {
+    const candidateCount = metadataNumber(run.metadata, 'candidateCount');
+    body = candidateCount === null
+      ? '投递闸定时触发'
+      : `投递闸定时触发 · ${candidateCount} 条候选送去精排`;
   } else {
     body = 'fork 触发';
   }
@@ -1098,6 +1123,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const failureReviewRunsById = new Map<string, CompressionForkRun>();
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
+  const recallRerankRunsById = new Map<string, CompressionForkRun>();
 
   pages.forEach((page) => {
     (page.items || []).forEach((item) => {
@@ -1135,6 +1161,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
         cacheHeartbeatRunsById.set(run.id, run);
       }
     });
+    (page.recallRerankTimeline?.runs || []).forEach((run) => {
+      if (!recallRerankRunsById.has(run.id)) {
+        recallRerankRunsById.set(run.id, run);
+      }
+    });
   });
 
   const lastPage = pages[pages.length - 1] || firstPage;
@@ -1162,6 +1193,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     cacheHeartbeatTimeline: {
       ...(firstPage.cacheHeartbeatTimeline || {}),
       runs: Array.from(cacheHeartbeatRunsById.values()),
+    },
+    recallRerankTimeline: {
+      ...(firstPage.recallRerankTimeline || {}),
+      runs: Array.from(recallRerankRunsById.values()),
     },
     imageVisionForkTimeline: {
       ...(firstPage.imageVisionForkTimeline || {}),

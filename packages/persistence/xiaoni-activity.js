@@ -1821,6 +1821,184 @@ async function loadCacheHeartbeatTimeline({
   }
 }
 
+// ── 召回精排(被动召回的投递闸) ──────────────────────────────────────────────
+// 投递闸不是规则,是一次真的 LLM 请求:10 条候选 + 「她此刻在做的事」锚点喂给小模型,
+// 它挑几条、并给每条现写钩子 —— 挑中的那句就是最终 notify 的正文。
+//
+// 这条路走 provider-service 的 /api/internal/llm/debug,**按设计不落 llm_request_slices**,
+// 也不是真 fork run。于是在此之前,整条链在事件流里只剩最后入队的那几行 queue,
+// 「判了什么、放过了什么、为什么这句话是这么写的」全程不可见。
+//
+// 唯一留痕是 xiaoni_recall_shadow_log(query_ref='delivery_judge',llm_work.kind='judge',
+// 由 xiaoni-recall-delivery.ts 的 writeJudgeShadow 写)。这里把每一行读成**单事件的伪 fork run**
+// —— 和 cache_heartbeat 同一套路(它同样不在栈上、同样只有一次请求),这样它进左栏 fork 列,
+// 而不是混在右栏主 agent 事件里。
+const RECALL_RERANK_QUERY_REF = 'delivery_judge';
+const RECALL_RERANK_SELECT = `
+  id,
+  occurred_at,
+  query_text,
+  llm_work
+`;
+
+function recallRerankLlmWork(row) {
+  const work = row?.llm_work ?? row?.llmWork;
+  return work && typeof work === 'object' && !Array.isArray(work) ? work : {};
+}
+
+// dedupeKey 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在候选 id 里。候选表里带 leg 时
+// 以它为准,拿不到才从 id 反解(判官只回 id + hook,不回 leg)。
+function recallRerankLegOf(candidateId, legById) {
+  const known = legById.get(String(candidateId || ''));
+  if (known) {
+    return known;
+  }
+  const parts = String(candidateId || '').split(':');
+  return parts.length >= 3 ? parts[1] : '';
+}
+
+function recallRerankOneLine(value, max) {
+  return truncateText(String(value == null ? '' : value).replace(/\s+/gu, ' ').trim(), max);
+}
+
+function summarizeRecallRerankEvent(row) {
+  const work = recallRerankLlmWork(row);
+  const shadowLogId = String(row.id ?? '');
+  const candidates = Array.isArray(work.candidates) ? work.candidates : [];
+  const picks = Array.isArray(work.picks) ? work.picks : [];
+  const parsed = work.parsed === true;
+  const errorMessage = firstString(work.error);
+  const legById = new Map(candidates.map((candidate) => [
+    String(candidate?.id ?? ''),
+    String(candidate?.leg ?? '')
+  ]));
+  const pickedIds = new Set(picks.map((pick) => String(pick?.id ?? '')));
+  const anchor = String(firstString(work.anchor, row.query_text, row.queryText) || '').trim();
+
+  // 一行说清这拍干了什么。判官挂了 / 没读出来 / 说一条都不值得,都是**不同的结果**,
+  // 不能都渲染成「挑中 0 条」—— 那三种情况下游行为完全不一样(退回模板钩子 vs 静默跳过)。
+  const summary = errorMessage
+    ? `请求失败 · 候选 ${candidates.length} · 退回模板钩子`
+    : !parsed
+      ? `未解析 · 候选 ${candidates.length} · 退回模板钩子`
+      : picks.length === 0
+        ? `候选 ${candidates.length} · 一条都不值得投`
+        : `候选 ${candidates.length} · 挑中 ${picks.length}`;
+  const pickLines = picks.map((pick, index) => {
+    const leg = recallRerankLegOf(pick?.id, legById);
+    return `${index + 1}. ${leg ? `[${leg}] ` : ''}${recallRerankOneLine(pick?.hook, 160)}`;
+  });
+  const candidateLines = candidates.map((candidate, index) => {
+    const marker = pickedIds.has(String(candidate?.id ?? '')) ? '✓' : '·';
+    const leg = String(candidate?.leg ?? '');
+    return `${marker} ${index + 1}. ${leg ? `[${leg}] ` : ''}${recallRerankOneLine(candidate?.text, 200)}`;
+  });
+
+  const timestamp = eventTimestamp(row.occurred_at || row.occurredAt);
+  return {
+    id: `recall-rerank:${shadowLogId}`,
+    source: 'recall_rerank_llm_request',
+    kind: 'recall_rerank',
+    title: '召回精排',
+    body: truncateText([summary, ...pickLines].join(' · '), 420),
+    status: errorMessage ? 'failed' : parsed ? 'completed' : 'unparsed',
+    actor: 'system',
+    actorName: '召回精排',
+    timestamp,
+    occurredAt: timestamp,
+    sessionKey: null,
+    peerName: null,
+    runId: null,
+    traceId: null,
+    tone: errorMessage ? 'danger' : parsed ? (picks.length ? 'success' : 'info') : 'warning',
+    // 这次请求不落 llm_request_slices,也没有 provider_exchange span —— 没有 raw trace 可点。
+    // 展开面看到的就是下面 payloadPreview / responsePreview 这两段。
+    traceTarget: null,
+    metadata: normalizeValue({
+      forkKind: 'recall_rerank',
+      sourceKind: 'recall_rerank',
+      // 不在 agent stack 上 → 没有 occurred_seq。由 stampWallClockStreamOrderSeq 按墙钟插回,
+      // 否则整条 fork 会掉进前端的「未 stamp 历史层」沉到页面最底部。
+      orderSeq: null,
+      recallShadowLogId: shadowLogId,
+      candidateCount: candidates.length,
+      pickCount: picks.length,
+      parsed,
+      errorMessage,
+      anchorPreview: truncateText(anchor, 600),
+      payloadPreview: truncateText([
+        anchor ? `【她此刻在做的事】\n${anchor}` : null,
+        candidateLines.length ? `【候选 ${candidates.length}】\n${candidateLines.join('\n')}` : null
+      ].filter(Boolean).join('\n\n'), 4000),
+      responsePreview: truncateText([
+        summary,
+        pickLines.length ? `【投出去的】\n${pickLines.join('\n')}` : null,
+        errorMessage ? `【错误】\n${errorMessage}` : null
+      ].filter(Boolean).join('\n\n'), 4000)
+    })
+  };
+}
+
+function summarizeRecallRerankRun(row) {
+  const event = summarizeRecallRerankEvent(row);
+  return {
+    id: `recall-rerank:${event.metadata.recallShadowLogId}`,
+    forkRunId: event.id,
+    source: 'recall_rerank',
+    kind: 'recall_rerank_fork',
+    title: '召回精排',
+    body: event.body,
+    status: event.status,
+    startedAt: event.timestamp,
+    completedAt: event.timestamp,
+    durationMs: null,
+    traceId: null,
+    runId: null,
+    conversationId: null,
+    eventCount: 1,
+    events: [event],
+    metadata: normalizeValue({
+      forkKind: 'recall_rerank',
+      recallShadowLogId: event.metadata.recallShadowLogId,
+      candidateCount: event.metadata.candidateCount,
+      pickCount: event.metadata.pickCount,
+      parsed: event.metadata.parsed,
+      errorMessage: event.metadata.errorMessage
+    })
+  };
+}
+
+async function loadRecallRerankTimeline(sql, {
+  identityKey,
+  timeWindow,
+  limit
+}) {
+  if (!sql || typeof sql.query !== 'function') {
+    return { runs: [] };
+  }
+  const forkLimit = clampLimit(limit, 30, 120);
+  const timePredicate = buildSqlTimePredicate(['occurred_at'], timeWindow);
+  try {
+    const rows = await sql.query(`
+      SELECT ${RECALL_RERANK_SELECT}
+      FROM xiaoni_recall_shadow_log
+      WHERE identity_key = ?
+        AND query_ref = ?
+        ${timePredicate.clause ? `AND ${timePredicate.clause}` : ''}
+      ORDER BY occurred_at DESC, id DESC
+      LIMIT ?
+    `, [identityKey, RECALL_RERANK_QUERY_REF, ...timePredicate.params, forkLimit]);
+    return {
+      runs: (Array.isArray(rows) ? rows : [])
+        .map((row) => summarizeRecallRerankRun(row))
+        .filter((run) => run.startedAt)
+    };
+  } catch {
+    // 表缺失 / 查询失败不该拖垮整个事件流 —— 和其它 fork timeline 同口径,退成空。
+    return { runs: [] };
+  }
+}
+
 const FORK_SLICE_ACTION_STREAM_SELECT = `
   id,
   slice_id,
@@ -2802,6 +2980,9 @@ function normalizeActionStreamEventKind(item) {
   if (item.source === 'queue_message') {
     return item.status === 'processing' ? 'queue_claimed' : 'queue_event';
   }
+  if (item.source === 'recall_rerank_llm_request') {
+    return 'recall_rerank';
+  }
   if (item.kind === 'send_in_group' || item.kind === 'send_in_private' || item.kind === 'qq_self_message') {
     return 'visible_delivery_committed';
   }
@@ -2884,7 +3065,10 @@ const LLM_PROVIDER_ACTION_STREAM_SOURCES = new Set([
   'compression_fork_llm_request',
   'subconscious_fork_llm_request',
   'image_vision_fork_llm_request',
-  'cache_heartbeat'
+  'cache_heartbeat',
+  // 走 /api/internal/llm/debug、不落 llm_request_slices，但它确确实实是一次 provider 请求 ——
+  // 「所有经过 LLM 的请求都要能在事件流里看到」这条规矩对它一样成立。
+  'recall_rerank_llm_request'
 ]);
 
 function isLlmProviderBackedActionStreamItem(item, source) {
@@ -2968,6 +3152,10 @@ function sourceLabelForActionStreamTag(source) {
       return 'vision step';
     case 'cache_heartbeat':
       return 'Cache Heartbeat Fork';
+    case 'recall_rerank':
+      return '召回精排';
+    case 'recall_rerank_llm_request':
+      return '召回精排 LLM';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -3609,15 +3797,9 @@ function attachStreamOrderMetadata(items, sliceRows) {
 // 这里按墙钟把它们插回真正的位置：取时间上紧挨着它之前那条已标戳行的 seq，加一个小增量(同一个
 // 空档里的多行按时间依次递增，且增量恒 < 1，不会越过下一条真行)。
 // 纯观测投影：不写库、不碰 agent_stack_items、不进 replay，因此对她的上下文与缓存零影响。
-function repairAnchorlessStreamOrderSeq(items, forkRuns) {
-  const anchorless = (items || []).filter((item) => item
-    && item.metadata
-    && typeof item.metadata === 'object'
-    && streamNumberOrNull(item.metadata.orderSeq) === null
-    && Number.isFinite(Date.parse(item.occurredAt || item.timestamp || '')));
-  if (!anchorless.length) {
-    return items;
-  }
+// 已 stamp 的行(item + fork 事件)按 (墙钟, orderSeq) 排好的参照表。
+// 给「没有 orderSeq 的行」找插入位用 —— 见 assignWallClockStreamOrderSeq。
+function collectStreamOrderRefs(items, forkRuns) {
   const refs = [];
   const pushRef = (seqValue, timestamp) => {
     const seq = streamNumberOrNull(seqValue);
@@ -3638,16 +3820,23 @@ function repairAnchorlessStreamOrderSeq(items, forkRuns) {
       }
     }
   }
-  if (!refs.length) {
-    return items;
-  }
   refs.sort((left, right) => left.ms - right.ms || left.seq - right.seq);
-  const ordered = anchorless.slice().sort((left, right) => (
+  return refs;
+}
+
+// 按墙钟把没有 orderSeq 的行插回参照表里它真正发生的那个位置(base + 0.01×n,封顶 0.4,
+// 保证插进来的行仍排在下一个真 seq 之前)。前端把「没有 orderSeq」的行整体沉到历史层底部,
+// 所以任何拿不到 occurred_seq 的行都必须过这道手续,否则页面上就是「沉底」。
+function assignWallClockStreamOrderSeq(targets, refs) {
+  if (!Array.isArray(targets) || targets.length === 0 || !Array.isArray(refs) || refs.length === 0) {
+    return targets;
+  }
+  const ordered = targets.slice().sort((left, right) => (
     Date.parse(left.occurredAt || left.timestamp) - Date.parse(right.occurredAt || right.timestamp)
   ));
   const bumpByBase = new Map();
-  for (const item of ordered) {
-    const ms = Date.parse(item.occurredAt || item.timestamp);
+  for (const target of ordered) {
+    const ms = Date.parse(target.occurredAt || target.timestamp);
     let base = null;
     for (const ref of refs) {
       if (ref.ms <= ms) {
@@ -3661,9 +3850,44 @@ function repairAnchorlessStreamOrderSeq(items, forkRuns) {
     }
     const nth = (bumpByBase.get(base) || 0) + 1;
     bumpByBase.set(base, nth);
-    item.metadata.orderSeq = base + Math.min(0.4, nth * 0.01);
+    target.metadata.orderSeq = base + Math.min(0.4, nth * 0.01);
   }
+  return targets;
+}
+
+function streamRowNeedsOrderSeq(row) {
+  return Boolean(row)
+    && row.metadata
+    && typeof row.metadata === 'object'
+    && streamNumberOrNull(row.metadata.orderSeq) === null
+    && Number.isFinite(Date.parse(row.occurredAt || row.timestamp || ''));
+}
+
+function repairAnchorlessStreamOrderSeq(items, forkRuns) {
+  const anchorless = (items || []).filter(streamRowNeedsOrderSeq);
+  if (!anchorless.length) {
+    return items;
+  }
+  const refs = collectStreamOrderRefs(items, forkRuns);
+  if (!refs.length) {
+    return items;
+  }
+  assignWallClockStreamOrderSeq(anchorless, refs);
   return items;
+}
+
+// 召回精排不在 agent stack 上(那次请求不落 slice、不是真 fork run),所以它的事件天生没有
+// occurred_seq。参照表要用**其它** fork + 主 item 里已 stamp 的行来建,自己不能当参照,
+// 否则第一次调用时表是空的、整条腿仍旧沉底。
+function stampRecallRerankStreamOrderSeq(recallRerankRuns, items, otherForkRuns) {
+  const targets = (recallRerankRuns || [])
+    .flatMap((run) => (Array.isArray(run.events) ? run.events : []))
+    .filter(streamRowNeedsOrderSeq);
+  if (!targets.length) {
+    return recallRerankRuns;
+  }
+  assignWallClockStreamOrderSeq(targets, collectStreamOrderRefs(items, otherForkRuns));
+  return recallRerankRuns;
 }
 
 function isPrimaryActionStreamItem(item) {
@@ -4608,7 +4832,8 @@ function createXiaoniActivityPersistence({
         subconsciousForkTimeline,
         psychAssessmentForkTimeline,
         failureReviewForkTimeline,
-        cacheHeartbeatTimeline
+        cacheHeartbeatTimeline,
+        recallRerankTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
           where: { identity_key: identityKey }
@@ -4756,7 +4981,12 @@ function createXiaoniActivityPersistence({
           identityKey,
           timeWindow,
           limit: perSourceLimit
-        }, config, listCodexProviderUsageEvents, sql)
+        }, config, listCodexProviderUsageEvents, sql),
+        loadRecallRerankTimeline(sql, {
+          identityKey,
+          timeWindow,
+          limit: perSourceLimit
+        })
       ]);
 
       const latestPhoneNotificationQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'phone_notification'));
@@ -4905,6 +5135,7 @@ function createXiaoniActivityPersistence({
         psychAssessmentForkTimeline: normalizeValue(psychAssessmentForkTimeline || { runs: [] }),
         failureReviewForkTimeline: normalizeValue(failureReviewForkTimeline || { runs: [] }),
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
+        recallRerankTimeline: normalizeValue(recallRerankTimeline || { runs: [] }),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithOrder)
       };
     } finally {
@@ -4944,6 +5175,18 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const cacheHeartbeatRuns = (feed.cacheHeartbeatTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    const recallRerankRuns = (feed.recallRerankTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
+    // 召回精排没有 occurred_seq(不落 slice、不在栈上)。先用其它已 stamp 的行建参照表把它
+    // 按墙钟插回,再进下面的 repair —— 顺序反了它就会被当成「历史行」沉到页面最底部。
+    stampRecallRerankStreamOrderSeq(recallRerankRuns, decoratedItems, [
+      ...compressionForkRuns,
+      ...subconsciousForkRuns,
+      ...psychAssessmentForkRuns,
+      ...failureReviewForkRuns,
+      ...imageVisionForkRuns,
+      ...cacheHeartbeatRuns
+    ]);
     // 失去栈锚点的行(作废 run 只剩 slice 观测记录)按时间插回原位，否则它们会沉到历史层底部，
     // 页面上表现为「fork 连着出现、中间主 agent 空白」。fork 事件也参与定位，这样插回来的行
     // 能落在两个 fork 之间它真正发生的那个位置。
@@ -4953,7 +5196,8 @@ function createXiaoniActivityPersistence({
       ...psychAssessmentForkRuns,
       ...failureReviewForkRuns,
       ...imageVisionForkRuns,
-      ...cacheHeartbeatRuns
+      ...cacheHeartbeatRuns,
+      ...recallRerankRuns
     ]);
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
@@ -4961,7 +5205,8 @@ function createXiaoniActivityPersistence({
       ...psychAssessmentForkRuns,
       ...failureReviewForkRuns,
       ...imageVisionForkRuns,
-      ...cacheHeartbeatRuns
+      ...cacheHeartbeatRuns,
+      ...recallRerankRuns
     ]);
     const taggedItems = decoratedItems
       .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
@@ -4972,6 +5217,7 @@ function createXiaoniActivityPersistence({
     const filteredFailureReviewForkRuns = filterActionStreamForkRunsByTags(failureReviewForkRuns, selectedTags);
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
+    const filteredRecallRerankRuns = filterActionStreamForkRunsByTags(recallRerankRuns, selectedTags);
     let focusedItem = null;
     if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !taggedItems.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
       const focusedRows = await listLlmRequestSlices({
@@ -5024,6 +5270,11 @@ function createXiaoniActivityPersistence({
         kind: 'fork',
         id: `cache-heartbeat:${run.id}`,
         run
+      })),
+      ...filteredRecallRerankRuns.map((run) => ({
+        kind: 'fork',
+        id: `recall-rerank:${run.id}`,
+        run
       }))
     ];
     const { visibleEntries, hasMore, nextCursor } = paginateActionStreamEntries(actionEntries, limit);
@@ -5041,6 +5292,7 @@ function createXiaoniActivityPersistence({
     const visibleFailureReviewForkRuns = filteredFailureReviewForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleRecallRerankRuns = filteredRecallRerankRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .map((item) => item.tags ? item : decorateActionStreamItem(item));
@@ -5084,6 +5336,10 @@ function createXiaoniActivityPersistence({
       cacheHeartbeatTimeline: {
         ...(feed.cacheHeartbeatTimeline || {}),
         runs: visibleCacheHeartbeatRuns
+      },
+      recallRerankTimeline: {
+        ...(feed.recallRerankTimeline || {}),
+        runs: visibleRecallRerankRuns
       },
       imageVisionForkTimeline: {
         ...(feed.imageVisionForkTimeline || {}),
