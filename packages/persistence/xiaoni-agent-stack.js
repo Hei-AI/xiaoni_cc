@@ -26,7 +26,10 @@ const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
 // 将来若真需要回填历史,走一次性迁移脚本,别用 bump 触发热路径重建。
 // 下次 bump 直接从 6 起:5 这个号在开发期被 failure_review_fork 短暂用过又撤回,
 // 那些库的 state.version 已经是 5,再 bump 到 5 它们会静默跳过重建。
-const USAGE_ROLLUP_VERSION = 4;
+// 5：把召回两条小模型腿排除出 LLM Cost 聚合（见 usageRollupSourceFromCodexProviderSelectSql）。
+// 版本号一升，initializeLlmUsageRollupsIfNeeded 会清空 rollup 表并按新口径整体重建 ——
+// 已经落进去的那批 recall_* 行靠这个清掉，不然它们会一直留在折线上。
+const USAGE_ROLLUP_VERSION = 5;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
@@ -756,7 +759,21 @@ function usageRollupSourceFromCodexProviderSelectSql() {
     -- 生图/改图/生图 prompt 助手不进 LLM Cost 聚合：它们是按图计费的 image 请求，
     -- token 口径和主 loop 的对话 token 不可比，混进来会让 LLM Cost 折线和缓存击穿
     -- 分析失真。每条生图的 token「cost」仍在其行动流卡片上单独展示（summarizeTask）。
-    AND source_kind NOT IN ('image_generation', 'image_edit', 'image_prompt_assistant')
+    --
+    -- 召回的两条小模型腿同理，但坏的方式更直接。这条折线的用途是**看缓存**：主 loop
+    -- 和各 fork 都是克隆主请求骑热前缀的，每点 20 万 input 起步，线掉下去就意味着击穿。
+    -- 召回精排/展开是**独立请求，绝不克隆主请求**（adr/0006），每点约 1000 input ——
+    -- 2026-08-24 实测近 1 小时：召回两腿中位 1,000，其余全体中位 212,895，低 213 倍。
+    -- 它们混进 call 分桶的结果就是每来一次就把折线拽到底一次（当时 316 个点里 13 个是
+    -- 这种触底毛刺），把「缓存击穿」的信号淹掉。
+    --
+    -- 判据不是「是不是召回」，是**这次请求有没有骑主请求的前缀**：不骑的就不该和骑的
+    -- 画在同一条线上。以后再加同类小腿（独立 prompt、几千 token 以内）也照此排除。
+    -- 它们各自的 token 仍在行动流那一行上单独显示（StreamRow 的 hasInlineTokens 分支）。
+    AND source_kind NOT IN (
+      'image_generation', 'image_edit', 'image_prompt_assistant',
+      'recall_rerank', 'recall_expand'
+    )
   `;
 }
 
@@ -5242,5 +5259,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
 }
 
 module.exports = {
-  createXiaoniAgentStackPersistence
+  createXiaoniAgentStackPersistence,
+  // 导出给测试用:mock 的 rollupState 版本必须 >= 它,否则 ensureSchema 会触发一次
+  // 整体重建,那条 INSERT ... SELECT FROM llm_request_slices 会混进 mock 抓到的
+  // 查询列表里,把「查询构造」类用例弄挂。以前靠一句「Keep in sync」的注释人工同步,
+  // 每次升版本都会误伤一次。
+  USAGE_ROLLUP_VERSION
 };

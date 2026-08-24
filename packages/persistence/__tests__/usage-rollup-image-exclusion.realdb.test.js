@@ -9,6 +9,11 @@
 // image_edit / image_prompt_assistant 从 rollup 里挡掉。每条生图的 token「cost」仍在
 // 其行动流卡片上单独展示（summarizeTask，另有测试覆盖），只是不进聚合。
 //
+// 召回的两条小模型腿（recall_rerank / recall_expand）走同一道 WHERE，理由不同：它们是
+// 独立请求、不克隆主请求（adr/0006），每次约 1000 input，而主 loop 和各 fork 都是 20 万
+// 起步。混进同一条折线的结果是每来一次就把线拽到底一次，把这条线唯一的用途 ——
+// 「缓存有没有击穿」—— 的信号淹掉。
+//
 // 这条必须验真库：排除发生在 rollup 的 INSERT ... SELECT 里，纯内存 mock 直接喂
 // pointRows 会绕过 SELECT，测不到过滤。跑在隔离的 qqbot_cache_test，绝不碰 qqbot_db。
 // 测试 DB 不可达时（无 Postgres 的 CI）整组干净跳过。
@@ -126,6 +131,42 @@ dbTest('image_generation / image_edit / image_prompt_assistant are excluded from
   assert.equal(timeline.summary.outputTokens, 3);
   assert.equal(
     timeline.points.some((p) => ['image_generation', 'image_edit', 'image_prompt_assistant'].includes(p.sourceKind)),
+    false
+  );
+});
+
+// 召回两条小模型腿(精排 / 展开)是**独立请求，不克隆主请求**(adr/0006)，每次约 1000 input，
+// 而主 loop 和各 fork 都是 20 万起步。混进同一条 call 分桶折线的结果是每来一次就把线拽到底
+// 一次，把这条线唯一的用途 ——「缓存有没有击穿」—— 的信号淹掉。
+dbTest('召回的独立小请求不进 LLM Cost 折线（否则每次都把线拽到底）', async () => {
+  // 对照组：cache_heartbeat 是克隆主请求的 fork，照常进聚合。
+  await persistence.recordCodexProviderUsageEvent(
+    codexEvent('codex-provider:control-heartbeat-2', 'cache_heartbeat', { input_tokens: 212895, cached_input_tokens: 212000, output_tokens: 1 })
+  );
+  await persistence.recordCodexProviderUsageEvent(
+    codexEvent('codex-provider:recall-rerank-1', 'recall_rerank', { input_tokens: 1154, output_tokens: 89 })
+  );
+  await persistence.recordCodexProviderUsageEvent(
+    codexEvent('codex-provider:recall-expand-1', 'recall_expand', { input_tokens: 995, output_tokens: 167 })
+  );
+
+  // 断言只认本用例自己写的那三行。整表比对会被同一个共享测试库里别的 realdb 用例
+  // （failure_review_fork 等）写进来的行打断 —— 那是噪音，不是被测行为。
+  const ids = ['codex-provider:control-heartbeat-2', 'codex-provider:recall-rerank-1', 'codex-provider:recall-expand-1'];
+  const rows = await sql.query(
+    'SELECT slice_id, source_kind FROM llm_usage_rollup_sources WHERE slice_id IN (?, ?, ?) ORDER BY slice_id',
+    ids
+  );
+  assert.deepEqual(rows.map((r) => r.source_kind), ['cache_heartbeat']);
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({ identityKey: 'xiaoni', bucket: 'call', maxPoints: 100 });
+  const mine = timeline.points.filter((p) => ids.includes(p.llmRequestSliceId));
+  assert.deepEqual(mine.map((p) => p.sourceKind), ['cache_heartbeat']);
+  // 触底毛刺的判据：本用例贡献给折线的点不能塌到千级。
+  assert.equal(mine[0].inputTokens, 212895);
+  // 这条是全局的：整条折线上一个召回点都不能有。
+  assert.equal(
+    timeline.points.some((p) => ['recall_rerank', 'recall_expand'].includes(p.sourceKind)),
     false
   );
 });

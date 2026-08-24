@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createXiaoniAgentStackPersistence } = require('../xiaoni-agent-stack');
+const { createXiaoniAgentStackPersistence, USAGE_ROLLUP_VERSION } = require('../xiaoni-agent-stack');
 
 function createMockSql() {
   const calls = [];
@@ -25,10 +25,10 @@ function createMockSql() {
     subconsciousForkTool: [],
     providerEvent: [],
     rollupSource: [],
-    // Keep in sync with USAGE_ROLLUP_VERSION so ensureSchema doesn't fire a spurious
-    // rollup rebuild (whose INSERT ... SELECT FROM llm_request_slices would pollute the
-    // captured-query list these mock tests inspect).
-    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 4 }]
+    // 直接读真常量,别写死版本号:低于 USAGE_ROLLUP_VERSION 会让 ensureSchema 触发一次
+    // rollup 整体重建,那条 INSERT ... SELECT FROM llm_request_slices 会混进这些用例
+    // 抓取的查询列表里,把「查询构造」类断言弄挂(2026-08-24 升 4→5 时就这么挂过)。
+    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: USAGE_ROLLUP_VERSION }]
   };
   let stackId = 10;
   let forkItemId = 70;

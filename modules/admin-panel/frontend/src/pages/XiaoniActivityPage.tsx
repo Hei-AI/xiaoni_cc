@@ -2220,11 +2220,12 @@ function StreamRow({
   const isImageTask = item.source === 'task' && (item.kind === 'image_generate' || item.kind === 'image_edit');
   const hasInlineTokens = !isModelRequest
     && (metadataNumber(item.metadata, 'inputTokens') !== null || metadataNumber(item.metadata, 'outputTokens') !== null);
-  // 生图按图计费，口径和对话 token 不可比，被排除在 LLM Cost 聚合之外；召回两条腿是
-  // 正常的对话请求，**计入**聚合。两者提示语必须分开，否则读数会被误解。
+  // 走这条分支的行都**不进**上方 LLM Cost 聚合，但理由不同：生图按图计费、口径不可比；
+  // 召回两条小腿是独立请求（不克隆主请求，每次约 1000 input），混进那条 20 万起步的折线
+  // 只会每来一次就把线拽到底一次。提示语写明白，免得把这里的读数当成没计进去的漏账。
   const inlineTokenHint = isImageTask
-    ? '生图 token cost（不计入上方 LLM Cost）'
-    : 'token cost（已计入上方 LLM Cost）';
+    ? '生图 token cost（按图计费，不计入上方 LLM Cost）'
+    : '独立小请求 token cost（不克隆主请求，不计入上方 LLM Cost）';
   return (
     <button
       type="button"
