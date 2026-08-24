@@ -5261,6 +5261,13 @@ function createXiaoniActivityPersistence({
         id: `psych-assessment-fork:${run.id}`,
         run
       })),
+      // 复核 fork 漏在这里 → 它永远进不了 visibleForkRunIds → visibleFailureReviewForkRuns
+      // 恒为空 → 页面上一行都没有。上下文里 filtered/visible 两侧都齐,只有这一段没接。
+      ...filteredFailureReviewForkRuns.map((run) => ({
+        kind: 'fork',
+        id: `failure-review-fork:${run.id}`,
+        run
+      })),
       ...filteredImageVisionForkRuns.map((run) => ({
         kind: 'fork',
         id: `image-vision-fork:${run.id}`,
