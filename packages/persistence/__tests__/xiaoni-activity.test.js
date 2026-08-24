@@ -85,7 +85,10 @@ function createPersistence(overrides = {}) {
           return overrides.queueRows || [];
         }
         if (statement.includes('FROM xiaoni_recall_shadow_log')) {
-          return overrides.recallRerankRows || [];
+          return overrides.recallLlmRows || [];
+        }
+        if (statement.includes('FROM codex_provider_usage_events')) {
+          return overrides.recallLlmUsageRows || [];
         }
         return [];
       },
@@ -1945,7 +1948,7 @@ function recallJudgeShadowRow(overrides = {}) {
 
 test('Xiaoni action stream surfaces the recall rerank LLM call as its own fork run', async () => {
   const persistence = createPersistence({
-    recallRerankRows: [recallJudgeShadowRow()]
+    recallLlmRows: [recallJudgeShadowRow()]
   });
 
   const stream = await persistence.getXiaoniActionStream({ limit: 20 });
@@ -1965,7 +1968,7 @@ test('Xiaoni action stream surfaces the recall rerank LLM call as its own fork r
 
 test('Xiaoni recall rerank answers the LLM source tag', async () => {
   const persistence = createPersistence({
-    recallRerankRows: [recallJudgeShadowRow()]
+    recallLlmRows: [recallJudgeShadowRow()]
   });
 
   const stream = await persistence.getXiaoniActionStream({
@@ -1994,7 +1997,7 @@ test('Xiaoni recall rerank gets a wall-clock orderSeq so it does not sink to the
       createdAt: '2026-08-24T02:00:00.000Z',
       created_at: '2026-08-24T02:00:00.000Z'
     }],
-    recallRerankRows: [recallJudgeShadowRow()]
+    recallLlmRows: [recallJudgeShadowRow()]
   });
 
   const stream = await persistence.getXiaoniActionStream({ limit: 20 });
@@ -2006,7 +2009,7 @@ test('Xiaoni recall rerank gets a wall-clock orderSeq so it does not sink to the
 
 test('Xiaoni recall rerank tells apart 判不出来 and 一条都不值得投', async () => {
   const persistence = createPersistence({
-    recallRerankRows: [
+    recallLlmRows: [
       recallJudgeShadowRow({
         id: 72400,
         occurred_at: '2026-08-24T02:19:00.000Z',
@@ -2030,4 +2033,105 @@ test('Xiaoni recall rerank tells apart 判不出来 and 一条都不值得投', 
   assert.match(byId.get('72401').events[0].body, /请求失败/u);
   assert.equal(byId.get('72401').status, 'failed');
   assert.equal(byId.get('72401').metadata.errorMessage, 'recall-judge http 500');
+});
+
+test('Xiaoni recall rerank joins its provider usage row for tokens, model and raw trace', async () => {
+  const persistence = createPersistence({
+    recallLlmRows: [recallJudgeShadowRow({
+      llm_work: { ...recallJudgeShadowRow().llm_work, llmCallId: 'llm_1787537377702_873f5bfd' }
+    })],
+    recallLlmUsageRows: [{
+      event_id: 'codex-provider:llm_1787537377702_873f5bfd',
+      llm_call_id: 'llm_1787537377702_873f5bfd',
+      model_name: 'claude-haiku-4-5',
+      model_provider: 'anthropic',
+      wire_provider_format: 'anthropic/messages',
+      status: 'completed',
+      token_usage: { input_tokens: 942, output_tokens: 135, cached_input_tokens: 0 },
+      processing_time_ms: 2531,
+      provider_raw_trace_available: true
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const event = stream.recallRerankTimeline.runs[0].events[0];
+
+  assert.equal(event.metadata.modelName, 'claude-haiku-4-5');
+  assert.equal(event.metadata.inputTokens, 942);
+  assert.equal(event.metadata.outputTokens, 135);
+  assert.match(event.body, /942→135 tok/u);
+  // 事件 id 必须对齐 usage 行的 event_id —— raw-trace 路由按 `codex-provider:` 前缀分派,
+  // 对齐了就白拿一条已经在线的原始报文通道。
+  assert.equal(event.id, 'codex-provider:llm_1787537377702_873f5bfd');
+  assert.ok(event.traceTarget, '有 wire_request 就必须给得出 traceTarget,否则展开面没有原始请求页签');
+});
+
+test('Xiaoni recall rerank without a usage row shows semantics only, never fake metrics', async () => {
+  const persistence = createPersistence({
+    recallLlmRows: [recallJudgeShadowRow()] // 老行:llm_work 里没有 llmCallId
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const event = stream.recallRerankTimeline.runs[0].events[0];
+
+  assert.equal(event.metadata.modelName, null);
+  assert.equal(event.metadata.inputTokens, null);
+  assert.equal(event.traceTarget, null);
+  assert.equal(event.id, 'recall-rerank:72307');
+  // 语义那半不受影响 —— 计量拿不到不该让整条腿从事件流消失。
+  assert.match(event.body, /候选 3 · 挑中 1/u);
+  assert.equal(/tok/u.test(event.body), false);
+});
+
+test('Xiaoni recall expansion becomes its own fork run in the stream', async () => {
+  const persistence = createPersistence({
+    recallLlmRows: [{
+      id: 72500,
+      occurred_at: '2026-08-24T03:20:20.000Z',
+      query_ref: 'stack:99123',
+      query_text: 'the-bottom.md 通读一遍',
+      llm_work: {
+        kind: 'expansion',
+        llmCallId: null,
+        tags: ['decay', 'she-stayed'],
+        queries: ['沈印 翠苑 第二次', '她的故事 第二十天'],
+        added: 4,
+        raw: 'tags: decay, she-stayed'
+      }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.recallExpandTimeline.runs[0];
+
+  assert.ok(run, '展开腿也是一次真的 LLM 请求 —— 必须在事件流里看得见');
+  assert.equal(run.source, 'recall_expand');
+  assert.equal(run.forkKind, 'recall_expand');
+  assert.equal(run.metadata.queryCount, 2);
+  assert.equal(run.metadata.addedCount, 4);
+  // 「换问法之后多捞到了没有」是这条腿唯一的价值判据,必须直接读得出来。
+  assert.match(run.events[0].body, /换 2 种问法 · 多捞到 4 条/u);
+  assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true);
+  // 两条腿分属不同时间线,不能互相污染。
+  assert.equal(stream.recallRerankTimeline.runs.length, 0);
+});
+
+test('Xiaoni recall expansion that produced no usable query reads as a wasted call', async () => {
+  const persistence = createPersistence({
+    recallLlmRows: [{
+      id: 72501,
+      occurred_at: '2026-08-24T03:30:00.000Z',
+      query_ref: 'stack:99124',
+      query_text: 'x',
+      llm_work: { kind: 'expansion', tags: [], queries: [], added: 0, raw: '(模型跑题了)' }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const event = stream.recallExpandTimeline.runs[0].events[0];
+
+  assert.match(event.body, /换问法失败/u);
+  assert.equal(event.status, 'unparsed');
+  // 模型原文要留在展开面里,否则「它到底答了什么」查无此事。
+  assert.match(event.metadata.responsePreview, /模型跑题了/u);
 });

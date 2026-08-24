@@ -290,6 +290,7 @@ interface XiaoniActivityFeed {
   failureReviewForkTimeline?: CompressionForkTimeline;
   cacheHeartbeatTimeline?: CompressionForkTimeline;
   recallRerankTimeline?: CompressionForkTimeline;
+  recallExpandTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
 
@@ -436,6 +437,10 @@ function rawTraceSpanIdForSource(
     && source !== 'image_vision_fork_llm_request'
     && source !== 'failure_review_fork_llm_request'
     && source !== 'cache_heartbeat'
+    // 召回两条小模型腿的原始报文在 codex_provider_usage_events 里,后端 raw-trace 路由按
+    // `codex-provider:` 事件 id 前缀已经能取到 —— 这里放行,否则展开面不给「原始 LLM 请求」页签。
+    && source !== 'recall_rerank_llm_request'
+    && source !== 'recall_expand_llm_request'
     && source !== 'task'
   ) {
     return null;
@@ -600,6 +605,9 @@ function sourceLabel(source: string) {
     case 'recall_rerank':
     case 'recall_rerank_llm_request':
       return '召回精排';
+    case 'recall_expand':
+    case 'recall_expand_llm_request':
+      return '召回展开';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -777,6 +785,9 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'recall_rerank') {
     return 'recall_rerank';
   }
+  if (run.source === 'recall_expand') {
+    return 'recall_expand';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -798,6 +809,9 @@ function forkAgentLabel(forkKind: string) {
   }
   if (forkKind === 'recall_rerank') {
     return '召回精排';
+  }
+  if (forkKind === 'recall_expand') {
+    return '召回展开';
   }
   return 'Memory Compress Fork';
 }
@@ -859,7 +873,15 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns]
+  const recallExpandRuns = (feed?.recallExpandTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns, ...recallExpandRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -896,6 +918,8 @@ function forkChipClass(kind: string): string {
       return 'border-violet-200 bg-violet-50 text-violet-700';
     case 'recall_rerank':
       return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'recall_expand':
+      return 'border-teal-200 bg-teal-50 text-teal-700';
     default:
       return 'border-border bg-muted text-muted-foreground';
   }
@@ -931,6 +955,8 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
     body = candidateCount === null
       ? '投递闸定时触发'
       : `投递闸定时触发 · ${candidateCount} 条候选送去精排`;
+  } else if (forkKind === 'recall_expand') {
+    body = '这次召回判弱 → 让小模型换几种问法重取';
   } else {
     body = 'fork 触发';
   }
@@ -1124,6 +1150,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
   const recallRerankRunsById = new Map<string, CompressionForkRun>();
+  const recallExpandRunsById = new Map<string, CompressionForkRun>();
 
   pages.forEach((page) => {
     (page.items || []).forEach((item) => {
@@ -1166,6 +1193,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
         recallRerankRunsById.set(run.id, run);
       }
     });
+    (page.recallExpandTimeline?.runs || []).forEach((run) => {
+      if (!recallExpandRunsById.has(run.id)) {
+        recallExpandRunsById.set(run.id, run);
+      }
+    });
   });
 
   const lastPage = pages[pages.length - 1] || firstPage;
@@ -1197,6 +1229,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     recallRerankTimeline: {
       ...(firstPage.recallRerankTimeline || {}),
       runs: Array.from(recallRerankRunsById.values()),
+    },
+    recallExpandTimeline: {
+      ...(firstPage.recallExpandTimeline || {}),
+      runs: Array.from(recallExpandRunsById.values()),
     },
     imageVisionForkTimeline: {
       ...(firstPage.imageVisionForkTimeline || {}),

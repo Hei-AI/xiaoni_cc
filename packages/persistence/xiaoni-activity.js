@@ -1821,33 +1821,80 @@ async function loadCacheHeartbeatTimeline({
   }
 }
 
-// ── 召回精排(被动召回的投递闸) ──────────────────────────────────────────────
-// 投递闸不是规则,是一次真的 LLM 请求:10 条候选 + 「她此刻在做的事」锚点喂给小模型,
-// 它挑几条、并给每条现写钩子 —— 挑中的那句就是最终 notify 的正文。
+// ── 召回的两条小模型腿 ────────────────────────────────────────────────────────
+// 被动召回上有两次真的 LLM 请求,都走 provider-service 的 /api/internal/llm/debug:
 //
-// 这条路走 provider-service 的 /api/internal/llm/debug,**按设计不落 llm_request_slices**,
-// 也不是真 fork run。于是在此之前,整条链在事件流里只剩最后入队的那几行 queue,
-// 「判了什么、放过了什么、为什么这句话是这么写的」全程不可见。
+//   召回精排(judge)     投递闸。10 条候选 + 「她此刻在做的事」锚点喂给小模型,它挑几条、
+//                       并给每条现写钩子 —— 挑中的那句就是最终 notify 的正文。~6 次/小时。
+//   召回展开(expansion) 检索兜底。band-pass 之后判定「这次召回太弱」时,让小模型换几种
+//                       问法重取一遍,再跑一次 band-pass。~6 次/小时(带预算闸)。
 //
-// 唯一留痕是 xiaoni_recall_shadow_log(query_ref='delivery_judge',llm_work.kind='judge',
-// 由 xiaoni-recall-delivery.ts 的 writeJudgeShadow 写)。这里把每一行读成**单事件的伪 fork run**
-// —— 和 cache_heartbeat 同一套路(它同样不在栈上、同样只有一次请求),这样它进左栏 fork 列,
-// 而不是混在右栏主 agent 事件里。
-const RECALL_RERANK_QUERY_REF = 'delivery_judge';
-const RECALL_RERANK_SELECT = `
+// 这条路**按设计不落 llm_request_slices**,两者也都不是真 fork run。于是在此之前它们在
+// 事件流里完全不可见:精排只剩最后入队的 queue 行,展开连那个都没有。
+//
+// 唯一留痕在 xiaoni_recall_shadow_log.llm_work(kind='judge' / 'expansion')。这里把每行读成
+// **单事件的伪 fork run** —— 和 cache_heartbeat 同一套路(它同样不在栈上、同样只有一次请求),
+// 这样它们进左栏 fork 列,而不是混在右栏主 agent 事件里。
+//
+// token / model / 原始 wire 报文不在 shadow 行里,而在 codex_provider_usage_events
+// (provider-service 对 no-persist 请求记的轻量账)。llm_work.llmCallId 是**唯一**的连接键;
+// 老行没有它 → 退回「只有语义、没有计量」,不假装有。
+const RECALL_LLM_LEG_KINDS = ['judge', 'expansion'];
+const RECALL_LLM_LEGS = {
+  judge: {
+    forkKind: 'recall_rerank',
+    runSource: 'recall_rerank',
+    runKind: 'recall_rerank_fork',
+    eventSource: 'recall_rerank_llm_request',
+    eventKind: 'recall_rerank',
+    label: '召回精排',
+    idPrefix: 'recall-rerank'
+  },
+  expansion: {
+    forkKind: 'recall_expand',
+    runSource: 'recall_expand',
+    runKind: 'recall_expand_fork',
+    eventSource: 'recall_expand_llm_request',
+    eventKind: 'recall_expand',
+    label: '召回展开',
+    idPrefix: 'recall-expand'
+  }
+};
+const RECALL_LLM_SHADOW_SELECT = `
   id,
   occurred_at,
+  query_ref,
   query_text,
   llm_work
 `;
+// codex_provider_usage_events 的行里 wire_request / wire_response 可能是几 MB。事件流只渲染
+// token / model,和一个「有没有 raw trace 可点」的布尔 —— 所以这里一列都不取原文,只取存在性。
+// (同 FORK_SLICE_ACTION_STREAM_SELECT 的理由:整表捞原文是把 feed 堆爆 heap 的老账。)
+const RECALL_LLM_USAGE_SELECT = `
+  event_id,
+  llm_call_id,
+  model_name,
+  model_provider,
+  wire_provider_format,
+  status,
+  token_usage,
+  processing_time_ms,
+  created_at,
+  completed_at,
+  wire_request IS NOT NULL AS provider_raw_trace_available
+`;
 
-function recallRerankLlmWork(row) {
+function recallLlmWork(row) {
   const work = row?.llm_work ?? row?.llmWork;
   return work && typeof work === 'object' && !Array.isArray(work) ? work : {};
 }
 
-// dedupeKey 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在候选 id 里。候选表里带 leg 时
-// 以它为准,拿不到才从 id 反解(判官只回 id + hook,不回 leg)。
+function recallLlmOneLine(value, max) {
+  return truncateText(String(value == null ? '' : value).replace(/\s+/gu, ' ').trim(), max);
+}
+
+// dedupeKey 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在候选 id 里。候选表带 leg 时以它为准,
+// 拿不到才从 id 反解(判官只回 id + hook,不回 leg)。
 function recallRerankLegOf(candidateId, legById) {
   const known = legById.get(String(candidateId || ''));
   if (known) {
@@ -1857,13 +1904,7 @@ function recallRerankLegOf(candidateId, legById) {
   return parts.length >= 3 ? parts[1] : '';
 }
 
-function recallRerankOneLine(value, max) {
-  return truncateText(String(value == null ? '' : value).replace(/\s+/gu, ' ').trim(), max);
-}
-
-function summarizeRecallRerankEvent(row) {
-  const work = recallRerankLlmWork(row);
-  const shadowLogId = String(row.id ?? '');
+function recallRerankBodyParts(work) {
   const candidates = Array.isArray(work.candidates) ? work.candidates : [];
   const picks = Array.isArray(work.picks) ? work.picks : [];
   const parsed = work.parsed === true;
@@ -1873,10 +1914,8 @@ function summarizeRecallRerankEvent(row) {
     String(candidate?.leg ?? '')
   ]));
   const pickedIds = new Set(picks.map((pick) => String(pick?.id ?? '')));
-  const anchor = String(firstString(work.anchor, row.query_text, row.queryText) || '').trim();
-
-  // 一行说清这拍干了什么。判官挂了 / 没读出来 / 说一条都不值得,都是**不同的结果**,
-  // 不能都渲染成「挑中 0 条」—— 那三种情况下游行为完全不一样(退回模板钩子 vs 静默跳过)。
+  // 「判不出来」「一条都不值得投」「请求挂了」是**三种不同的结果**,下游行为完全不一样
+  // (退回模板钩子 + 间隔节流 vs 静默跳过)。糊成「挑中 0 条」就看不出区别了。
   const summary = errorMessage
     ? `请求失败 · 候选 ${candidates.length} · 退回模板钩子`
     : !parsed
@@ -1886,116 +1925,248 @@ function summarizeRecallRerankEvent(row) {
         : `候选 ${candidates.length} · 挑中 ${picks.length}`;
   const pickLines = picks.map((pick, index) => {
     const leg = recallRerankLegOf(pick?.id, legById);
-    return `${index + 1}. ${leg ? `[${leg}] ` : ''}${recallRerankOneLine(pick?.hook, 160)}`;
+    return `${index + 1}. ${leg ? `[${leg}] ` : ''}${recallLlmOneLine(pick?.hook, 160)}`;
   });
   const candidateLines = candidates.map((candidate, index) => {
     const marker = pickedIds.has(String(candidate?.id ?? '')) ? '✓' : '·';
     const leg = String(candidate?.leg ?? '');
-    return `${marker} ${index + 1}. ${leg ? `[${leg}] ` : ''}${recallRerankOneLine(candidate?.text, 200)}`;
+    return `${marker} ${index + 1}. ${leg ? `[${leg}] ` : ''}${recallLlmOneLine(candidate?.text, 200)}`;
   });
+  return {
+    summary,
+    status: errorMessage ? 'failed' : parsed ? 'completed' : 'unparsed',
+    tone: errorMessage ? 'danger' : parsed ? (picks.length ? 'success' : 'info') : 'warning',
+    counters: { candidateCount: candidates.length, pickCount: picks.length, parsed, errorMessage },
+    requestLines: candidateLines.length ? [`【候选 ${candidates.length}】`, ...candidateLines] : [],
+    responseLines: [
+      ...(pickLines.length ? ['【投出去的】', ...pickLines] : []),
+      ...(errorMessage ? ['【错误】', errorMessage] : [])
+    ],
+    headline: pickLines
+  };
+}
+
+function recallExpandBodyParts(work) {
+  const tags = Array.isArray(work.tags) ? work.tags.map((tag) => String(tag)) : [];
+  const queries = Array.isArray(work.queries) ? work.queries.map((query) => String(query)) : [];
+  const added = Number(work.added || 0) || 0;
+  // 展开的价值判据只有一个:换问法之后多捞到了没有。0 条 = 白烧一次调用,必须看得出来。
+  const summary = queries.length === 0
+    ? '换问法失败 · 模型没给出可用 query'
+    : `换 ${queries.length} 种问法 · 多捞到 ${added} 条`;
+  return {
+    summary,
+    status: queries.length === 0 ? 'unparsed' : 'completed',
+    tone: queries.length === 0 ? 'warning' : added > 0 ? 'success' : 'info',
+    counters: { queryCount: queries.length, addedCount: added, tagCount: tags.length },
+    requestLines: tags.length ? [`【它挑的标签】 ${tags.join(' / ')}`] : [],
+    responseLines: queries.length
+      ? ['【换的问法】', ...queries.map((query, index) => `${index + 1}. ${recallLlmOneLine(query, 160)}`)]
+      : [`【模型原文】 ${recallLlmOneLine(work.raw, 300)}`],
+    headline: queries.map((query) => recallLlmOneLine(query, 60))
+  };
+}
+
+// token 一行。usage 行缺失(老数据 / 没记 llmCallId)时返回 null —— 不编造。
+function recallLlmTokenLabel(tokenSummary) {
+  if (!tokenSummary) {
+    return null;
+  }
+  const inputTokens = streamNumberOrNull(tokenSummary.inputTokens);
+  const outputTokens = streamNumberOrNull(tokenSummary.outputTokens);
+  if (inputTokens === null && outputTokens === null) {
+    return null;
+  }
+  return `${inputTokens ?? '-'}→${outputTokens ?? '-'} tok`;
+}
+
+function summarizeRecallLlmEvent(row, leg, usage) {
+  const work = recallLlmWork(row);
+  const shadowLogId = String(row.id ?? '');
+  const parts = leg.forkKind === 'recall_rerank'
+    ? recallRerankBodyParts(work)
+    : recallExpandBodyParts(work);
+  const anchor = String(firstString(work.anchor, row.query_text, row.queryText) || '').trim();
+  const tokenSummary = usage ? tokenSummaryFromCodexProviderUsageEvent(usage) : null;
+  const tokenLabel = recallLlmTokenLabel(tokenSummary);
+  const modelName = usage ? firstString(usage.model_name, usage.modelName) : null;
+
+  // 事件 id:能接回 provider usage 行时**就用那行的 event_id**(形如 `codex-provider:llm_…`)。
+  // 管理端的 raw-trace 路由按 id 前缀分派(parseActionEventId → resolveCodexProviderUsageTraceTarget,
+  // buildStackRawProviderTrace 见 `codex-provider:` 前缀走 usage 表),所以对齐 id 就等于
+  // 白拿一条已经在线的原始报文通道,一行路由都不用改。接不回来才退回 shadow 行自己的 id。
+  const usageEventId = usage ? firstString(usage.event_id, usage.eventId) : null;
+  const eventId = usageEventId || `${leg.idPrefix}:${shadowLogId}`;
+  const llmCallId = firstString(work.llmCallId, work.llm_call_id);
+  const providerRawTraceAvailable = Boolean(usage
+    && (usage.provider_raw_trace_available === true || usage.providerRawTraceAvailable === true));
 
   const timestamp = eventTimestamp(row.occurred_at || row.occurredAt);
   return {
-    id: `recall-rerank:${shadowLogId}`,
-    source: 'recall_rerank_llm_request',
-    kind: 'recall_rerank',
-    title: '召回精排',
-    body: truncateText([summary, ...pickLines].join(' · '), 420),
-    status: errorMessage ? 'failed' : parsed ? 'completed' : 'unparsed',
+    id: eventId,
+    source: leg.eventSource,
+    kind: leg.eventKind,
+    title: leg.label,
+    body: truncateText([parts.summary, tokenLabel, ...parts.headline].filter(Boolean).join(' · '), 420),
+    status: parts.status,
     actor: 'system',
-    actorName: '召回精排',
+    actorName: leg.label,
     timestamp,
     occurredAt: timestamp,
     sessionKey: null,
     peerName: null,
     runId: null,
     traceId: null,
-    tone: errorMessage ? 'danger' : parsed ? (picks.length ? 'success' : 'info') : 'warning',
-    // 这次请求不落 llm_request_slices,也没有 provider_exchange span —— 没有 raw trace 可点。
-    // 展开面看到的就是下面 payloadPreview / responsePreview 这两段。
-    traceTarget: null,
+    tone: parts.tone,
+    traceTarget: providerRawTraceAvailable
+      ? normalizeTraceTarget({
+        spanId: tokenSummary ? tokenSummary.providerRequestSpanId : null,
+        llmRequestSliceId: eventId,
+        sourceKind: leg.runSource,
+        forkRunId: eventId
+      })
+      : null,
     metadata: normalizeValue({
-      forkKind: 'recall_rerank',
-      sourceKind: 'recall_rerank',
-      // 不在 agent stack 上 → 没有 occurred_seq。由 stampWallClockStreamOrderSeq 按墙钟插回,
-      // 否则整条 fork 会掉进前端的「未 stamp 历史层」沉到页面最底部。
+      forkKind: leg.forkKind,
+      sourceKind: leg.runSource,
+      // 不在 agent stack 上 → 没有 occurred_seq。由 stampRecallLlmStreamOrderSeq 按墙钟插回,
+      // 否则整条腿会掉进前端的「未 stamp 历史层」沉到页面最底部。
       orderSeq: null,
       recallShadowLogId: shadowLogId,
-      candidateCount: candidates.length,
-      pickCount: picks.length,
-      parsed,
-      errorMessage,
+      recallQueryRef: firstString(row.query_ref, row.queryRef),
+      llmCallId,
+      ...parts.counters,
+      modelName,
+      modelProvider: usage ? firstString(usage.model_provider, usage.modelProvider) : null,
+      providerFormat: usage ? firstString(usage.wire_provider_format, usage.wireProviderFormat) : null,
+      providerRawTraceAvailable,
+      providerRequestSpanId: tokenSummary ? tokenSummary.providerRequestSpanId : null,
+      processingTimeMs: usage ? streamNumberOrNull(usage.processing_time_ms ?? usage.processingTimeMs) : null,
+      inputTokens: tokenSummary ? tokenSummary.inputTokens : null,
+      cachedInputTokens: tokenSummary ? tokenSummary.cachedInputTokens : null,
+      outputTokens: tokenSummary ? tokenSummary.outputTokens : null,
       anchorPreview: truncateText(anchor, 600),
       payloadPreview: truncateText([
         anchor ? `【她此刻在做的事】\n${anchor}` : null,
-        candidateLines.length ? `【候选 ${candidates.length}】\n${candidateLines.join('\n')}` : null
+        parts.requestLines.length ? parts.requestLines.join('\n') : null
       ].filter(Boolean).join('\n\n'), 4000),
       responsePreview: truncateText([
-        summary,
-        pickLines.length ? `【投出去的】\n${pickLines.join('\n')}` : null,
-        errorMessage ? `【错误】\n${errorMessage}` : null
+        parts.summary,
+        parts.responseLines.length ? parts.responseLines.join('\n') : null
       ].filter(Boolean).join('\n\n'), 4000)
     })
   };
 }
 
-function summarizeRecallRerankRun(row) {
-  const event = summarizeRecallRerankEvent(row);
+function summarizeRecallLlmRun(row, leg, usage) {
+  const event = summarizeRecallLlmEvent(row, leg, usage);
   return {
-    id: `recall-rerank:${event.metadata.recallShadowLogId}`,
+    id: `${leg.idPrefix}:${event.metadata.recallShadowLogId}`,
     forkRunId: event.id,
-    source: 'recall_rerank',
-    kind: 'recall_rerank_fork',
-    title: '召回精排',
+    source: leg.runSource,
+    kind: leg.runKind,
+    title: leg.label,
     body: event.body,
     status: event.status,
     startedAt: event.timestamp,
     completedAt: event.timestamp,
-    durationMs: null,
+    durationMs: event.metadata.processingTimeMs,
     traceId: null,
     runId: null,
     conversationId: null,
     eventCount: 1,
     events: [event],
     metadata: normalizeValue({
-      forkKind: 'recall_rerank',
+      forkKind: leg.forkKind,
       recallShadowLogId: event.metadata.recallShadowLogId,
-      candidateCount: event.metadata.candidateCount,
-      pickCount: event.metadata.pickCount,
-      parsed: event.metadata.parsed,
-      errorMessage: event.metadata.errorMessage
+      llmCallId: event.metadata.llmCallId,
+      modelName: event.metadata.modelName,
+      inputTokens: event.metadata.inputTokens,
+      outputTokens: event.metadata.outputTokens,
+      ...(leg.forkKind === 'recall_rerank'
+        ? {
+          candidateCount: event.metadata.candidateCount,
+          pickCount: event.metadata.pickCount,
+          parsed: event.metadata.parsed,
+          errorMessage: event.metadata.errorMessage
+        }
+        : {
+          queryCount: event.metadata.queryCount,
+          addedCount: event.metadata.addedCount
+        })
     })
   };
 }
 
-async function loadRecallRerankTimeline(sql, {
+// llm_call_id → provider usage 行。两条腿一次查完,只取计量列(见 RECALL_LLM_USAGE_SELECT)。
+async function loadRecallLlmUsageByCallId(sql, callIds) {
+  const ids = Array.from(new Set((callIds || []).filter(Boolean).map(String)));
+  if (!sql || typeof sql.query !== 'function' || ids.length === 0) {
+    return new Map();
+  }
+  try {
+    const rows = await sql.query(`
+      SELECT ${RECALL_LLM_USAGE_SELECT}
+      FROM codex_provider_usage_events
+      WHERE llm_call_id IN (${ids.map(() => '?').join(', ')})
+    `, ids);
+    const byCallId = new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const callId = firstString(row.llm_call_id, row.llmCallId);
+      if (callId && !byCallId.has(callId)) {
+        byCallId.set(callId, row);
+      }
+    }
+    return byCallId;
+  } catch {
+    // 计量是锦上添花 —— 查不到就只渲染语义那半,绝不因此让整条腿从事件流消失。
+    return new Map();
+  }
+}
+
+async function loadRecallLlmTimelines(sql, {
   identityKey,
   timeWindow,
   limit
 }) {
+  const empty = { judge: { runs: [] }, expansion: { runs: [] } };
   if (!sql || typeof sql.query !== 'function') {
-    return { runs: [] };
+    return empty;
   }
   const forkLimit = clampLimit(limit, 30, 120);
   const timePredicate = buildSqlTimePredicate(['occurred_at'], timeWindow);
   try {
     const rows = await sql.query(`
-      SELECT ${RECALL_RERANK_SELECT}
+      SELECT ${RECALL_LLM_SHADOW_SELECT}
       FROM xiaoni_recall_shadow_log
       WHERE identity_key = ?
-        AND query_ref = ?
+        AND llm_work->>'kind' IN (${RECALL_LLM_LEG_KINDS.map(() => '?').join(', ')})
         ${timePredicate.clause ? `AND ${timePredicate.clause}` : ''}
       ORDER BY occurred_at DESC, id DESC
       LIMIT ?
-    `, [identityKey, RECALL_RERANK_QUERY_REF, ...timePredicate.params, forkLimit]);
-    return {
-      runs: (Array.isArray(rows) ? rows : [])
-        .map((row) => summarizeRecallRerankRun(row))
-        .filter((run) => run.startedAt)
-    };
+    `, [identityKey, ...RECALL_LLM_LEG_KINDS, ...timePredicate.params, forkLimit]);
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const usageByCallId = await loadRecallLlmUsageByCallId(
+      sql,
+      safeRows.map((row) => firstString(recallLlmWork(row).llmCallId, recallLlmWork(row).llm_call_id))
+    );
+    const timelines = { judge: { runs: [] }, expansion: { runs: [] } };
+    for (const row of safeRows) {
+      const work = recallLlmWork(row);
+      const leg = RECALL_LLM_LEGS[String(work.kind || '')];
+      if (!leg) {
+        continue;
+      }
+      const callId = firstString(work.llmCallId, work.llm_call_id);
+      const run = summarizeRecallLlmRun(row, leg, callId ? usageByCallId.get(callId) || null : null);
+      if (run.startedAt) {
+        timelines[String(work.kind)].runs.push(run);
+      }
+    }
+    return timelines;
   } catch {
     // 表缺失 / 查询失败不该拖垮整个事件流 —— 和其它 fork timeline 同口径,退成空。
-    return { runs: [] };
+    return empty;
   }
 }
 
@@ -2983,6 +3154,9 @@ function normalizeActionStreamEventKind(item) {
   if (item.source === 'recall_rerank_llm_request') {
     return 'recall_rerank';
   }
+  if (item.source === 'recall_expand_llm_request') {
+    return 'recall_expand';
+  }
   if (item.kind === 'send_in_group' || item.kind === 'send_in_private' || item.kind === 'qq_self_message') {
     return 'visible_delivery_committed';
   }
@@ -3068,7 +3242,8 @@ const LLM_PROVIDER_ACTION_STREAM_SOURCES = new Set([
   'cache_heartbeat',
   // 走 /api/internal/llm/debug、不落 llm_request_slices，但它确确实实是一次 provider 请求 ——
   // 「所有经过 LLM 的请求都要能在事件流里看到」这条规矩对它一样成立。
-  'recall_rerank_llm_request'
+  'recall_rerank_llm_request',
+  'recall_expand_llm_request'
 ]);
 
 function isLlmProviderBackedActionStreamItem(item, source) {
@@ -3156,6 +3331,10 @@ function sourceLabelForActionStreamTag(source) {
       return '召回精排';
     case 'recall_rerank_llm_request':
       return '召回精排 LLM';
+    case 'recall_expand':
+      return '召回展开';
+    case 'recall_expand_llm_request':
+      return '召回展开 LLM';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -3876,18 +4055,18 @@ function repairAnchorlessStreamOrderSeq(items, forkRuns) {
   return items;
 }
 
-// 召回精排不在 agent stack 上(那次请求不落 slice、不是真 fork run),所以它的事件天生没有
-// occurred_seq。参照表要用**其它** fork + 主 item 里已 stamp 的行来建,自己不能当参照,
-// 否则第一次调用时表是空的、整条腿仍旧沉底。
-function stampRecallRerankStreamOrderSeq(recallRerankRuns, items, otherForkRuns) {
-  const targets = (recallRerankRuns || [])
+// 召回的两条小模型腿都不在 agent stack 上(那次请求不落 slice、不是真 fork run),所以它们的
+// 事件天生没有 occurred_seq。参照表要用**其它** fork + 主 item 里已 stamp 的行来建,自己不能
+// 当参照,否则第一次调用时表是空的、整条腿仍旧沉底。
+function stampRecallLlmStreamOrderSeq(recallRuns, items, otherForkRuns) {
+  const targets = (recallRuns || [])
     .flatMap((run) => (Array.isArray(run.events) ? run.events : []))
     .filter(streamRowNeedsOrderSeq);
   if (!targets.length) {
-    return recallRerankRuns;
+    return recallRuns;
   }
   assignWallClockStreamOrderSeq(targets, collectStreamOrderRefs(items, otherForkRuns));
-  return recallRerankRuns;
+  return recallRuns;
 }
 
 function isPrimaryActionStreamItem(item) {
@@ -4833,7 +5012,7 @@ function createXiaoniActivityPersistence({
         psychAssessmentForkTimeline,
         failureReviewForkTimeline,
         cacheHeartbeatTimeline,
-        recallRerankTimeline
+        recallLlmTimelines
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
           where: { identity_key: identityKey }
@@ -4982,7 +5161,7 @@ function createXiaoniActivityPersistence({
           timeWindow,
           limit: perSourceLimit
         }, config, listCodexProviderUsageEvents, sql),
-        loadRecallRerankTimeline(sql, {
+        loadRecallLlmTimelines(sql, {
           identityKey,
           timeWindow,
           limit: perSourceLimit
@@ -5135,7 +5314,8 @@ function createXiaoniActivityPersistence({
         psychAssessmentForkTimeline: normalizeValue(psychAssessmentForkTimeline || { runs: [] }),
         failureReviewForkTimeline: normalizeValue(failureReviewForkTimeline || { runs: [] }),
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
-        recallRerankTimeline: normalizeValue(recallRerankTimeline || { runs: [] }),
+        recallRerankTimeline: normalizeValue(recallLlmTimelines?.judge || { runs: [] }),
+        recallExpandTimeline: normalizeValue(recallLlmTimelines?.expansion || { runs: [] }),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithOrder)
       };
     } finally {
@@ -5177,9 +5357,11 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const recallRerankRuns = (feed.recallRerankTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
-    // 召回精排没有 occurred_seq(不落 slice、不在栈上)。先用其它已 stamp 的行建参照表把它
-    // 按墙钟插回,再进下面的 repair —— 顺序反了它就会被当成「历史行」沉到页面最底部。
-    stampRecallRerankStreamOrderSeq(recallRerankRuns, decoratedItems, [
+    const recallExpandRuns = (feed.recallExpandTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
+    // 召回这两条腿没有 occurred_seq(不落 slice、不在栈上)。先用其它已 stamp 的行建参照表把
+    // 它们按墙钟插回,再进下面的 repair —— 顺序反了就会被当成「历史行」沉到页面最底部。
+    stampRecallLlmStreamOrderSeq([...recallRerankRuns, ...recallExpandRuns], decoratedItems, [
       ...compressionForkRuns,
       ...subconsciousForkRuns,
       ...psychAssessmentForkRuns,
@@ -5197,7 +5379,8 @@ function createXiaoniActivityPersistence({
       ...failureReviewForkRuns,
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns,
-      ...recallRerankRuns
+      ...recallRerankRuns,
+      ...recallExpandRuns
     ]);
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
@@ -5206,7 +5389,8 @@ function createXiaoniActivityPersistence({
       ...failureReviewForkRuns,
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns,
-      ...recallRerankRuns
+      ...recallRerankRuns,
+      ...recallExpandRuns
     ]);
     const taggedItems = decoratedItems
       .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
@@ -5218,6 +5402,7 @@ function createXiaoniActivityPersistence({
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
     const filteredRecallRerankRuns = filterActionStreamForkRunsByTags(recallRerankRuns, selectedTags);
+    const filteredRecallExpandRuns = filterActionStreamForkRunsByTags(recallExpandRuns, selectedTags);
     let focusedItem = null;
     if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !taggedItems.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
       const focusedRows = await listLlmRequestSlices({
@@ -5282,6 +5467,11 @@ function createXiaoniActivityPersistence({
         kind: 'fork',
         id: `recall-rerank:${run.id}`,
         run
+      })),
+      ...filteredRecallExpandRuns.map((run) => ({
+        kind: 'fork',
+        id: `recall-expand:${run.id}`,
+        run
       }))
     ];
     const { visibleEntries, hasMore, nextCursor } = paginateActionStreamEntries(actionEntries, limit);
@@ -5300,6 +5490,7 @@ function createXiaoniActivityPersistence({
     const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleRecallRerankRuns = filteredRecallRerankRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleRecallExpandRuns = filteredRecallExpandRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .map((item) => item.tags ? item : decorateActionStreamItem(item));
@@ -5347,6 +5538,10 @@ function createXiaoniActivityPersistence({
       recallRerankTimeline: {
         ...(feed.recallRerankTimeline || {}),
         runs: visibleRecallRerankRuns
+      },
+      recallExpandTimeline: {
+        ...(feed.recallExpandTimeline || {}),
+        runs: visibleRecallExpandRuns
       },
       imageVisionForkTimeline: {
         ...(feed.imageVisionForkTimeline || {}),
