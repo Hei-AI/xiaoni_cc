@@ -11,7 +11,7 @@ import path from 'node:path';
 
 import * as persistence from '@qq-bot/persistence';
 
-import { callRecallLlm, type RecallPrompt } from './xiaoni-recall-llm-client';
+import { callRecallLlmDetailed, type RecallPrompt } from './xiaoni-recall-llm-client';
 import { readContextMenuTexts } from './xiaoni-context-menus';
 
 const IDENTITY_KEY = 'xiaoni';
@@ -59,11 +59,15 @@ async function readIfExists(absolutePath: string): Promise<string | null> {
 
 const readContextMenus = () => readContextMenuTexts(RUNTIME_ROOT);
 
-const expandQueries = (prompt: RecallPrompt) => callRecallLlm(prompt, {
+// 返回 { text, llmCallId }:ingest 把 llmCallId 记进 shadow 行的 llmWork,事件流才接得回
+// codex_provider_usage_events(token / model / 原始 wire 报文)。只要正文的老契约(裸字符串)
+// 那边仍然收 —— 见 createRecallIngest 的 expandQueries 说明。
+const expandQueries = (prompt: RecallPrompt) => callRecallLlmDetailed(prompt, {
   model: EXPANSION_MODEL,
   maxTokens: 512,
   timeoutMs: EXPANSION_TIMEOUT_MS,
-  label: 'recall-expansion'
+  label: 'recall-expansion',
+  executionMode: 'recall_expand'
 });
 
 // 她的人物菜单名字表。喂 importance 的 peer / profiledPeer 两个因子。

@@ -81,7 +81,9 @@ const CONTEXT_MENU_MIN_CHARS = 8;
 // 把菜单**逐行**嵌成向量喂进 contextVectors,和候选太像的自动 drop_in_context。
 // 逐行而不是整块:整块嵌出来是一个糊掉的泛化向量,谁都像。
 // 不注入 → 行为与改动前完全一致。
-// expandQueries:可选。`({ system, user }) => Promise<string>` —— 发一发小模型,返回原文。
+// expandQueries:可选。`({ system, user }) => Promise<string | { text, llmCallId }>` ——
+//   发一发小模型。给对象时把 llmCallId 一并记进 shadow 行的 llmWork,事件流才能把这次请求
+//   接回 codex_provider_usage_events(token / model / 原始 wire 报文);给裸字符串仍然合法。
 // 只在算术结果「弱」时才被调用(见 xiaoni-recall-query-expansion.js 的触发闸)。
 // readTags:可选。返回她自己的标签命名空间(loops --tag / topics 文件名 / 人物菜单名字)。
 // 两个都不注入 → 完全不展开,行为与改动前一致。
@@ -297,11 +299,13 @@ function createRecallIngest({
   async function runQueryExpansion({ anchorText, sqlExclude, perDomainLimit, seenRefs }) {
     const tags = typeof readTags === 'function' ? await readTags().catch(() => []) : [];
     const prompt = buildExpansionPrompt(anchorText, tags, DEFAULT_QUERY_COUNT);
-    const raw = await expandQueries(prompt);
+    const answer = await expandQueries(prompt);
+    const raw = typeof answer === 'string' ? answer : String(answer?.text ?? '');
+    const llmCallId = typeof answer === 'string' ? null : (answer?.llmCallId || null);
     const { tags: pickedTags, queries } = parseExpansion(raw);
     if (!queries.length) {
       // 模型答了但没给出可用 query 也要留痕 —— 否则「展开跑了但没用」在管理端是隐形的。
-      return { tags: pickedTags, queries: [], added: [], raw };
+      return { tags: pickedTags, queries: [], added: [], raw, llmCallId };
     }
     const vectors = await embed(queries);
     const added = [];
@@ -322,7 +326,7 @@ function createRecallIngest({
         added.push(c);
       }
     }
-    return { tags: pickedTags, queries, added };
+    return { tags: pickedTags, queries, added, llmCallId };
   }
 
   // 触发2:落地内容当 query 跑召回,写 shadow_log(shadow-only,绝不投递)。
@@ -548,6 +552,8 @@ function createRecallIngest({
       llmWork: expansion
         ? {
           kind: 'expansion',
+          // provider 侧这次请求的 id —— 事件流靠它接回 token / model / 原始 wire 报文。
+          llmCallId: expansion.llmCallId || null,
           tags: expansion.tags,
           queries: expansion.queries,
           added: expansion.added.length,

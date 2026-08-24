@@ -2335,6 +2335,7 @@ export type XiaoniActivityFeedResult = {
   psychAssessmentForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
   recallRerankTimeline?: XiaoniForkTimeline;
+  recallExpandTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };
 export type XiaoniActionStreamResult = {
@@ -2383,6 +2384,7 @@ export type XiaoniActionStreamResult = {
   psychAssessmentForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
   recallRerankTimeline?: XiaoniForkTimeline;
+  recallExpandTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };
 export type RecordAgentLifeEventInput = {
@@ -2825,7 +2827,9 @@ export function createRecallIngest(deps: {
    */
   readContextMenus?: () => Promise<string[]>;
   /** 可选。算术结果弱时发一发小模型做 query 展开,返回原文。不注入 → 不展开。 */
-  expandQueries?: (prompt: { system: string; user: string }) => Promise<string>;
+  // 裸字符串 = 只有正文的老契约;给 { text, llmCallId } 时 llmCallId 会记进 shadow 行的
+  // llmWork,事件流才接得回 codex_provider_usage_events(token / model / 原始 wire 报文)。
+  expandQueries?: (prompt: { system: string; user: string }) => Promise<string | { text: string; llmCallId?: string | null }>;
   /** 可选。她自己的标签命名空间(topics 文件名 + 人物菜单名字),给展开当词表。 */
   readTags?: () => Promise<string[]>;
   /** 可选。她的人物菜单名字表,喂 importance 的 peer / profiledPeer 因子。读不到 → 那两个因子恒 0。 */

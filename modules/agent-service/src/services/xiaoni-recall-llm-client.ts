@@ -22,8 +22,25 @@ export interface RecallLlmOptions {
   maxTokens?: number;
   timeoutMs?: number;
   label?: string;
-  /** 5xx / 网络错误重试几次(默认 2 = 最多请求 3 次)。4xx 不重试。 */
+  /** 5xx / 网络错误重试几次(默认 2 个 = 最多请求 3 次)。4xx 不重试。 */
   retries?: number;
+  /**
+   * provider-service 用它给这次请求的 provider usage 事件分类(source_kind)。
+   * 不传就落进笼统的 `prompt_debug` —— 和管理端 Playground 的人工请求混在一起,事后分不开
+   * 是谁烧的 token。召回这两条腿各给一个:`recall_rerank` / `recall_expand`。
+   */
+  executionMode?: string;
+}
+
+export interface RecallLlmResult {
+  text: string;
+  /**
+   * provider 侧这次请求的 id。**唯一**能把 shadow 留痕和 codex_provider_usage_events 里那行
+   * (wire request/response、token、model)接起来的键 —— 不记下来,事件流就只能显示「判了什么」,
+   * 显示不了「这次请求花了多少、原始报文长什么样」。
+   */
+  llmCallId: string | null;
+  model: string | null;
 }
 
 // 这台机器到 api.anthropic.com 大约一半的请求会失败(docker-compose.yml 里那条注释同源),
@@ -48,7 +65,12 @@ class HttpStatusError extends Error {
 
 const sleep = (ms: number) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/** 只要正文的调用方用这个(展开腿的老契约)。要 llmCallId 的用 callRecallLlmDetailed。 */
 export async function callRecallLlm(prompt: RecallPrompt, options: RecallLlmOptions = {}): Promise<string> {
+  return (await callRecallLlmDetailed(prompt, options)).text;
+}
+
+export async function callRecallLlmDetailed(prompt: RecallPrompt, options: RecallLlmOptions = {}): Promise<RecallLlmResult> {
   const attempts = Math.max(1, (options.retries ?? 2) + 1);
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -69,7 +91,7 @@ export async function callRecallLlm(prompt: RecallPrompt, options: RecallLlmOpti
   throw lastError;
 }
 
-async function callOnce(prompt: RecallPrompt, options: RecallLlmOptions): Promise<string> {
+async function callOnce(prompt: RecallPrompt, options: RecallLlmOptions): Promise<RecallLlmResult> {
   const model = options.model || 'claude-haiku-4-5';
   const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
     method: 'POST',
@@ -78,13 +100,18 @@ async function callOnce(prompt: RecallPrompt, options: RecallLlmOptions): Promis
       model,
       systemPrompt: prompt.system,
       userInput: prompt.user,
-      parameters: { max_tokens: options.maxTokens ?? 512 }
+      parameters: { max_tokens: options.maxTokens ?? 512 },
+      ...(options.executionMode ? { executionMode: options.executionMode } : {})
     }),
     signal: AbortSignal.timeout(options.timeoutMs ?? 30000)
   });
   if (!resp.ok) {
     throw new HttpStatusError(`${options.label || 'recall-llm'} http ${resp.status}`, resp.status);
   }
-  const json = (await resp.json()) as { response?: unknown };
-  return typeof json?.response === 'string' ? json.response : '';
+  const json = (await resp.json()) as { response?: unknown; llm_call_id?: unknown; model?: unknown };
+  return {
+    text: typeof json?.response === 'string' ? json.response : '',
+    llmCallId: typeof json?.llm_call_id === 'string' && json.llm_call_id ? json.llm_call_id : null,
+    model: typeof json?.model === 'string' && json.model ? json.model : model
+  };
 }

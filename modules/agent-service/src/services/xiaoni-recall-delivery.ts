@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 
 import * as persistence from '@qq-bot/persistence';
 
-import { callRecallLlm, type RecallPrompt } from './xiaoni-recall-llm-client';
+import { callRecallLlmDetailed, type RecallPrompt } from './xiaoni-recall-llm-client';
 import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
 import { renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
@@ -166,7 +166,18 @@ export interface RecallDeliveryGate {
 // 判官:从算术选出的候选里挑该冒的 + 把钩子写成人话。不注入 → 沿用模板钩子、按原顺序投
 // 第一条没投过的(改动前的行为)。它坐在**投递闸**上,一天十几次 —— 检索侧每次落地那
 // ~985 次仍是纯算术,回归集才成立(docs/adr/0006)。
-export type RecallDeliveryJudge = (prompt: RecallPrompt) => Promise<string>;
+export type RecallDeliveryJudgeAnswer = { text: string; llmCallId?: string | null };
+// 返回裸字符串仍然合法(测试大量这么注入);要把这次请求接回 provider usage 事件
+// (token / wire trace)才需要给 { text, llmCallId }。
+export type RecallDeliveryJudge = (prompt: RecallPrompt) => Promise<string | RecallDeliveryJudgeAnswer>;
+
+function judgeAnswerText(answer: string | RecallDeliveryJudgeAnswer | null | undefined): string {
+  return typeof answer === 'string' ? answer : String(answer?.text ?? '');
+}
+
+function judgeAnswerLlmCallId(answer: string | RecallDeliveryJudgeAnswer | null | undefined): string | null {
+  return typeof answer === 'string' ? null : (answer?.llmCallId || null);
+}
 
 export interface RecallDeliveryOptions {
   judge?: RecallDeliveryJudge;
@@ -376,11 +387,12 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     verdict: { parsed: boolean; picks: Array<{ id: string; hook: string }> };
     raw: string | null;
     error: string | null;
+    llmCallId: string | null;
   }): Promise<void> {
     if (!deps.insertRecallShadowLog) {
       return;
     }
-    const { anchor, items, verdict, raw, error } = input;
+    const { anchor, items, verdict, raw, error, llmCallId } = input;
     const picked = new Set(verdict.picks.map((p) => p.id));
     await deps.insertRecallShadowLog({
       identityKey: IDENTITY_KEY,
@@ -401,6 +413,9 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         .map((i) => ({ verdict: 'judge_skipped', sourceRef: i.id, text: String(i.text).slice(0, 200) })),
       llmWork: {
         kind: 'judge',
+        // provider 侧这次请求的 id。事件流靠它把这行接回 codex_provider_usage_events
+        // (token / model / 原始 wire 报文);拿不到就只能显示「判了什么」。
+        llmCallId,
         anchor: anchor.slice(0, 1000),
         candidates: items.map((i) => ({ id: i.id, leg: i.leg, text: String(i.text).slice(0, 200) })),
         picks: verdict.picks,
@@ -426,17 +441,18 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       // 正是「她还记不记得」的主要线索。漏传过一次,code review 抓出来的。
       ageDays: lead.ageDays
     }));
-    let raw: unknown;
+    let answer: string | RecallDeliveryJudgeAnswer;
     try {
-      raw = await judge(persistence.buildJudgePrompt(items, anchor));
+      answer = await judge(persistence.buildJudgePrompt(items, anchor));
     } catch (error) {
       // 判官挂了(超时 / 5xx)。**这必须看得见**:它走 /api/internal/llm/debug,
       // 不落 llm_request_slices,不在这里留痕就查无此事 —— 表现出来只是「今天怎么不冒了」。
       const message = error instanceof Error ? error.message : String(error);
       moduleLogger.warn('Passive recall judge call failed — 退回模板钩子', { error: message });
-      await writeJudgeShadow({ anchor, items, verdict: { parsed: false, picks: [] }, raw: null, error: message });
+      await writeJudgeShadow({ anchor, items, verdict: { parsed: false, picks: [] }, raw: null, error: message, llmCallId: null });
       throw error;
     }
+    const raw = judgeAnswerText(answer);
     const verdict = persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
 
     // 判官的工作内容留痕。它走 /api/internal/llm/debug,那条路径**不落 llm_request_slices**
@@ -444,7 +460,14 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     // 不在这里记,管理端就完全看不见它判了什么、为什么没投。
     // 写进召回自己的观察面(shadow log,queryRef 固定成 delivery_judge,与扫描腿同一套路),
     // 不新建通路。失败吞掉:留痕不该拖垮投递。
-    await writeJudgeShadow({ anchor, items, verdict, raw: typeof raw === 'string' ? raw : null, error: null });
+    await writeJudgeShadow({
+      anchor,
+      items,
+      verdict,
+      raw,
+      error: null,
+      llmCallId: judgeAnswerLlmCallId(answer)
+    });
 
     return verdict;
   }
@@ -615,11 +638,14 @@ async function defaultReadGate(): Promise<RecallDeliveryGate> {
 const JUDGE_MODEL = process.env.XIAONI_RECALL_JUDGE_MODEL || undefined;
 const JUDGE_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_JUDGE_TIMEOUT_MS || '30000', 10);
 
-const defaultJudge = (prompt: RecallPrompt) => callRecallLlm(prompt, {
+const defaultJudge = (prompt: RecallPrompt) => callRecallLlmDetailed(prompt, {
   model: JUDGE_MODEL,
   maxTokens: 1024,
   timeoutMs: JUDGE_TIMEOUT_MS,
-  label: 'recall-judge'
+  label: 'recall-judge',
+  // provider usage 事件的 source_kind。不给就落进笼统的 prompt_debug,和管理端 Playground
+  // 的人工请求混在一起 —— 事件流没法把「这次是精排」摘出来。
+  executionMode: 'recall_rerank'
 });
 
 const defaultDelivery = createPassiveRecallDelivery(
