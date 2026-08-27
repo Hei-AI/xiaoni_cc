@@ -1797,6 +1797,61 @@ export function listRuntimeTimelineEvents(
   createdAt: string | Date | null;
 }>>;
 export function ensureXiaoniDeepDiveSchema(config?: DatabaseUrlConfig): Promise<void>;
+
+// xiaoni_os 改写腿留痕(docs/specs/xiaoni-os-rewrite.md)
+export type XiaoniOsRewriteOutcome = 'kept' | 'rewritten' | 'evicted' | 'failed_open';
+export type XiaoniOsRewriteClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed';
+export interface XiaoniOsRewriteRecord {
+  id: number;
+  identityKey: string;
+  traceId: string | null;
+  runId: string | null;
+  agentTurn: number | null;
+  sliceId: string | null;
+  originalText: string;
+  classifyVerdict: XiaoniOsRewriteClassifyVerdict;
+  classifyRaw: string | null;
+  classifyLlmCallId: string | null;
+  classifyModel: string | null;
+  rewrittenText: string | null;
+  rewriteLlmCallId: string | null;
+  rewriteModel: string | null;
+  outcome: XiaoniOsRewriteOutcome;
+  errorMessage: string | null;
+  processingTimeMs: number | null;
+  createdAt: string | Date | null;
+}
+export function ensureXiaoniOsRewriteSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function recordXiaoniOsRewrite(
+  input: {
+    identityKey?: string;
+    traceId?: string | null;
+    runId?: string | null;
+    agentTurn?: number | null;
+    sliceId?: string | null;
+    originalText: string;
+    classifyVerdict: XiaoniOsRewriteClassifyVerdict;
+    classifyRaw?: string | null;
+    classifyLlmCallId?: string | null;
+    classifyModel?: string | null;
+    rewrittenText?: string | null;
+    rewriteLlmCallId?: string | null;
+    rewriteModel?: string | null;
+    outcome: XiaoniOsRewriteOutcome;
+    errorMessage?: string | null;
+    processingTimeMs?: number | null;
+    sqlAdapter?: unknown;
+  },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniOsRewriteRecord | null>;
+export function listXiaoniOsRewrites(
+  input?: { identityKey?: string; outcome?: XiaoniOsRewriteOutcome; limit?: number; sqlAdapter?: unknown },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniOsRewriteRecord[]>;
+export function summarizeXiaoniOsRewrites(
+  input?: { identityKey?: string; sinceHours?: number; sqlAdapter?: unknown },
+  config?: DatabaseUrlConfig
+): Promise<Array<{ classifyVerdict: string; outcome: string; count: number; avgProcessingTimeMs: number | null }>>;
 export function recordFailureReviewForkSlice(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<Record<string, any> | null>;
 /** limit 是**每个 fork_run_id** 各自的上限,不是全局上限(一次复核轮数硬上界 32)。 */
 export function listFailureReviewForkSlices(
