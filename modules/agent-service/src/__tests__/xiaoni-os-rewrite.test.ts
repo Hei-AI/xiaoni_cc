@@ -93,7 +93,8 @@ test('leg: classify=0 → rewrite call → rewritten', async () => {
   const result = await runXiaoniOsRewriteLeg({ text: '不困。但plan里每一件都做过了。先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
   assert.equal(result.outcome, 'rewritten');
   assert.equal(result.classifyVerdict, 'idle');
-  assert.equal(result.rewrittenText, '不困。去把 patience 页面的树加上季节切换，做完发给阿明看。');
+  // 「不困。」是填充句,出口过滤剔掉;剩下的人话原样准入。
+  assert.equal(result.rewrittenText, '去把 patience 页面的树加上季节切换，做完发给阿明看。');
   assert.equal(result.rewriteLlmCallId, 'call-2');
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[1]!.executionMode, 'xiaoni_os_rewrite');
@@ -159,4 +160,46 @@ test('live vs replay byte-identity: one in-place write on the shared ref seriali
   stampTextAdmitInPlace([kept as any], true);
   assert.equal(JSON.stringify(keptLedger.content), JSON.stringify(kept));
   assert.equal(extractAssistantItemText(kept), '看到了新消息，去回。');
+});
+
+// ── 填充词:「在。」「嗡。」「停。」不允许出现在 xiaoni_os 里(2026-08-28 用户拍板) ─────────────
+import { isFillerOnlyText, stripFillerSentences } from '../services/xiaoni-os-rewrite';
+
+test('isFillerOnlyText: 整段只有填充句 → true;有一句人话 → false', () => {
+  assert.equal(isFillerOnlyText('在。'), true);
+  assert.equal(isFillerOnlyText('嗡。嗡。'), true);
+  assert.equal(isFillerOnlyText('停。'), true);
+  assert.equal(isFillerOnlyText('165页。Day 240。在。'), true);
+  assert.equal(isFillerOnlyText('不困。做事。不说。'), true);
+  assert.equal(isFillerOnlyText('52分钟不困。'), true);
+  assert.equal(isFillerOnlyText('在。去看一眼群里最近一条是谁说的。'), false);
+  assert.equal(isFillerOnlyText('底部通知栏说"邮件已发送"。发出去了。'), false);
+});
+
+test('leg: 纯填充词不问模型,直接判空转去改写', async () => {
+  const llm = fakeLlm([{ text: '去 QQ 翻一眼谁在线，挑一个人发一句。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: '嗡。在。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.classifyVerdict, 'idle');
+  assert.equal(result.classifyModel, 'filler-rule');
+  assert.equal(llm.calls.length, 1, '只发了改写请求,分类没问模型');
+  assert.equal(llm.calls[0]!.executionMode, 'xiaoni_os_rewrite');
+  assert.equal(result.outcome, 'rewritten');
+});
+
+test('stripFillerSentences: 剔掉填充句、保留人话;全剔光 → null', () => {
+  assert.equal(stripFillerSentences('嗡了很久。去把 alive 更新发给一个人看。'), '嗡了很久。去把 alive 更新发给一个人看。', '「嗡了很久」是完整句,不是单字填充,保留');
+  assert.equal(stripFillerSentences('在。去看一眼群里最近一条是谁说的，接一句。'), '去看一眼群里最近一条是谁说的，接一句。');
+  assert.equal(stripFillerSentences('165页。Day 240。alive更新了。\n做完了还没给人看见。'), 'alive更新了。\n做完了还没给人看见。');
+  assert.equal(stripFillerSentences('嗡。停。在。'), null);
+});
+
+test('leg: 改写结果只剩填充句 → evicted;含填充句 → 剔掉后准入', async () => {
+  const onlyFiller = fakeLlm([{ text: '0' }, { text: '在。嗡。' }]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: onlyFiller.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(r1.outcome, 'evicted');
+  assert.match(r1.errorMessage || '', /only filler/);
+  const mixed = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步，发给楠楠看。' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: mixed.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(r2.outcome, 'rewritten');
+  assert.equal(r2.rewrittenText, '去把 touch.html 再推一步，发给楠楠看。');
 });
