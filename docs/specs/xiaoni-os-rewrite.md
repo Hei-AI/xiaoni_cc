@@ -41,8 +41,9 @@ text ──► 分类(Sonnet 4.6, 输出 1/0)「有没有事」
 
 ## 模型与前缀缓存
 
-- 模型 `claude-sonnet-4-6`（真机：分类 1.8s / 改写 7.7s，单次 input ≈ 470 tokens）。
-- **不做前缀缓存**：Sonnet 4.6 最小可缓存前缀 1024 tokens，这条请求 system + text 全长 ~470，打 `cache_control` 也静默不缓存（provider `/api/internal/llm/debug` 路径现在也不打）。每次是独立请求，没有持续 append 的 input；300 次/天 ≈ 0.15M tokens ≈ $0.45/天，为缓存把 system 垫到 1024 反而多付。system prompt 若将来长过 1024，再在 provider debug 路径给 system 块加 `cache_control`。
+- 模型 `claude-sonnet-4-6`（真机：分类 1.6–1.8s / 改写 2–3s）。
+- **前缀缓存必须凑够**：我们所有模型走的 OAuth 路 cache 读写免费，前提是前缀达到该模型最小可缓存长度（Sonnet 4.6 = 1024 tokens）。provider `/api/internal/llm/debug` 出线口本来就在 system 最后一块打 `cache_control ttl 1h`；原提示词全长 ~470 tokens 静默不缓存。两份提示词用 few-shot 例子垫到过线：分类 system 1444 tokens、改写 1286 tokens；真机第二次请求 `cache_read` = 1444 / 1286，非缓存 input = 3。
+- 改提示词要保持 ≥1024（含 cloak 两块 ~150 tokens）；改完用 debug 端点连打两次看 `cache_read_input_tokens > 0`。
 
 ## 留痕 / 训练集
 
