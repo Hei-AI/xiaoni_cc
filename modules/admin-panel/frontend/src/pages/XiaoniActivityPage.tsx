@@ -291,6 +291,7 @@ interface XiaoniActivityFeed {
   cacheHeartbeatTimeline?: CompressionForkTimeline;
   recallRerankTimeline?: CompressionForkTimeline;
   recallExpandTimeline?: CompressionForkTimeline;
+  xiaoniOsRewriteTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
 
@@ -441,6 +442,8 @@ function rawTraceSpanIdForSource(
     // `codex-provider:` 事件 id 前缀已经能取到 —— 这里放行,否则展开面不给「原始 LLM 请求」页签。
     && source !== 'recall_rerank_llm_request'
     && source !== 'recall_expand_llm_request'
+    // xiaoni_os 监督者(分类/改写)同一条路:usage 行的 event_id 直接是 raw-trace 键。
+    && source !== 'xiaoni_os_rewrite_llm_request'
     && source !== 'task'
   ) {
     return null;
@@ -608,6 +611,9 @@ function sourceLabel(source: string) {
     case 'recall_expand':
     case 'recall_expand_llm_request':
       return '召回展开';
+    case 'xiaoni_os_rewrite':
+    case 'xiaoni_os_rewrite_llm_request':
+      return 'xiaoni_os 监督';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -788,6 +794,9 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'recall_expand') {
     return 'recall_expand';
   }
+  if (run.source === 'xiaoni_os_rewrite') {
+    return 'xiaoni_os_rewrite';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -812,6 +821,9 @@ function forkAgentLabel(forkKind: string) {
   }
   if (forkKind === 'recall_expand') {
     return '召回展开';
+  }
+  if (forkKind === 'xiaoni_os_rewrite') {
+    return 'xiaoni_os 监督者';
   }
   return 'Memory Compress Fork';
 }
@@ -881,7 +893,15 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns, ...recallExpandRuns]
+  const xiaoniOsRewriteRuns = (feed?.xiaoniOsRewriteTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns, ...recallExpandRuns, ...xiaoniOsRewriteRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -920,6 +940,8 @@ function forkChipClass(kind: string): string {
       return 'border-amber-200 bg-amber-50 text-amber-700';
     case 'recall_expand':
       return 'border-teal-200 bg-teal-50 text-teal-700';
+    case 'xiaoni_os_rewrite':
+      return 'border-rose-200 bg-rose-50 text-rose-700';
     default:
       return 'border-border bg-muted text-muted-foreground';
   }
@@ -957,6 +979,10 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
       : `投递闸定时触发 · ${candidateCount} 条候选送去精排`;
   } else if (forkKind === 'recall_expand') {
     body = '这次召回判弱 → 让小模型换几种问法重取';
+  } else if (forkKind === 'xiaoni_os_rewrite') {
+    const original = metadataText(run.metadata, 'originalPreview');
+    const turn = metadataNumber(run.metadata, 'agentTurn');
+    body = `她写了 xiaoni_os${turn !== null ? `(turn ${turn})` : ''} → 监督者分类有没有事${original ? `：${original}` : ''}`;
   } else {
     body = 'fork 触发';
   }
@@ -989,7 +1015,40 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
 // verdict 后端(summarizePsychAssessmentForkRun)已算好并落 run.metadata.verdict / run.body。只对
 // psych_assessment fork 生效——其它 fork(压缩/潜意识/图像/心跳)返回 null,不出结论行。
 function buildForkResultItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
-  if ((run.forkKind || forkKindForRun(run)) !== 'psych_assessment') {
+  const forkKind = run.forkKind || forkKindForRun(run);
+  const ts = run.completedAt || run.startedAt;
+  // xiaoni_os 监督者:去向(有事原文准入 / 空转改写后准入 / 改写失败不进 / 分类失败 fail-open)+ 改写后的正文。
+  // 后端 summarizeXiaoniOsRewriteRun 已算好落 run.metadata,这里只渲染成流里独立的一行。
+  if (forkKind === 'xiaoni_os_rewrite') {
+    const outcome = metadataText(run.metadata, 'outcome');
+    const outcomeLabel = metadataText(run.metadata, 'outcomeLabel');
+    const rewritten = metadataText(run.metadata, 'rewrittenPreview');
+    const body = `${outcomeLabel ? `去向：${outcomeLabel}` : '去向：—'}${outcome === 'rewritten' && rewritten ? `\n改写后：${rewritten}` : ''}`;
+    return {
+      id: `forkresult:${run.id}`,
+      source: 'fork_result',
+      kind: 'fork_result',
+      title: '结论',
+      body,
+      status: run.status || null,
+      actor: 'system',
+      actorName: run.agentLabel || null,
+      timestamp: ts,
+      occurredAt: ts,
+      sessionKey: null,
+      peerName: null,
+      traceId: run.traceId,
+      traceTarget: null,
+      tone: outcome === 'kept' ? 'positive' : outcome === 'rewritten' ? 'info' : 'warn',
+      metadata: {
+        forkKind: 'xiaoni_os_rewrite',
+        forkRunId: run.forkRunId,
+        outcome,
+      },
+      tags: [],
+    };
+  }
+  if (forkKind !== 'psych_assessment') {
     return null;
   }
   const verdict = metadataText(run.metadata, 'verdict');
@@ -1000,7 +1059,6 @@ function buildForkResultItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
       : verdict === 'unparsed_fail_closed'
         ? '评估结论：未解析 → fail-closed 剔除'
         : (run.body || '评估结论：—');
-  const ts = run.completedAt || run.startedAt;
   return {
     id: `forkresult:${run.id}`,
     source: 'fork_result',
@@ -1151,6 +1209,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
   const recallRerankRunsById = new Map<string, CompressionForkRun>();
   const recallExpandRunsById = new Map<string, CompressionForkRun>();
+  const xiaoniOsRewriteRunsById = new Map<string, CompressionForkRun>();
 
   pages.forEach((page) => {
     (page.items || []).forEach((item) => {
@@ -1198,6 +1257,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
         recallExpandRunsById.set(run.id, run);
       }
     });
+    (page.xiaoniOsRewriteTimeline?.runs || []).forEach((run) => {
+      if (!xiaoniOsRewriteRunsById.has(run.id)) {
+        xiaoniOsRewriteRunsById.set(run.id, run);
+      }
+    });
   });
 
   const lastPage = pages[pages.length - 1] || firstPage;
@@ -1233,6 +1297,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     recallExpandTimeline: {
       ...(firstPage.recallExpandTimeline || {}),
       runs: Array.from(recallExpandRunsById.values()),
+    },
+    xiaoniOsRewriteTimeline: {
+      ...(firstPage.xiaoniOsRewriteTimeline || {}),
+      runs: Array.from(xiaoniOsRewriteRunsById.values()),
     },
     imageVisionForkTimeline: {
       ...(firstPage.imageVisionForkTimeline || {}),
