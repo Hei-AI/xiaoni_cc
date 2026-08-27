@@ -7,6 +7,8 @@
 // docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §3
 
 import fs from 'node:fs/promises';
+import { logger } from '../utils/logger';
+import { deliverPassiveRecallForEvent } from './xiaoni-recall-delivery';
 import path from 'node:path';
 
 import * as persistence from '@qq-bot/persistence';
@@ -114,6 +116,34 @@ function getIngest() {
   return ingestSingleton;
 }
 
+
+const moduleLogger = logger.createModuleLogger('xiaoni-recall-hook');
+
+// ── 事件驱动投递 ────────────────────────────────────────────────────────────
+// 召回写完 shadow 行就立刻拿着这一行交精排 Agent(锚 = 事件原文)。串行化:突发落地时
+// 一次只跑一个,后面的排队 —— 精排 Agent 一次 2–8s,并行会让同一段记忆被两次挑中。
+// 铁律不变:fire-and-forget,投递只入 Notify Bucket,不进 request、不写 agent_stack_items。
+let deliveryChain: Promise<unknown> = Promise.resolve();
+function fireDeliveryForRecall(anchorText: string, result: unknown): void {
+  const record = result && typeof result === 'object' ? (result as { shadowRecord?: unknown }).shadowRecord : null;
+  const silent = result && typeof result === 'object' ? (result as { silent?: unknown }).silent === true : true;
+  if (!record || typeof record !== 'object' || silent) {
+    return;
+  }
+  deliveryChain = deliveryChain
+    .then(() => deliverPassiveRecallForEvent({ anchorText, row: record as { surfaced?: unknown; queryRef?: string | null } }))
+    .then((outcome) => {
+      if (outcome === 'delivered') {
+        moduleLogger.info('Passive recall surface delivered (event-driven)', { anchorChars: anchorText.length });
+      }
+    })
+    .catch((error: unknown) => {
+      moduleLogger.warn('Passive recall event-driven delivery failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+}
+
 let lastFiredAt = 0;
 let inFlight = false;
 
@@ -140,13 +170,15 @@ async function projectAndIngest(): Promise<void> {
     .slice(1, 15)
     .map((it: any) => (typeof it?.id === 'string' ? it.id : (typeof it?.eventId === 'string' ? it.eventId : null)))
     .filter(Boolean) as string[];
-  await ingest.runShadowRecall({
+  const result = await ingest.runShadowRecall({
     landedText,
     landedRef,
     contextRefs,
     taskLocked: false,
     occurredAt: typeof newest?.timestamp === 'string' ? newest.timestamp : undefined
   });
+  // 她自己的落地也是事件:召回到东西就交精排 Agent,不等定时器。
+  fireDeliveryForRecall(landedText, result);
 }
 
 // 消费侧 query 点火。被动召回是对小腻**正在消费的内容**的进一步联想,所以点火时刻只有一个:
@@ -184,6 +216,8 @@ export function fireConsumedNotifyRecall(payload: Record<string, unknown> | null
       taskLocked: false,
       occurredAt
     }))
+    // 别人刚说的话勾起她一段回忆 → 同一次就交精排 Agent 投递,锚点就是这条消息。
+    .then((result) => fireDeliveryForRecall(landedText, result))
     .catch(() => {});
 }
 

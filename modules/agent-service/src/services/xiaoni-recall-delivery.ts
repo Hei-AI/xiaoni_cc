@@ -85,50 +85,22 @@ const DELIVERABLE_LEGS: Array<{ leg: string; queryRef?: string; landingRows?: bo
   { leg: 'landing', landingRows: true }
 ];
 
-// dedupe_key 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在键里,不必另存游标。
-function legFromDedupeKey(key: string | undefined): string | null {
-  if (typeof key !== 'string' || !key.startsWith(DEDUPE_PREFIX)) {
-    return null;
-  }
-  const rest = key.slice(DEDUPE_PREFIX.length);
-  const idx = rest.indexOf(':');
-  return idx > 0 ? rest.slice(0, idx) : null;
-}
-
-// 上一条投的是哪条腿,这一拍就把另一条排前面。某条没货 → 自然落回另一条(不是死等),
-// 下一拍再换回来。状态从队列现读,supervisor 保持无状态、重启即续。
-function rotateLegs(lastLeg: string | null): typeof DELIVERABLE_LEGS {
-  const idx = lastLeg ? DELIVERABLE_LEGS.findIndex((entry) => entry.leg === lastLeg) : -1;
-  if (idx < 0) {
-    return DELIVERABLE_LEGS;
-  }
-  return [...DELIVERABLE_LEGS.slice(idx + 1), ...DELIVERABLE_LEGS.slice(0, idx + 1)];
-}
-
 // 开关与日额的**唯一真理源是 agent_runtime_control**(管理端可改、每拍热读、无重启)。
 // 不留 env 兜底:两个真理源会让「页面上关了但它还在投」变成可能,而这是一个会主动
 // 打扰她的通道 —— 关得掉必须是结构性事实。默认 OFF / 6,库里没行也一样。
-// 每次 tick 最多投 1 条(设计里的「每次落地最多 1 块」在投递侧的对应物)。
+// 精排 Agent 缺席时每次事件最多投 1 条(设计里的「每次落地最多 1 块」在投递侧的对应物)。
 const PER_TICK_LIMIT = 1;
-// 判官缺席/失灵时的最小投递间隔。14 小时活动窗 ÷ 2h ≈ 7 条/天,和判官在场时的量级相当,
-// 但完全不依赖判断力 —— 这是「判断力缺席就保守」,不是日常节奏控制。
+// 精排 Agent 缺席/失灵时的最小投递间隔:完全不依赖判断力 —— 这是「判断力缺席就保守」,不是日常节奏控制。
 const FALLBACK_MIN_GAP_MS = 2 * 60 * 60 * 1000;
-// 往回看几条 shadow 扫描行找没投过的 lead。两条腿都是 30min 一轮,20 行 ≈ 10 小时。
+// 联想腿:往回看几条 association_scan 行找没投过的 lead(扫描 30min 一轮,20 行 ≈ 10 小时)。
+// 落地腿不再回捞 —— 事件驱动后,触发投递的那次召回自己的行直接进候选。
 const SHADOW_LOOKBACK = 20;
 
-// ── 投递节奏:把日额摊到白天,别在她收尾睡觉的那一小时里烧光 ──────────────
-// 实测 2026-08-08..08-13 六天:24 条投递**全部**落在 00:07–00:57。成因是
-// 「计数按东八零点归零 + 10 分钟一拍 + 每拍 1 条 + 无最小间隔」= 六拍烧光,其余 23 小时全 capped。
-// 而 00:00 正好是她收尾睡觉的窗口:那几拍的栈里是连着六七次 recover_energy(「够了。睡了。」),
-// 投进去的结果是「记着。明天处理。」然后再也不提(旧幂等下「明天」在机制上不存在)。
-// 唯一一次投在她清醒干活时(08-07 16:05)她 12 秒后就动手了。
-//
-// 摊开用**槽位**而不是「距上次多久」:后者要存/查上次投递时刻,这个 supervisor 是无状态的。
-// 槽位只用已有的 deliveredToday 计数 + 当前时刻就能算,重启即续,漏拍自愈。
-const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
-// 活动窗(东八区小时)。窗外一律不投 —— 这就是「避开凌晨」,不需要另设开关。
-const ACTIVE_WINDOW_START_HOUR = 9;
-const ACTIVE_WINDOW_END_HOUR = 23;
+// ── 投递时机:跟着事件走(2026-08-28 起) ─────────────────────────────────
+// 曾经是 10 分钟一拍的 supervisor + 09:00–23:00 活动窗,从 shadow_log 回捞 ~10 小时的陈旧候选,
+// 锚点是「最近一次落地」—— 她收到钩子时,触发它的事件早过去了。现在改成:她消费一条 QQ 消息、
+// 或自己每次落地,那次召回写完 shadow 行就**立刻**拿着这一行交精排 Agent,锚点就是事件原文。
+// 没有定时器、没有活动窗:她睡着时消息不会被消费,自然不触发。
 // 承诺账本。投递前现读它做「还没做完吗」的复核 —— 权威在这个文件的勾选状态,
 // 不在投递账本里。容器挂载见 docker-compose.yml(agent-service 也挂 /xiaoni-runtime)。
 // 仍未做完的承诺,隔多少天可以再提一次。
@@ -141,6 +113,7 @@ const ACTIVE_WINDOW_END_HOUR = 23;
 
 type ShadowRow = {
   occurredAt?: string | null;
+  queryRef?: string | null;
   surfaced?: unknown;
 };
 
@@ -347,27 +320,13 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
 }
 
 // 东八区当前小时(含小数)。startOfEast8Day 已经在用同一个偏移量,这里沿用同一套算术。
-function east8HourOf(now: Date): number {
-  const shifted = now.getTime() + EAST8_OFFSET_MS;
-  return (shifted % 86_400_000) / 3_600_000;
+export type RecallDeliveryOutcome = 'disabled' | 'none' | 'delivered';
+
+// 触发投递的事件:她消费的 QQ 消息 / 她自己的一次落地。row = 这次召回刚写的 shadow 行(带 surfaced)。
+export interface RecallDeliveryEvent {
+  anchorText: string;
+  row: ShadowRow & { queryRef?: string | null };
 }
-
-// 在不在活动窗内。窗外一条都不投 —— 2026-08-13 实测过:她收尾睡觉那个时段投出去的
-// 24 条只换来「记着。明天处理。」。这条留着,它挡的是**时机**不是数量。
-function isWithinActiveWindow(now: Date): boolean {
-  const hour = east8HourOf(now);
-  return hour >= ACTIVE_WINDOW_START_HOUR && hour < ACTIVE_WINDOW_END_HOUR;
-}
-
-// 投递前现读承诺账本做复核。
-// 为什么必须现读:候选是从最近 SHADOW_LOOKBACK=20 行扫描里捞的 ≈ 10 小时的陈旧快照,
-// 期间她完全可能已经把这件事做完并打上勾。实测 2026-08-08..08-13 的 24 条投递里有 3 条
-// (12.5%)投的是**已经关掉**的事 —— `who-am-i` 那条在投递前 41 分钟才被打勾。
-// 权威是文件里的勾选状态(state === 'open'),不是投递账本。
-// 读失败 / 解析不出 → 返回 null 表示「判不了」,调用方按放行处理:
-// 复核是用来挡陈旧的,不该因为读不到文件就把整条腿停掉。
-
-export type RecallDeliveryOutcome = 'disabled' | 'outside_window' | 'none' | 'delivered';
 
 // supervisor tick。无状态、幂等:漏一拍只是晚一点投,重复一拍被唯一索引吞掉,重启即续。
 export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: RecallDeliveryOptions = {}) {
@@ -426,13 +385,12 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     }, databaseConfig).catch(() => undefined);
   }
 
-  // 候选交给判官。id 用 dedupeKey —— 它已经是这段记忆的稳定身份,不另铸一套编号。
-  // 锚点(她此刻在做的事)取最近一条向量腿 shadow 的 query_text:那条腿每次落地都写。
-  async function runJudge(leads: Lead[]): Promise<{ parsed: boolean; picks: Array<{ id: string; hook: string }> } | null> {
+  // 候选交给精排 Agent。id 用 dedupeKey —— 它已经是这段记忆的稳定身份,不另铸一套编号。
+  // 锚点 = 触发这次投递的事件原文(她刚消费的消息 / 她刚落地的内容)。
+  async function runJudge(leads: Lead[], anchor: string): Promise<{ parsed: boolean; picks: Array<{ id: string; hook: string }> } | null> {
     if (!judge || leads.length === 0) {
       return null;
     }
-    const anchor = await readLatestAnchorText().catch(() => '');
     const items = leads.slice(0, persistence.MAX_CANDIDATES_IN_PROMPT).map((lead) => ({
       id: dedupeKeyFor(lead),
       text: lead.text,
@@ -448,7 +406,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       // 判官挂了(超时 / 5xx)。**这必须看得见**:它走 /api/internal/llm/debug,
       // 不落 llm_request_slices,不在这里留痕就查无此事 —— 表现出来只是「今天怎么不冒了」。
       const message = error instanceof Error ? error.message : String(error);
-      moduleLogger.warn('Passive recall judge call failed — 退回模板钩子', { error: message });
+      moduleLogger.warn('Passive recall rerank agent call failed — 退回模板钩子', { error: message });
       await writeJudgeShadow({ anchor, items, verdict: { parsed: false, picks: [] }, raw: null, error: message, llmCallId: null });
       throw error;
     }
@@ -472,12 +430,6 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     return verdict;
   }
 
-  // 「她此刻在做的事」只能取**落地腿**的 query_text —— 那条腿每次落地都写当时的锚点文本。
-  // 不能不带 queryRef 直接取最新一条:扫描腿是定时跑的,它的 queryText 要么为空
-  // (diary_resurface / open_loop_scan),要么是**上一次落地**的锚点(association_scan 会带),
-  // 两种都不是「此刻」。所以用同一个 isLandingRow 判据筛。
-  const ANCHOR_LOOKBACK = 20;
-
   // 最近一次召回投递的时刻(判断力缺席时的节流用)。从队列现读,不存游标。
   async function readLastDeliveryAt(): Promise<number | null> {
     if (typeof deps.getLastAgentQueueEnqueuedAt !== 'function') {
@@ -487,89 +439,60 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     return typeof at === 'number' && Number.isFinite(at) ? at : null;
   }
 
-  async function readLatestAnchorText(): Promise<string> {
-    const rows = await deps.listRecallShadowLog({
-      identityKey: IDENTITY_KEY,
-      limit: ANCHOR_LOOKBACK
-    }, databaseConfig) as Array<{ queryText?: unknown; queryRef?: unknown }>;
-    for (const row of Array.isArray(rows) ? rows : []) {
-      const txt = typeof row?.queryText === 'string' ? row.queryText.trim() : '';
-      if (isLandingRow(row?.queryRef) && txt) {
-        return txt;
-      }
-    }
-    return '';
-  }
-
-  async function deliverOnce(): Promise<RecallDeliveryOutcome> {
-    // 每拍现读:管理端关掉后最多一拍(10min)就停,不用重启。读失败 → fail-closed 当关着,
+  async function deliverForEvent(event: RecallDeliveryEvent): Promise<RecallDeliveryOutcome> {
+    // 每次现读:管理端关掉后下一次事件就停,不用重启。读失败 → fail-closed 当关着,
     // 「读不到就别投」对一个能主动打扰她的通道是唯一安全的默认。
     const gate = await readGate().catch(() => ({ enabled: false }));
     if (gate.enabled !== true) {
       return 'disabled';
     }
     const now = clock();
-    // 一次读同时给出「今天投了几条」和「上一条是哪条腿」—— 日额与轮转共用同一份事实。
+    // 今天已投的 dedupe_key:只用来**跳过已投**和记账,不做任何拦截。
     const todaysKeys = await deps.listRecentAgentQueueDedupeKeys({
       prefix: DEDUPE_PREFIX,
       since: startOfEast8Day(now),
       limit: 500
     }, databaseConfig);
     // **没有日额。** 联想不是配额制的:人不会「今天已经想起过 10 件事,后面就不想了」。
-    // 该不该冒由判官一条一条判(它可以说「一条都不值得」,而且多数时候就该这么说),
-    // 判官不在场时由最小间隔兜住 —— 那兜的是「判断力缺席」,不是「今天够了」。
-    // 这里仍然数今天投了几条,但只用来**记账和轮转腿**,不做任何拦截。
+    // 该不该冒由精排 Agent 一条一条判(它可以说「一条都不值得」,而且多数时候就该这么说),
+    // 它不在场时由最小间隔兜住 —— 那兜的是「判断力缺席」,不是「今天够了」。
     const deliveredToday = Array.isArray(todaysKeys) ? todaysKeys.length : 0;
-    // 时机闸:窗外一条都不投。挡的是**时机**不是数量。
-    if (!isWithinActiveWindow(now)) {
-      return 'outside_window';
-    }
-    const legOrder = rotateLegs(legFromDedupeKey(todaysKeys?.[0]));
 
-    // 新的先投:两条腿都是「时间到了该提」的性质,旧 lead 早就被更旧的 tick 消化过。
+    // 候选:这次事件自己召回到的(落地腿,就是传进来的那一行)排前面;再加最近联想扫描到的
+    // (联想腿,30min 一轮的扫描行)。扫描腿 / 精排留痕行不是落地行,isLandingRow 挡住。
     const candidates: Lead[] = [];
-    for (const { leg, queryRef, landingRows } of legOrder) {
-      // eslint-disable-next-line no-await-in-loop
-      const rows = await deps.listRecallShadowLog({
-        identityKey: IDENTITY_KEY,
-        ...(queryRef ? { queryRef } : {}),
-        limit: lookback,
-        onlySurfaced: true
-      }, databaseConfig) as ShadowRow[];
-      for (const row of Array.isArray(rows) ? rows : []) {
-        // 落地腿没法把 queryRef 推下去(每次落地都变),在读回来的行里排除扫描腿。
-        if (landingRows && !isLandingRow((row as { queryRef?: unknown }).queryRef)) {
-          continue;
-        }
-        candidates.push(...leadsFromRow(leg, row));
-      }
+    if (event.row && isLandingRow(event.row.queryRef)) {
+      candidates.push(...leadsFromRow('landing', event.row));
+    }
+    const associationRows = await deps.listRecallShadowLog({
+      identityKey: IDENTITY_KEY,
+      queryRef: 'association_scan',
+      limit: lookback,
+      onlySurfaced: true
+    }, databaseConfig) as ShadowRow[];
+    for (const row of Array.isArray(associationRows) ? associationRows : []) {
+      candidates.push(...leadsFromRow('association', row));
     }
     if (candidates.length === 0) {
       return 'none';
     }
 
-    // 先剔掉今天已经投过的,再交给判官。
-    // 判官只看得到前 N 条(MAX_CANDIDATES_IN_PROMPT);如果它挑中的恰好是早投过的那条,
-    // ordered 会被替换成只剩它一个 → enqueue 返回 created=false → 整拍空转,而判官之前的
-    // 行为是继续往下走候选。幂等仍由 dedupe_key 唯一索引兜底,这一步只是别让判官白挑。
+    // 先剔掉今天已经投过的,再交给精排 Agent。
     const deliveredKeys = new Set(Array.isArray(todaysKeys) ? todaysKeys : []);
     const unseen = candidates.filter((lead) => !deliveredKeys.has(dedupeKeyFor(lead)));
     if (unseen.length === 0) {
       return 'none';
     }
 
-    // 判官是**主闸**。允许它说「一条都不值得」—— 那是正常结果,而且多数时候就该这么说。
-    //
-    // 但**没有判官时不能裸奔**:supervisor 每 10 分钟一拍,活动窗 14 小时 = 84 拍,
-    // 不节流就是 84 条/天。所以判官缺席(没注入)或没答上来(parsed=false)时,退回
-    // 一个保守的最小间隔 —— 宁可少投,不可在判断力缺席时放量。
+    // 精排 Agent 是**主闸**。允许它说「一条都不值得」—— 那是正常结果,而且多数时候就该这么说。
+    // 但**没有它时不能裸奔**:事件驱动下一天几百次事件,不节流就是几百条。所以它缺席(没注入)
+    // 或没答上来(parsed=false)时,退回一个保守的最小间隔 —— 宁可少投,不可在判断力缺席时放量。
     let judgeAnswered = false;
-
-    // parsed=false(挂了/输出读不出)→ 退回判官之前的行为,别当成「它说不值得」,
-    // 否则判官一挂整条投递腿会静默死掉且无迹可循。
+    // parsed=false(挂了/输出读不出)→ 退回它之前的行为,别当成「它说不值得」,
+    // 否则它一挂整条投递腿会静默死掉且无迹可循。
     let ordered = unseen;
     if (judge) {
-      const verdict = await runJudge(unseen).catch(() => null);
+      const verdict = await runJudge(unseen, event.anchorText || '').catch(() => null);
       if (verdict && verdict.parsed) {
         judgeAnswered = true;
         if (verdict.picks.length === 0) {
@@ -590,19 +513,19 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     }
 
     // 判断力缺席时的节流:上一条投出去还不到 FALLBACK_MIN_GAP_MS 就不投。
-    // 判官在场时不设这道闸 —— 它自己会说不值得,那才是我们要的控制方式。
+    // 精排 Agent 在场时不设这道闸 —— 它自己会说不值得,那才是我们要的控制方式。
     if (!judgeAnswered) {
       const lastAt = await readLastDeliveryAt().catch(() => null);
       if (lastAt && now.getTime() - lastAt < FALLBACK_MIN_GAP_MS) {
-        moduleLogger.warn('Passive recall fell back to interval throttle — 判官没答上来', {
+        moduleLogger.warn('Passive recall fell back to interval throttle — 精排 Agent 没答上来', {
           minutesSinceLast: Math.round((now.getTime() - lastAt) / 60_000)
         });
         return 'none';
       }
     }
 
-    // 判官答了 → 投它挑的那几条(它自己封顶 MAX_PICKS);它已经在说「这几条都值得」,
-    // 再砍一刀就又变成配额决定量了。没答上来时才用每拍上限压住模板钩子那条退路。
+    // 精排 Agent 答了 → 投它挑的那几条(它自己封顶 MAX_PICKS);它已经在说「这几条都值得」,
+    // 再砍一刀就又变成配额决定量了。没答上来时才用每次上限压住模板钩子那条退路。
     const perTickLimit = judgeAnswered ? ordered.length : PER_TICK_LIMIT;
     let delivered = 0;
     for (const lead of ordered) {
@@ -624,7 +547,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     return delivered > 0 ? 'delivered' : 'none';
   }
 
-  return { deliverOnce };
+  return { deliverForEvent };
 }
 
 async function defaultReadGate(): Promise<RecallDeliveryGate> {
@@ -653,8 +576,9 @@ const defaultDelivery = createPassiveRecallDelivery(
   { judge: defaultJudge }
 );
 
-export function deliverPassiveRecallSurfaceOnce(): Promise<RecallDeliveryOutcome> {
-  return defaultDelivery.deliverOnce();
+// 事件驱动的投递入口:召回 hook 在 runShadowRecall 写完 shadow 行后立刻调用。
+export function deliverPassiveRecallForEvent(event: RecallDeliveryEvent): Promise<RecallDeliveryOutcome> {
+  return defaultDelivery.deliverForEvent(event);
 }
 
 export const passiveRecallDeliveryLegs = DELIVERABLE_LEGS.map((entry) => entry.leg);

@@ -5,7 +5,6 @@ import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled, setIdlePlanSkillSubmissionEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
-import { deliverPassiveRecallSurfaceOnce, passiveRecallDeliveryLegs } from './services/xiaoni-recall-delivery';
 import { sendOpenLoopsPointerNotifyOnce, openLoopsNotifyConfig } from './services/xiaoni-open-loops-notify';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -582,30 +581,8 @@ async function runClockPingLoop() {
   }
 }
 
-// 被动浮现投递 supervisor。deliverPassiveRecallSurfaceOnce 靠 dedupeKey(= 记忆的 ref)幂等,
-// 所以这一拍同样无状态:漏一拍只是晚一点投,重复一拍被唯一索引吞,重启即续。
-//
-// 循环**无条件启动**,开/关由每拍现读 agent_runtime_control 决定 —— 这样管理端翻开关
-// 最多一拍(10min)就生效/失效,不用重启 agent-service。关着时这一拍只是一次读。
-const RECALL_DELIVERY_SUPERVISOR_TICK_MS = 10 * 60_000;
-
-async function runPassiveRecallDeliveryLoop() {
-  while (!stopping) {
-    try {
-      const result = await deliverPassiveRecallSurfaceOnce();
-      if (result === 'delivered') {
-        moduleLogger.info('Passive recall surface delivered', { legs: passiveRecallDeliveryLegs });
-      }
-    } catch (error) {
-      moduleLogger.warn('Passive recall delivery supervisor tick failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-    if (!stopping) {
-      await wait(RECALL_DELIVERY_SUPERVISOR_TICK_MS);
-    }
-  }
-}
+// 被动浮现投递不再有 supervisor(2026-08-28):改为事件驱动,召回 hook 写完 shadow 行就交精排 Agent,
+// 见 xiaoni-recall-hook.ts fireDeliveryForRecall / xiaoni-recall-delivery.ts deliverPassiveRecallForEvent。
 
 // 欠账指针通知 supervisor。整条腿靠「槽位当 dedupeKey」幂等,所以这一拍无状态:
 // 漏一拍跳过一个槽,重复一拍被唯一索引吞,重启即续。默认 OFF。
@@ -713,7 +690,6 @@ async function start() {
   if (agentConfig.clockPingEnabled) {
     void wait(1100).then(() => runClockPingLoop());
   }
-  void wait(1400).then(() => runPassiveRecallDeliveryLoop());
   void wait(1700).then(() => runOpenLoopsNotifyLoop());
 }
 
