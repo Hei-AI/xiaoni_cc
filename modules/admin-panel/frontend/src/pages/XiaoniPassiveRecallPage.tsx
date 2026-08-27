@@ -78,13 +78,13 @@ function DeliveryHealthPanel({ health }: { health: DeliveryHealth }) {
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {stat(
-          '判官静默率',
+          '精排静默率',
           silentPct === null ? '—' : `${silentPct}%`,
           '它还是不是一道闸。掉向 0 = 它不再说「一条都不值得」了',
           silentPct !== null && silentPct < 20 ? 'warn' : 'ok'
         )}
         {stat(
-          '判官失败率',
+          '精排失败率',
           health.judgeTicks ? `${Math.round(errorRate * 100)}%` : '—',
           `${health.judgeErrors}/${health.judgeTicks} 拍拿不到答案 → 退回模板钩子 + 最小间隔`,
           errorRate >= 0.3 ? 'bad' : errorRate > 0 ? 'warn' : 'ok'
@@ -213,7 +213,7 @@ function LlmWorkBlock({ work, dropped }: { work: LlmWork; dropped?: Array<{ verd
   return (
     <div className="mt-2 rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2">
       <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-        {work.kind === 'judge' ? 'Haiku 判官' : 'Haiku query 展开'}
+        {work.kind === 'judge' ? '精排 Agent' : 'query 展开'}
       </div>
       {work.kind === 'expansion' ? (
         <div className="mt-1 space-y-1 text-xs text-foreground">
@@ -374,7 +374,7 @@ const ROW_HEADER: Record<ShadowRowKind, string> = {
   open_loop: '开放承诺 · 按时间扫（非语义召回）',
   diary: '翻旧事 · 按时间扫（非语义召回）',
   association: '联想 · 六因子等权 + 四桶配额（当下落地当引子）',
-  judge: '投递判官 · Haiku（她此刻在做的事当锚）',
+  judge: '精排 Agent · Sonnet 4.6（触发事件的原文当锚）',
 };
 
 function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
@@ -399,7 +399,7 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
           {entry.silent
             ? <StatusPill tone="neutral">静默</StatusPill>
             : <StatusPill tone="success">浮现</StatusPill>}
-          {isJudge ? <StatusPill tone="info">判官</StatusPill> : null}
+          {isJudge ? <StatusPill tone="info">精排</StatusPill> : null}
           {isTimeScan ? (
             <StatusPill tone="info">
               {rowKind === 'open_loop' ? '待办承诺腿' : rowKind === 'association' ? '联想腿' : '旧事腿'}
@@ -564,9 +564,9 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
       <PageHeader
         eyebrow="Passive Recall"
         title="小腻被动浮现 Shadow"
-        description="每次内容落地自动跑召回。联想腿与落地腿会经判官筛选后投给小腻；其余腿只记录。"
+        description="有事件进来（QQ 消息被消费 / 她自己落地）就跑召回，同一次交精排 Agent 筛选后投给小腻，不再定时；其余腿只记录。"
         icon={<BrainCircuit className="h-5 w-5" />}
-        badge={<StatusPill tone="info">判官决定量 · 无日额</StatusPill>}
+        badge={<StatusPill tone="info">精排 Agent 决定量 · 无日额</StatusPill>}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -584,7 +584,7 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
 
       <SectionPanel
         title="投递健康度"
-        description="这条腿没有日额——「别吵」全靠判官，所以这几个数就是它的安全带（ADR-0005）。"
+        description="这条腿没有日额——「别吵」全靠精排 Agent，所以这几个数就是它的安全带（ADR-0005）。"
       >
         {healthQuery.data
           ? <DeliveryHealthPanel health={healthQuery.data} />
