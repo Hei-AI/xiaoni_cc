@@ -76,6 +76,7 @@ import {
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
+import { stripExecCommandCommentsInCanonicalResponse } from './exec-command-comments';
 import {
   applyXiaoniOsRewriteInPlace,
   extractAssistantItemText,
@@ -8814,6 +8815,10 @@ export class AgentLoopService {
           });
         });
         const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
+        // exec_command 注释剥离(引导她别把想法写进注释):在 canonical_response 上就地删掉 cmd 里的整行 # 注释。
+        // 执行路由 / stack ledger / live requestInput 三处都从这份 canonical_response 派生 → 同源;
+        // 她的原文仍在 provider 写的 llm_request_slices.canonical_response 里。见 exec-command-comments.ts。
+        const strippedExecCommandComments = stripExecCommandCommentsInCanonicalResponse(modelResult.canonical_response);
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         // A1: freeze the xiaoni_os hide-decision into this turn's model-output tool calls before
         // they fan out to BOTH the stack ledger (buildModelOutputStackItems, content: item) and the
@@ -8932,6 +8937,13 @@ export class AgentLoopService {
             const toolResult = await this.executeTool(toolCall, payload, {
               currentCanonicalRequest
             });
+            // 注释被删过的 exec_command:结果末尾附一句固定纠正,告诉她删了几行、想法该写哪。
+            if (toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string') {
+              const removedCommentLines = strippedExecCommandComments.get(toolCall.callId) || 0;
+              if (removedCommentLines > 0) {
+                toolResult.codex_output = `${toolResult.codex_output}\n\n${renderPromptSnippet('exec_command_comment_stripped.md', { LINES: removedCommentLines })}`;
+              }
+            }
             // recover_energy 按【结果】记账(user 拍板 2026-07-27):身体接受休息(入睡或立即恢复)
             // =有效产出,空转计数归零——都睡着了不算空转;被身体拒绝(rest_rejected,睡不着)不算,
             // 发起了但没睡成等于没动。其它工具在发出那一刻已记,这里只补 recover_energy 的结果位。
