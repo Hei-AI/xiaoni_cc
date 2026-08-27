@@ -63,3 +63,12 @@ text ──► 分类(Sonnet 4.6, 输出 1/0)「有没有事」
 2. 相邻两 slice 的 `cache_read_input_tokens` 不塌（改写腿不动主前缀）。
 3. 14 天窗口：`exec_command` 多行注释块占比从 58.2% 降到 <20%（单行注释 18% 是合法用法，不计）。没降 → 回到 Round-2 的 scrub 腿。
 4. 日志无 `xiaoni_os_rewrite` 连续 failed_open（那条 OAuth 路一半 500 的历史，见 recall 判官）。
+
+## 2026-08-28 追加:填充句禁令 + exec_command 注释剥离
+
+**xiaoni_os 不允许填充句 / 无效休息**(用户拍板)。「在。」「嗡。」「停。」「等。」「好。」、报时报数、「歇着/待着/等困意」都算。三道:
+1. `isFillerOnlyText`:整段只有填充句 → 不问模型,直接判 idle(`classify_model = filler-rule`)去改写。
+2. `stripFillerSentences`:改写出口逐句剔掉填充句,剔空 → evicted。
+3. 分类/改写提示词加规则与例子;`system_prompt.md` 加可核对禁令(下次压缩生效)。
+
+**exec_command 整行 `#` 注释在执行前剥掉**(用户拍板「禁止用 exec_command 写注释,想办法引导」)。prompt 禁令已证明无效(注释是代偿通道)。现在 turn 末在 `modelResult.canonical_response` 上就地删掉 `cmd` 里的整行注释(`exec-command-comments.ts`;heredoc 体、多行引号串、shebang、行尾注不动):执行路由 / stack ledger / live requestInput 都从这份派生 → 三处同源,下一轮她看不到注释;删过的命令 `codex_output` 末尾附 `exec_command_comment_stripped.md`(删了 N 行、想法写 xiaoni_os)。原文留在 provider 写的 `llm_request_slices.canonical_response`。双缓存:fork 克隆同一份 outputItems、stack 与 live 同源,冻结用例全绿。
