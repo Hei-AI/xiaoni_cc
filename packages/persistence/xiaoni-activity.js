@@ -2425,6 +2425,11 @@ const FORK_SLICE_ACTION_STREAM_SELECT = `
 // ever renders a ≤420-char preview of it (summarizeCompression/Subconscious/ImageVisionForkItem),
 // so materializing the raw blob is pure waste and — across the 30-120 most-recent fork runs —
 // is what blew getXiaoniActivityFeed's heap past 2GB on a single request. Cap the column in SQL:
+// 量长度必须用 pg_column_size(读 TOAST 头里的压缩后大小,不解压不取回),**不能**用
+// octet_length(content::text):后者要把每一行 jsonb 全量 detoast + 序列化才能量——
+// core_memory_compression_fork_items 4223 行 6.1 GB(单行最大 57 MB),120 个 run 的一次
+// 行动流查询实测 52.6 s,换 pg_column_size 后 9.5 ms(2026-08-27)。阈值因此量的是压缩后
+// 字节,偏松一点(压缩前可能 100 KB+),预览用途下可接受。
 // oversized content collapses to a tiny `{_truncated_bytes}` marker (still enough for the preview
 // path to render a placeholder), keeping the working set bounded regardless of payload size.
 const FORK_ITEM_CONTENT_PREVIEW_MAX_BYTES = 32768;
@@ -2441,8 +2446,8 @@ const FORK_ITEM_ACTION_STREAM_SELECT = `
   tool_call_id,
   llm_request_slice_id,
   CASE
-    WHEN octet_length(content::text) > ${FORK_ITEM_CONTENT_PREVIEW_MAX_BYTES}
-    THEN jsonb_build_object('_truncated_bytes', octet_length(content::text))
+    WHEN pg_column_size(content) > ${FORK_ITEM_CONTENT_PREVIEW_MAX_BYTES}
+    THEN jsonb_build_object('_truncated_bytes', pg_column_size(content))
     ELSE content
   END AS content,
   visibility,
