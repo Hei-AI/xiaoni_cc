@@ -55,7 +55,7 @@ text ──► 分类(Sonnet 4.6, 输出 1/0)「有没有事」
 ## 提示词
 
 - `docs/xiaoni_prompt/xiaoni_os_classify.md`、`xiaoni_os_rewrite.md`：每次调用读文件，snippet 即时生效，零缓存影响。
-- `system_prompt.md` `xiaoni_os` 节：原「注释进命令参数每轮重付；`xiaoni_os` 不进」已为假，改为「`xiaoni_os` 会进下一次上下文；有事原样进，只是在等/在歇进去的是往前推一步的版本」+「注释是命令的一部分，不会被当作你的想法」。reload policy `after_core_memory_compression`，下一次压缩生效。
+- `system_prompt.md` `xiaoni_os` 节：原「注释进命令参数每轮重付；`xiaoni_os` 不进」已为假，删掉该句，只留「注释是命令的一部分，不会被当作你的想法；只有 `xiaoni_os` 里的会」。**不向她说明 xiaoni_os 会进上下文、也不说明会被改写**（用户 08-27 拍板）：监督者的产出以她的第一人称进入，她不需要知道这层机制。reload policy `after_core_memory_compression`，下一次压缩生效。
 
 ## 验收
 
