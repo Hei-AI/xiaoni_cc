@@ -53,8 +53,11 @@ export interface XiaoniOsRewriteLegResult {
   processingTimeMs: number;
 }
 
-// 分类 / 改写的模型。默认 Haiku:与召回判官同一份 OAuth 凭据、同一条已在维护的认证路径。
-export const XIAONI_OS_REWRITE_MODEL = process.env.XIAONI_OS_REWRITE_MODEL || 'claude-haiku-4-5';
+// 分类 / 改写的模型。默认 Sonnet 4.6(同事建议:改写要贴她口气,Haiku 曾把比喻当人编事;同一份 OAuth
+// 凭据、与召回判官同一条认证路径)。真机:分类 1.8s / 改写 7.7s,单次 input ≈ 470 tokens。
+// 前缀缓存**不做**:Sonnet 4.6 最小可缓存前缀 1024 tokens,这条请求全长才 ~470,打 cache_control 也静默不缓存;
+// 每次都是独立请求(system + 一段 text),没有持续 append 的 input,300 次/天 ≈ 0.15M tokens ≈ $0.45/天,不值得垫长。
+export const XIAONI_OS_REWRITE_MODEL = process.env.XIAONI_OS_REWRITE_MODEL || 'claude-sonnet-4-6';
 // 单次请求超时 / 重试。两次串行调用阻塞主 loop 的 turn 末,最坏 (15s × 2 次尝试) × 2 腿 = 60s;
 // 心理评估 fork 时代是 30s 单次。日常 Haiku 几秒内返回。
 export const XIAONI_OS_LLM_TIMEOUT_MS = 15_000;

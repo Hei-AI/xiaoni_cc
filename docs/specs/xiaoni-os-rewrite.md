@@ -14,9 +14,9 @@
 turn 末，对这一 turn 每条 assistant 文本：
 
 ```
-text ──► 分类(Haiku, 输出 1/0)「有没有事」
+text ──► 分类(Sonnet 4.6, 输出 1/0)「有没有事」
            │ 1 有事 ────────────────────────► kept:      原文准入(text_admit)
-           │ 0 空转 ──► 改写(Haiku)朝外走 ──► rewritten: 正文替换为改写版 + 准入
+           │ 0 空转 ──► 改写(Sonnet 4.6)朝外走 ──► rewritten: 正文替换为改写版 + 准入
            │            └ 改写失败/为空 ────► evicted:   不打 stamp(默认剥)
            └ 分类失败/认不出 ──────────────► failed_open: 原文准入
 ```
@@ -27,11 +27,11 @@ text ──► 分类(Haiku, 输出 1/0)「有没有事」
 
 ## 定位：监督者（student / supervisor）
 
-主 agent（Opus）是 student；Haiku 不是 teacher——它不比她懂怎么生活，它只占一个她占不到的位置：turn 末、经验写回上下文之前，拿固定 rubric 决定「这段经验以什么样子被回放」。这是 critic / reward-model 的位置，不是 teacher forcing。推论：
+主 agent（Opus）是 student；监督者模型（Sonnet 4.6，`XIAONI_OS_REWRITE_MODEL` 可覆盖）不是 teacher——它不比她懂怎么生活，它只占一个她占不到的位置：turn 末、经验写回上下文之前，拿固定 rubric 决定「这段经验以什么样子被回放」。这是 critic / reward-model 的位置，不是 teacher forcing。推论：
 
 1. 监督者只看 rubric 与这一条文本，不看她的历史（独立小请求，这也是它便宜的原因）。
 2. 监督者的产出永远以她的第一人称进入她的上下文；她看到的是「自己」在推进，没有第二个声音。
-3. 监督者只需要一致性不需要能力，所以可以换成训出来的分类器 / 小改写器，Haiku 退为兜底。
+3. 监督者只需要一致性不需要能力，所以可以换成训出来的分类器 / 小改写器，Sonnet 退为兜底。
 
 ## 缓存 / 不可变性
 
@@ -39,11 +39,16 @@ text ──► 分类(Haiku, 输出 1/0)「有没有事」
 - 决定与改写后正文在 `stampTextAdmitInPlace` 同一落点（`agent-loop-service.ts` turn 末，`buildModelOutputStackItems` / `appendLoopInputItems` 之前）就地写进共享 `outputItems` ref。这条 text 在此之前从未进过任何请求（text 门只有 `:8718` 每 turn 构建与 `:18668` replay 两处读，turn N 的 text 到 turn N+1 才被读）→ 不违背「已消费上下文不可变」；live 与下一 run replay 拿到同一份字节。
 - 冻结缓存回归用例一个未改。新增 `xiaoni-os-rewrite.test.ts`（含 live/replay 字节一致）。
 
+## 模型与前缀缓存
+
+- 模型 `claude-sonnet-4-6`（真机：分类 1.8s / 改写 7.7s，单次 input ≈ 470 tokens）。
+- **不做前缀缓存**：Sonnet 4.6 最小可缓存前缀 1024 tokens，这条请求 system + text 全长 ~470，打 `cache_control` 也静默不缓存（provider `/api/internal/llm/debug` 路径现在也不打）。每次是独立请求，没有持续 append 的 input；300 次/天 ≈ 0.15M tokens ≈ $0.45/天，为缓存把 system 垫到 1024 反而多付。system prompt 若将来长过 1024，再在 provider debug 路径给 system 块加 `cache_control`。
+
 ## 留痕 / 训练集
 
 表 `xiaoni_os_rewrites`（`packages/persistence/xiaoni-os-rewrite.js`，启动 ensure）：原文、`classify_verdict`(action/idle/unparsed/failed)、分类原始输出、改写、`outcome`(kept/rewritten/evicted/failed_open)、两次 `llm_call_id`（接 `codex_provider_usage_events` 看 wire/token）、耗时。
 
-- 原文 + 判定 = 分类器训练对；原文 + 改写 = 改写器训练对。v1 两条腿都是 Haiku，数据攒够再训分类器，Haiku 退为兜底。
+- 原文 + 判定 = 分类器训练对；原文 + 改写 = 改写器训练对。v1 两条腿都是 Sonnet 4.6（最初 Haiku，改写会把比喻当人编事，同事建议换），数据攒够再训分类器，Sonnet 退为兜底。
 - 观察：`summarizeXiaoniOsRewrites({sinceHours})` 按 (判定, 去向) 计数；日志 `xiaoni_os_rewrite`。
 
 ## 提示词
@@ -56,4 +61,4 @@ text ──► 分类(Haiku, 输出 1/0)「有没有事」
 1. 开关 ON 后，第一条 assistant 文本产出在 `xiaoni_os_rewrites` 有行，`outcome` 非 failed_open 占多数。
 2. 相邻两 slice 的 `cache_read_input_tokens` 不塌（改写腿不动主前缀）。
 3. 14 天窗口：`exec_command` 多行注释块占比从 58.2% 降到 <20%（单行注释 18% 是合法用法，不计）。没降 → 回到 Round-2 的 scrub 腿。
-4. 日志无 `xiaoni_os_rewrite` 连续 failed_open（那条 Haiku 路一半 500 的历史，见 recall 判官）。
+4. 日志无 `xiaoni_os_rewrite` 连续 failed_open（那条 OAuth 路一半 500 的历史，见 recall 判官）。
