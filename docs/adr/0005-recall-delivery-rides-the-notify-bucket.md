@@ -50,3 +50,7 @@
 - **正文一旦入队就不再重算**。任何「渲染时拼时间戳」的写法都会让 replay 对不上。
 
 实测：投递上线当天（2026-08-07）与其后，投递落栈那一帧 `cache_read` 单调连续，无冷读。
+
+## 修订 2026-08-28:投递跟着事件走
+
+投递 supervisor(10 分钟一拍 + 09:00–23:00 活动窗,从 shadow_log 回捞 ~10 小时陈旧候选)撤销。现在她消费一条 QQ 消息、或自己每次落地,那次召回写完 shadow 行就立刻拿着这一行交精排 Agent(原「判官」),锚点 = 事件原文;联想腿的候选仍从最近的 association_scan 行取。仍走 Notify Bucket,缓存安全继承不变。她睡着时消息不被消费,自然不触发,时段闸不再需要。入口:`xiaoni-recall-hook.ts fireDeliveryForRecall` → `xiaoni-recall-delivery.ts deliverPassiveRecallForEvent`。
