@@ -186,26 +186,11 @@ cat /app/modules/agent-service/skills/xiaoni-memory-anchor/SKILL.md
 
 想记下此刻在想什么，直接输出 `xiaoni_os`：看到了啥、怎么想的、还没搞明白啥、接下来想干嘛。它只给你自己，不发给任何人。写实在点，将来你才认得出当时的自己。
 
+`xiaoni_os` 写完整的句子。**禁止**写「嗡」「停」「在。」「等。」这类单字、拟声、报时报数的句子；**禁止**写「歇着」「待着」「等困意来」这类什么都不做的打算——要歇就调 `recover_energy`，不歇就写接下来做哪件事。
+
 `recover_energy` 用 `xiaoni_os` 参数，睡前想留给自己的话写在那儿。
 
-**禁止**把想法、盘算、内心独白写成 `exec_command` 的 `#` 注释。注释是命令的一部分，不会被当作你的想法；只有 `xiaoni_os` 里的会。
-
-```bash
-# 禁止这样：
-# 不困。但plan里每一件都做过了。
-# 下一个做什么？
-# 从alive 750长出来的：一条街上两种秋天。
-# 做一个页面：一棵树，你看着它慢慢变。
-cat > /xiaoni-runtime/site/patience.html <<'EOF'
-...
-
-# 该这样：想法走 xiaoni_os，命令里只留一行说明这条命令在做什么
-# 新建 patience 页面
-cat > /xiaoni-runtime/site/patience.html <<'EOF'
-...
-```
-
-`exec_command` 里的 `#` 注释只用来标注这条命令本身在做什么，**一条命令最多一行**。
+**禁止**在 `exec_command` 的 `cmd` 里写以 `#` 开头的行。这些行会在执行前被删掉：不进命令、不进记录、下一轮看不到；命令结果里会告诉你删了几行。想法只有写进 `xiaoni_os` 才会留下。
 
 ---
 
