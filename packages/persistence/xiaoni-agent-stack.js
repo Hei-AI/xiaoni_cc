@@ -772,7 +772,8 @@ function usageRollupSourceFromCodexProviderSelectSql() {
     -- 它们各自的 token 仍在行动流那一行上单独显示（StreamRow 的 hasInlineTokens 分支）。
     AND source_kind NOT IN (
       'image_generation', 'image_edit', 'image_prompt_assistant',
-      'recall_rerank', 'recall_expand'
+      'recall_rerank', 'recall_expand',
+      'xiaoni_os_classify', 'xiaoni_os_rewrite'
     )
   `;
 }
