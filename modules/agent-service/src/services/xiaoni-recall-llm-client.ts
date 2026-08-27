@@ -17,7 +17,11 @@ export interface RecallPrompt {
 const PROVIDER_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
 
 export interface RecallLlmOptions {
-  /** 默认 claude-haiku-4-5:同一份 OAuth 凭据、同一条已在维护的认证路径。 */
+  /**
+   * 默认 claude-sonnet-4-6(2026-08-27 前是 haiku-4-5):同一份 OAuth 凭据、同一条已在维护的认证路径。
+   * 换的理由是前缀缓存:Haiku 4.5 最小可缓存前缀 4096 tokens,Sonnet 4.6 是 1024;这些独立小请求的
+   * system prompt 垫到 1024 就能全量命中缓存(我们的 OAuth 路缓存免费),垫到 4096 就纯浪费了。
+   */
   model?: string;
   maxTokens?: number;
   timeoutMs?: number;
@@ -92,7 +96,7 @@ export async function callRecallLlmDetailed(prompt: RecallPrompt, options: Recal
 }
 
 async function callOnce(prompt: RecallPrompt, options: RecallLlmOptions): Promise<RecallLlmResult> {
-  const model = options.model || 'claude-haiku-4-5';
+  const model = options.model || 'claude-sonnet-4-6';
   const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
