@@ -75,6 +75,14 @@ import {
   isReplayableToolCall
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
+import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
+import {
+  applyXiaoniOsRewriteInPlace,
+  extractAssistantItemText,
+  readXiaoniOsClassifySystemPrompt,
+  readXiaoniOsRewriteSystemPrompt,
+  runXiaoniOsRewriteLeg
+} from './xiaoni-os-rewrite';
 // 专题物化的三个归一化函数**只从这里拿**,不在本文件另写第四个:
 //   stripTrailingHashTags   行末 `#标签` 剥离(open-loops 的行身份口径)
 //   stripChapterDatePrefix  L3 章节标题的 `M/D ` 前缀剥离
@@ -751,10 +759,10 @@ export function setStripXiaoniOsFromRequests(value: unknown): void {
   }
 }
 
-// 心理评估门控总开关(Step3 的行为翻转闸)。默认 OFF：不跑心理评估 fork、不打 text_admit → 等价于 Step2
-// 的 fail-closed 全剥现状(行为零变化)。live 栈实测心理评估 fork 的 cache_read 与主 turn 同量级(铁律
-// 相邻 slice 对账)后，再由运营从 agent_runtime_control 打开，让正向 assistant 文本开始进入下一次上下文。
-// 与 debug-heartbeat / strip_xiaoni_os_from_requests 同套热下发。默认 OFF 也让冻结缓存回归用例无需改动即绿。
+// xiaoni_os 文本通道准入总开关(列名沿用 psych_assessment_gate_enabled,现在驱动的是 xiaoni_os 改写腿,
+// 不再是心理评估 fork —— 那个 fork 18 小时 492 次判定 93.5% keep,每次骑 ~400K 热前缀只剔 6.5%,已撤)。
+// 默认 OFF：不跑改写腿、不打 text_admit → 等价于 fail-closed 全剥(行为零变化)。ON 时每条 assistant 文本
+// 经 分类(有事?) → 空转才改写 后准入下一次上下文。与 debug-heartbeat 同套热下发。见 docs/specs/xiaoni-os-rewrite.md。
 let PSYCH_ASSESSMENT_GATE_ENABLED = false;
 export function setPsychAssessmentGateEnabled(value: unknown): void {
   if (typeof value === 'boolean') {
@@ -904,7 +912,8 @@ export function stripXiaoniOsByFlag(item: OpenResponseInputItem): OpenResponseIn
 // 背景：历史上 buildInitialInput 无条件把所有 assistant 文本(D，含 inline <xiaoni_os>)从每次 replay
 // 剥掉，防止「摸鱼/等待」叙述自我强化。现在 xiaoni_os 迁到 assistant type:text 通道，改为【按 stamp 选择
 // 性准入】：一条 assistant-role TEXT replay item 只有携带冻结的 `text_admit === true` 才留在 replay 里；
-// 无 stamp(历史 / 消极判定 / fork 失败) → 照旧剥掉。
+// 无 stamp(历史 / 判为空转且改写失败) → 照旧剥掉。stamp 来源 = xiaoni_os 改写腿(runXiaoniOsRewriteForItem):
+// 有事 → 原文准入;空转 → 改写成朝外走的版本后准入(正文在同一落点就地替换);改写失败 → 不打 stamp。
 //
 // 缓存安全(双缓存铁律)——与 xiaoni_os_hidden 同款「生产期冻结 stamp + 出线口按 flag scrub」:
 //  1) 判定(LLM 非确定)只算一次，`stampTextAdmitInPlace` 就地写进共享 ref(live requestInput + 持久化
@@ -8810,23 +8819,22 @@ export class AgentLoopService {
         // they fan out to BOTH the stack ledger (buildModelOutputStackItems, content: item) and the
         // live requestInput (appendLoopInputItems) — same refs, one stamp, both copies consistent.
         stampXiaoniOsHiddenInPlace(outputItems as OpenResponseInputItem[], stripXiaoniOsHiddenSnapshot);
-        // text_admit 门控(Step3 · 同步阻塞):这一 turn 若产出了 assistant 文本(现在是她的 OS 通道)，同步跑
-        // 心理评估 fork 判其正负向，把准入决定就地冻结进 outputItems——与 xiaoni_os_hidden 同一 fan-out 路径
-        // (下面 buildModelOutputStackItems 落 stack ledger + appendLoopInputItems 落 live requestInput，同 refs)。
-        // 正向 → text_admit:true(下一 run 保留进上下文)；消极/无判定/fork 失败 → 不打 stamp = 默认剥(fail-closed)。
-        // currentCanonicalRequest 是本 turn 实际已发请求(逐字节热前缀)，作 fork 克隆基;被判文本尾部重注。
+        // text_admit 准入(同步阻塞):这一 turn 若产出了 assistant 文本(= 她的 xiaoni_os)，跑 xiaoni_os 改写腿
+        // (小模型分类「有没有事」→ 有事原样准入;判为空转再小模型改写成朝外走的版本)，把准入决定 + 改写后的
+        // 正文就地冻结进 outputItems——与 xiaoni_os_hidden 同一 fan-out 路径(下面 buildModelOutputStackItems
+        // 落 stack ledger + appendLoopInputItems 落 live requestInput，同 refs)。这条 text 在此之前没进过任何
+        // 请求，所以这里改正文不违背「已消费上下文不可变」，live 与下一 run replay 拿到同一份字节。
+        // 两次小模型调用是独立小请求，不克隆主请求 → 不动共享热前缀。见 docs/specs/xiaoni-os-rewrite.md。
         if (PSYCH_ASSESSMENT_GATE_ENABLED) {
           const assistantTextItems = (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem);
-          if (assistantTextItems.length > 0) {
-            const admit = await this.runPsychAssessmentGate({
-              baseRequest: currentCanonicalRequest,
-              assistantTextItems,
+          for (const assistantTextItem of assistantTextItems) {
+            await this.runXiaoniOsRewriteForItem({
+              item: assistantTextItem as unknown as Record<string, unknown>,
               traceId: payload.traceId,
               runId: String(queueMessage.id),
               agentTurn: turn,
-              runtimePrompt
+              sliceId
             });
-            stampTextAdmitInPlace(outputItems as OpenResponseInputItem[], admit);
           }
         }
         const outputStackRows = await this.appendAgentStackItemsSafe({
@@ -11181,27 +11189,6 @@ export class AgentLoopService {
       return await recorder.call(this.store, params);
     } catch (error) {
       moduleLogger.warn('Failed to record subconscious agent fork slice', {
-        traceId: params.traceId,
-        runId: params.runId,
-        forkRunId: params.forkRunId,
-        sliceId: params.sliceId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return null;
-    }
-  }
-
-  private async recordPsychAssessmentForkSliceSafe(params: Parameters<RuntimeStore['recordPsychAssessmentForkSlice']>[0]) {
-    const recorder = (this.store as RuntimeStore & {
-      recordPsychAssessmentForkSlice?: RuntimeStore['recordPsychAssessmentForkSlice'];
-    }).recordPsychAssessmentForkSlice;
-    if (typeof recorder !== 'function') {
-      return null;
-    }
-    try {
-      return await recorder.call(this.store, params);
-    } catch (error) {
-      moduleLogger.warn('Failed to record psych assessment fork slice', {
         traceId: params.traceId,
         runId: params.runId,
         forkRunId: params.forkRunId,
@@ -14087,126 +14074,73 @@ export class AgentLoopService {
     return payload;
   }
 
-  // 心理评估 fork 的单次分发(同步阻塞，带超时 → 超时即 fail-closed EVICT)。镜像 executeCacheHeartbeatTurn：
-  // 打 /api/internal/llm/debug + no-persist header + AbortController 超时。executionMode 独立标识。
-  private async executePsychAssessmentForkTurn(
-    canonicalRequest: CanonicalAgentTurnRequest,
-    traceId: string,
-    runId: string,
-    runtimePrompt: ResolvedAgentRuntimePrompt
-  ) {
-    const timeoutMs = 30_000;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    timeout.unref?.();
-    let response: Response;
-    try {
-      response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          [NO_TRAFFIC_PERSIST_HEADER]: '1'
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          trace_id: traceId,
-          run_id: runId,
-          agent_turn: 0,
-          agent_type: 'chat_bot',
-          prompt_name: runtimePrompt.promptName,
-          executionMode: 'psych_assessment_no_persist',
-          model: runtimePrompt.modelName,
-          parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
-          canonicalRequest
-        })
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error(`Provider psych assessment timed out after ${timeoutMs}ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    const payload = await response.json() as ProviderAgentResponse;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.error || `Provider psych assessment execute failed with ${response.status}`);
-    }
-
-    return payload;
-  }
-
-  // Step3 门控编排:构建心理评估 fork(主请求克隆 + 尾部追加被判文本 + 判定指令) → 同步分发 → 解析判定。
-  // 返回是否【准入】这一 turn 的 assistant 文本进入下一次上下文。任何失败/超时/无法解析 → false(fail-closed)。
-  private async runPsychAssessmentGate(params: {
-    baseRequest: CanonicalAgentTurnRequest;
-    assistantTextItems: OpenResponseInputItem[];
+  // xiaoni_os 改写腿的单条编排:取正文 → runXiaoniOsRewriteLeg(分类 → 空转才改写) → 按结果就地冻结:
+  //   kept / failed_open → 原文准入(text_admit);rewritten → 正文替换为改写版 + 准入;evicted → 不打 stamp(默认剥)。
+  // 每次结果落 xiaoni_os_rewrites(原文 / 判定 / 改写 / 去向 / 两次 llm_call_id),既是观测面也是分类器训练集。
+  // 留痕失败不挡准入决定(fail-open 记账)。
+  private async runXiaoniOsRewriteForItem(params: {
+    item: Record<string, unknown>;
     traceId: string;
     runId: string;
     agentTurn: number;
-    runtimePrompt: ResolvedAgentRuntimePrompt;
-  }): Promise<boolean> {
+    sliceId: string;
+  }): Promise<void> {
+    const text = extractAssistantItemText(params.item);
+    if (!text.trim()) {
+      return;
+    }
+    const result = await runXiaoniOsRewriteLeg({
+      text,
+      callLlm: callRecallLlmDetailed,
+      classifySystemPrompt: readXiaoniOsClassifySystemPrompt(),
+      rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt()
+    });
+    if (result.outcome === 'rewritten' && result.rewrittenText) {
+      applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);
+    } else if (result.outcome === 'kept' || result.outcome === 'failed_open') {
+      stampTextAdmitInPlace([params.item as unknown as OpenResponseInputItem], true);
+    }
+    moduleLogger.info('xiaoni_os_rewrite', {
+      traceId: params.traceId,
+      runId: params.runId,
+      agentTurn: params.agentTurn,
+      outcome: result.outcome,
+      classifyVerdict: result.classifyVerdict,
+      originalChars: text.length,
+      rewrittenChars: result.rewrittenText ? result.rewrittenText.length : null,
+      processingTimeMs: result.processingTimeMs,
+      ...(result.errorMessage ? { error: result.errorMessage } : {})
+    });
+    const recorder = (this.store as RuntimeStore & {
+      recordXiaoniOsRewrite?: RuntimeStore['recordXiaoniOsRewrite'];
+    }).recordXiaoniOsRewrite;
+    if (typeof recorder !== 'function') {
+      return;
+    }
     try {
-      const forkRequest = buildPsychAssessmentForkRequest(params.baseRequest, params.assistantTextItems);
-      const modelResult = await this.executePsychAssessmentForkTurn(
-        forkRequest,
-        params.traceId,
-        params.runId,
-        params.runtimePrompt
-      );
-      const outputItems = extractCanonicalResponseOutputItems(modelResult);
-      const verdict = parsePsychAssessmentVerdict(outputItems);
-      // 可观测/铁律验证:记录 fork 的 token usage(含 cache_read)，供相邻 slice 对账——心理评估 fork 骑主
-      // 热前缀，其 cache_read 应与本 turn 主请求同量级；若塌到裸 system+tools 即前缀分叉的信号。
-      moduleLogger.info('psych_assessment_gate', {
-        traceId: params.traceId,
-        runId: params.runId,
-        verdict: verdict === null ? 'unparsed_fail_closed' : (verdict ? 'keep' : 'evict'),
-        tokenUsage: buildProviderTokenUsage(modelResult)
-      });
-      // 专用单表 slice 记录:单次分发的心理评估 fork 骑主热前缀,把这次评估的 canonical/wire
-      // 请求+响应、token usage(含 cache_read)、判定结果落到 psych_assessment_fork_slices,
-      // 供管理端像其他 fork 一样查看+对账。fork_run_id 由调用方合成(本 fork 无 run/item/tool 生命周期)。
-      const forkRunId = `psych-${params.traceId}-${params.runId}-t${params.agentTurn}`;
-      const sliceId = modelResult.llm_request_slice_id
-        || modelResult.llm_call_id
-        || `psych-slice:${params.traceId}:${params.runId}:t${params.agentTurn}`;
-      await this.recordPsychAssessmentForkSliceSafe({
-        forkRunId,
-        sliceId,
-        llmCallId: modelResult.llm_call_id || null,
-        canonicalRequest: (modelResult.canonical_request || forkRequest) as unknown as Record<string, unknown>,
-        wireRequest: modelResult.wire_request || null,
-        canonicalResponse: modelResult.canonical_response || null,
-        wireResponse: modelResult.wire_response || null,
-        rawResponse: modelResult.raw_response || null,
-        outputItems: outputItems as Array<Record<string, unknown>>,
-        status: modelResult.success ? 'completed' : 'failed',
-        tokenUsage: buildProviderTokenUsage(modelResult),
+      await recorder.call(this.store, {
         traceId: params.traceId,
         runId: params.runId,
         agentTurn: params.agentTurn,
-        modelName: modelResult.model || params.runtimePrompt.modelName,
-        modelProvider: modelResult.provider || null,
-        requestFormatVersion: modelResult.request_format_version || null,
-        wireProviderFormat: modelResult.wire_provider_format || null,
-        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
-        metadata: {
-          ...buildProviderWireMetadata(modelResult),
-          fork_run_id: forkRunId,
-          execution_mode: 'psych_assessment_fork',
-          verdict: verdict === null ? 'unparsed_fail_closed' : (verdict ? 'keep' : 'evict')
-        }
+        sliceId: params.sliceId,
+        originalText: text,
+        classifyVerdict: result.classifyVerdict,
+        classifyRaw: result.classifyRaw,
+        classifyLlmCallId: result.classifyLlmCallId,
+        classifyModel: result.classifyModel,
+        rewrittenText: result.rewrittenText,
+        rewriteLlmCallId: result.rewriteLlmCallId,
+        rewriteModel: result.rewriteModel,
+        outcome: result.outcome,
+        errorMessage: result.errorMessage,
+        processingTimeMs: result.processingTimeMs
       });
-      return verdict === true;
     } catch (error) {
-      moduleLogger.warn('psych_assessment_gate failed → fail-closed (evict)', {
+      moduleLogger.warn('Failed to record xiaoni_os rewrite', {
         traceId: params.traceId,
         runId: params.runId,
         error: error instanceof Error ? error.message : String(error)
       });
-      return false;
     }
   }
 

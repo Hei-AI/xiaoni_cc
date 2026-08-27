@@ -43,6 +43,8 @@ import {
   appendSubconsciousAgentForkItems as appendSubconsciousAgentForkItemsPersistence,
   recordSubconsciousAgentForkSlice as recordSubconsciousAgentForkSlicePersistence,
   recordPsychAssessmentForkSlice as recordPsychAssessmentForkSlicePersistence,
+  ensureXiaoniOsRewriteSchema,
+  recordXiaoniOsRewrite as recordXiaoniOsRewritePersistence,
   recordSubconsciousAgentForkToolExecution as recordSubconsciousAgentForkToolExecutionPersistence,
   completeSubconsciousAgentForkToolExecution as completeSubconsciousAgentForkToolExecutionPersistence,
   recordImageVisionForkRun as recordImageVisionForkRunPersistence,
@@ -1280,6 +1282,7 @@ export class RuntimeStore {
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
     await ensureXiaoniDeepDiveSchema(databaseConfig);
+    await ensureXiaoniOsRewriteSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);
@@ -2555,6 +2558,30 @@ export class RuntimeStore {
     metadata?: Record<string, unknown>;
   }) {
     return recordPsychAssessmentForkSlicePersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordXiaoniOsRewrite(params: {
+    traceId?: string | null;
+    runId?: string | null;
+    agentTurn?: number | null;
+    sliceId?: string | null;
+    originalText: string;
+    classifyVerdict: 'action' | 'idle' | 'unparsed' | 'failed';
+    classifyRaw?: string | null;
+    classifyLlmCallId?: string | null;
+    classifyModel?: string | null;
+    rewrittenText?: string | null;
+    rewriteLlmCallId?: string | null;
+    rewriteModel?: string | null;
+    outcome: 'kept' | 'rewritten' | 'evicted' | 'failed_open';
+    errorMessage?: string | null;
+    processingTimeMs?: number | null;
+  }) {
+    return recordXiaoniOsRewritePersistence({
       identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql
