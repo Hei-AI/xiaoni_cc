@@ -87,6 +87,9 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM xiaoni_recall_shadow_log')) {
           return overrides.recallLlmRows || [];
         }
+        if (statement.includes('FROM xiaoni_os_rewrites')) {
+          return overrides.xiaoniOsRewriteRows || [];
+        }
         if (statement.includes('FROM codex_provider_usage_events')) {
           return overrides.recallLlmUsageRows || [];
         }
@@ -2167,4 +2170,96 @@ test('codex-provider trace target does not fabricate a forkRunId when the row ha
   assert.equal(target.forkRunId ?? null, null);
   assert.equal(target.sourceKind, 'recall_rerank');
   assert.equal(target.llmRequestSliceId, 'codex-provider:llm_recall_1');
+});
+
+// ── xiaoni_os 改写腿(监督者)─────────────────────────────────────────────────────
+// 和召回精排同一条路(/api/internal/llm/debug,不落 slice、不是真 fork run),唯一留痕在 xiaoni_os_rewrites。
+function xiaoniOsRewriteRow(overrides = {}) {
+  return {
+    id: 8,
+    trace_id: 'runtrace_941',
+    run_id: 'run_941_b16d0ea0',
+    agent_turn: 7,
+    slice_id: 'slice-7',
+    original_text: '不困。做事。',
+    classify_verdict: 'idle',
+    classify_raw: '0',
+    classify_llm_call_id: 'llm_classify_1',
+    classify_model: 'claude-sonnet-4-6',
+    rewritten_text: '不困。做事。\n去 QQ 翻一眼，找一个最近没聊的人发一句。',
+    rewrite_llm_call_id: 'llm_rewrite_1',
+    rewrite_model: 'claude-sonnet-4-6',
+    outcome: 'rewritten',
+    error_message: null,
+    processing_time_ms: 5109,
+    created_at: '2026-08-27T12:28:02.000Z',
+    ...overrides
+  };
+}
+
+test('Xiaoni action stream surfaces the xiaoni_os rewrite leg as its own fork run with classify + rewrite events', async () => {
+  const persistence = createPersistence({
+    xiaoniOsRewriteRows: [xiaoniOsRewriteRow()],
+    recallLlmUsageRows: [
+      { event_id: 'codex-provider:llm_classify_1', llm_call_id: 'llm_classify_1', model_name: 'claude-sonnet-4-6', token_usage: { input_tokens: 3, cached_input_tokens: 1444, output_tokens: 1 }, provider_raw_trace_available: true, created_at: '2026-08-27T12:28:01.000Z' },
+      { event_id: 'codex-provider:llm_rewrite_1', llm_call_id: 'llm_rewrite_1', model_name: 'claude-sonnet-4-6', token_usage: { input_tokens: 3, cached_input_tokens: 1286, output_tokens: 40 }, provider_raw_trace_available: true, created_at: '2026-08-27T12:28:02.000Z' }
+    ]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.xiaoniOsRewriteTimeline.runs[0];
+
+  assert.ok(run, '改写腿必须自成一条 fork run —— 左栏只渲染 fork lane');
+  assert.equal(run.source, 'xiaoni_os_rewrite');
+  assert.equal(run.forkKind, 'xiaoni_os_rewrite');
+  assert.equal(run.metadata.outcome, 'rewritten');
+  assert.equal(run.runId, 'run_941_b16d0ea0');
+  assert.equal(run.events.length, 2, '判为空转 → 分类 + 改写两次请求');
+  assert.equal(run.events[0].metadata.stage, 'classify');
+  assert.equal(run.events[1].metadata.stage, 'rewrite');
+  assert.match(run.events[0].body, /空转\(0\)/u);
+  assert.match(run.events[1].body, /去 QQ 翻一眼/u);
+  // 事件 id 对齐 usage 行 → raw-trace 路由白拿。
+  assert.equal(run.events[0].id, 'codex-provider:llm_classify_1');
+  assert.equal(run.events[0].metadata.cachedInputTokens, 1444);
+  assert.ok(run.events[0].traceTarget, '接到 usage 行就要能点出原始报文');
+  // 主 items 里不能重复出现 —— 它只走 fork 时间线。
+  assert.equal(stream.items.some((item) => item.source === 'xiaoni_os_rewrite_llm_request'), false);
+});
+
+test('Xiaoni xiaoni_os rewrite leg: kept outcome has a single classify event', async () => {
+  const persistence = createPersistence({
+    xiaoniOsRewriteRows: [xiaoniOsRewriteRow({ id: 11, agent_turn: 19, original_text: 'ch53太长了一轮读不完，先看小伊的消息。', classify_verdict: 'action', classify_raw: '1', rewritten_text: null, rewrite_llm_call_id: null, rewrite_model: null, outcome: 'kept' })]
+  });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.xiaoniOsRewriteTimeline.runs[0];
+  assert.equal(run.events.length, 1);
+  assert.match(run.body, /有事 → 原文准入/u);
+  assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true, '它就是一次 provider 请求,要答 LLM 源标签');
+});
+
+test('Xiaoni xiaoni_os rewrite leg anchors next to the judged assistant output (occurred_seq − 0.5 / − 0.4)', async () => {
+  const persistence = createPersistence({
+    xiaoniOsRewriteRows: [xiaoniOsRewriteRow()],
+    psychAnchorSeqRows: [{ run_id: 'run_941_b16d0ea0', agent_turn: 7, occurred_seq: 4400 }]
+  });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const [classify, rewrite] = stream.xiaoniOsRewriteTimeline.runs[0].events;
+  assert.equal(classify.metadata.orderSeq, 4399.5);
+  assert.equal(rewrite.metadata.orderSeq, 4399.6);
+});
+
+test('Xiaoni xiaoni_os rewrite leg falls back to wall-clock orderSeq when no stack anchor exists', async () => {
+  const persistence = createPersistence({
+    agentStackRows: [{
+      id: 'stack-1', eventId: 'stack-1', identityKey: 'xiaoni', itemKind: 'assistant_output', item_kind: 'assistant_output', role: 'assistant',
+      content: { text: '在写 the-bottom.md' }, occurredSeq: 4200, occurred_seq: 4200,
+      createdAt: '2026-08-27T12:00:00.000Z', created_at: '2026-08-27T12:00:00.000Z'
+    }],
+    xiaoniOsRewriteRows: [xiaoniOsRewriteRow()]
+  });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const orderSeq = stream.xiaoniOsRewriteTimeline.runs[0].events[0].metadata.orderSeq;
+  assert.equal(Number.isFinite(orderSeq), true, '没有 orderSeq 的行会被前端整体沉到页面最底部');
+  assert.ok(orderSeq > 4200 && orderSeq < 4201, `期望插在 4200 之后,实际 ${orderSeq}`);
 });

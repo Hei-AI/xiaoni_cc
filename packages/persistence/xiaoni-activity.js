@@ -2158,6 +2158,234 @@ async function loadRecallLlmTimelines(sql, {
   }
 }
 
+// xiaoni_os 改写腿(监督者):主 agent 每产出一条 assistant text,turn 末先小模型分类「有没有事」,
+// 判为空转再小模型改写成朝外走的版本,改写结果替换原文进入下一次上下文。两次请求都走
+// provider-service 的 /api/internal/llm/debug —— 和召回精排同一条路:**按设计不落 llm_request_slices**,
+// 也不是真 fork run。唯一留痕在 xiaoni_os_rewrites(原文 / 判定 / 改写 / 去向 / 两个 llm_call_id)。
+// 见 docs/specs/xiaoni-os-rewrite.md。
+//
+// 这里把每行读成一条伪 fork run(与召回精排同套路),最多两个事件:分类请求、改写请求(判为空转才有)。
+// 它有 (run_id, agent_turn) —— 用心理评估 fork 那套锚点(主 slice output_start_index → 栈 occurred_seq)
+// 把它插在被判的那条 assistant 输出旁边;锚不到再由 stampRecallLlmStreamOrderSeq 按墙钟插回。
+// token / model / 原始报文在 codex_provider_usage_events,llm_call_id 是唯一连接键。
+const XIAONI_OS_REWRITE_LEG = {
+  forkKind: 'xiaoni_os_rewrite',
+  runSource: 'xiaoni_os_rewrite',
+  runKind: 'xiaoni_os_rewrite_fork',
+  eventSource: 'xiaoni_os_rewrite_llm_request',
+  eventKind: 'xiaoni_os_rewrite',
+  label: 'xiaoni_os 监督者',
+  idPrefix: 'xiaoni-os-rewrite'
+};
+const XIAONI_OS_REWRITE_OUTCOME_LABELS = {
+  kept: '有事 → 原文准入',
+  rewritten: '空转 → 改写后准入',
+  evicted: '空转 → 改写失败，不进上下文',
+  failed_open: '分类失败 → fail-open 原文准入'
+};
+const XIAONI_OS_REWRITE_VERDICT_LABELS = {
+  action: '有事(1)',
+  idle: '空转(0)',
+  unparsed: '未解析',
+  failed: '请求失败'
+};
+const XIAONI_OS_REWRITE_SELECT = `
+  id,
+  trace_id,
+  run_id,
+  agent_turn,
+  slice_id,
+  original_text,
+  classify_verdict,
+  classify_raw,
+  classify_llm_call_id,
+  classify_model,
+  rewritten_text,
+  rewrite_llm_call_id,
+  rewrite_model,
+  outcome,
+  error_message,
+  processing_time_ms,
+  created_at
+`;
+
+function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
+  const leg = XIAONI_OS_REWRITE_LEG;
+  const rowId = String(row.id ?? '');
+  const outcome = String(firstString(row.outcome) || '');
+  const verdict = String(firstString(row.classify_verdict, row.classifyVerdict) || '');
+  const original = String(row.original_text ?? row.originalText ?? '');
+  const rewritten = String(row.rewritten_text ?? row.rewrittenText ?? '');
+  const errorMessage = firstString(row.error_message, row.errorMessage);
+  const isClassify = stage === 'classify';
+  const llmCallId = isClassify
+    ? firstString(row.classify_llm_call_id, row.classifyLlmCallId)
+    : firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId);
+  const tokenSummary = usage ? tokenSummaryFromCodexProviderUsageEvent(usage) : null;
+  const modelName = (usage ? firstString(usage.model_name, usage.modelName) : null)
+    || (isClassify ? firstString(row.classify_model, row.classifyModel) : firstString(row.rewrite_model, row.rewriteModel));
+  const usageEventId = usage ? firstString(usage.event_id, usage.eventId) : null;
+  // 事件 id 对齐 usage 行的 event_id(`codex-provider:llm_…`)→ 白拿 raw-trace 路由(同召回精排)。
+  const eventId = usageEventId || `${leg.idPrefix}:${stage}:${rowId}`;
+  const providerRawTraceAvailable = Boolean(usage
+    && (usage.provider_raw_trace_available === true || usage.providerRawTraceAvailable === true));
+  const stageFailed = isClassify
+    ? (verdict === 'failed' || verdict === 'unparsed')
+    : (outcome === 'evicted');
+  const summary = isClassify
+    ? `判定 ${XIAONI_OS_REWRITE_VERDICT_LABELS[verdict] || verdict || '—'}`
+    : (outcome === 'rewritten' ? '改写完成' : `改写失败${errorMessage ? ` · ${recallLlmOneLine(errorMessage, 120)}` : ''}`);
+  const headline = isClassify
+    ? recallLlmOneLine(original, 160)
+    : (outcome === 'rewritten' ? recallLlmOneLine(rewritten, 200) : '');
+  const timestamp = eventTimestamp(row.created_at || row.createdAt);
+  return {
+    id: eventId,
+    source: leg.eventSource,
+    kind: leg.eventKind,
+    title: isClassify ? 'xiaoni_os 分类' : 'xiaoni_os 改写',
+    body: truncateText([summary, headline].filter(Boolean).join(' · '), 420),
+    status: stageFailed ? (verdict === 'unparsed' ? 'unparsed' : 'failed') : 'completed',
+    actor: 'system',
+    actorName: leg.label,
+    timestamp,
+    occurredAt: timestamp,
+    sessionKey: null,
+    peerName: null,
+    runId: firstString(row.run_id, row.runId),
+    traceId: firstString(row.trace_id, row.traceId),
+    tone: stageFailed ? 'danger' : isClassify ? (verdict === 'idle' ? 'warning' : 'success') : 'info',
+    traceTarget: providerRawTraceAvailable
+      ? normalizeTraceTarget({
+        spanId: tokenSummary ? tokenSummary.providerRequestSpanId : null,
+        llmRequestSliceId: eventId,
+        sourceKind: leg.runSource,
+        forkRunId: eventId
+      })
+      : null,
+    metadata: normalizeValue({
+      forkKind: leg.forkKind,
+      sourceKind: leg.runSource,
+      // 锚到被判的那条 assistant 输出旁(occurred_seq − 0.5 / − 0.4:分类在前、改写在后);锚不到留 null
+      // 交 stampRecallLlmStreamOrderSeq 按墙钟插回。
+      orderSeq: typeof anchorSeq === 'number' ? anchorSeq - (isClassify ? 0.5 : 0.4) : null,
+      stage,
+      xiaoniOsRewriteId: rowId,
+      agentTurn: streamNumberOrNull(row.agent_turn ?? row.agentTurn),
+      outcome,
+      classifyVerdict: verdict,
+      llmCallId,
+      modelName,
+      modelProvider: usage ? firstString(usage.model_provider, usage.modelProvider) : null,
+      providerFormat: usage ? firstString(usage.wire_provider_format, usage.wireProviderFormat) : null,
+      providerRawTraceAvailable,
+      providerRequestSpanId: tokenSummary ? tokenSummary.providerRequestSpanId : null,
+      processingTimeMs: usage ? streamNumberOrNull(usage.processing_time_ms ?? usage.processingTimeMs) : null,
+      inputTokens: tokenSummary ? tokenSummary.inputTokens : null,
+      cachedInputTokens: tokenSummary ? tokenSummary.cachedInputTokens : null,
+      outputTokens: tokenSummary ? tokenSummary.outputTokens : null,
+      payloadPreview: truncateText(`【她写的 xiaoni_os】\n${original}`, 4000),
+      responsePreview: truncateText(isClassify
+        ? `${summary}${row.classify_raw != null ? `\n【模型原文】 ${recallLlmOneLine(row.classify_raw, 80)}` : ''}`
+        : [summary, rewritten ? `【改写后】\n${rewritten}` : null].filter(Boolean).join('\n\n'), 4000)
+    })
+  };
+}
+
+function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
+  const leg = XIAONI_OS_REWRITE_LEG;
+  const rowId = String(row.id ?? '');
+  const outcome = String(firstString(row.outcome) || '');
+  const classifyCallId = firstString(row.classify_llm_call_id, row.classifyLlmCallId);
+  const rewriteCallId = firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId);
+  const events = [summarizeXiaoniOsRewriteLlmEvent(row, 'classify', classifyCallId ? usageByCallId.get(classifyCallId) || null : null, anchorSeq)];
+  // 改写请求只在判为空转后才发生:rewritten / evicted 两种去向都发过(evicted 可能是请求挂了或输出为空)。
+  if (outcome === 'rewritten' || outcome === 'evicted') {
+    events.push(summarizeXiaoniOsRewriteLlmEvent(row, 'rewrite', rewriteCallId ? usageByCallId.get(rewriteCallId) || null : null, anchorSeq));
+  }
+  const original = String(row.original_text ?? row.originalText ?? '');
+  const rewritten = String(row.rewritten_text ?? row.rewrittenText ?? '');
+  const timestamp = events[0].timestamp;
+  const outcomeLabel = XIAONI_OS_REWRITE_OUTCOME_LABELS[outcome] || outcome || '—';
+  return {
+    id: `${leg.idPrefix}:${rowId}`,
+    forkRunId: `${leg.idPrefix}:${rowId}`,
+    source: leg.runSource,
+    kind: leg.runKind,
+    title: leg.label,
+    body: truncateText(`${outcomeLabel} · ${recallLlmOneLine(original, 160)}`, 420),
+    status: outcome === 'failed_open' || outcome === 'evicted' ? 'failed' : 'completed',
+    startedAt: timestamp,
+    completedAt: timestamp,
+    durationMs: streamNumberOrNull(row.processing_time_ms ?? row.processingTimeMs),
+    traceId: firstString(row.trace_id, row.traceId),
+    runId: firstString(row.run_id, row.runId),
+    conversationId: null,
+    readCutoffAfterStackIndex: null,
+    previousReadCutoffAfterStackIndex: null,
+    eventCount: events.length,
+    events: normalizeValue(events),
+    metadata: normalizeValue({
+      forkKind: leg.forkKind,
+      xiaoniOsRewriteId: rowId,
+      agentTurn: streamNumberOrNull(row.agent_turn ?? row.agentTurn),
+      outcome,
+      outcomeLabel,
+      classifyVerdict: firstString(row.classify_verdict, row.classifyVerdict),
+      classifyModel: firstString(row.classify_model, row.classifyModel),
+      rewriteModel: firstString(row.rewrite_model, row.rewriteModel),
+      classifyLlmCallId: classifyCallId,
+      rewriteLlmCallId: rewriteCallId,
+      errorMessage: firstString(row.error_message, row.errorMessage),
+      originalPreview: truncateText(original, 600),
+      rewrittenPreview: rewritten ? truncateText(rewritten, 600) : null,
+      processingTimeMs: streamNumberOrNull(row.processing_time_ms ?? row.processingTimeMs)
+    })
+  };
+}
+
+async function loadXiaoniOsRewriteTimeline(sql, {
+  identityKey,
+  timeWindow,
+  limit
+}) {
+  const empty = { runs: [] };
+  if (!sql || typeof sql.query !== 'function') {
+    return empty;
+  }
+  const forkLimit = clampLimit(limit, 30, 120);
+  const timePredicate = buildSqlTimePredicate(['created_at'], timeWindow);
+  try {
+    const rows = await sql.query(`
+      SELECT ${XIAONI_OS_REWRITE_SELECT}
+      FROM xiaoni_os_rewrites
+      WHERE identity_key = ?
+        ${timePredicate.clause ? `AND ${timePredicate.clause}` : ''}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `, [identityKey, ...timePredicate.params, forkLimit]);
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const usageByCallId = await loadRecallLlmUsageByCallId(sql, safeRows.flatMap((row) => [
+      firstString(row.classify_llm_call_id, row.classifyLlmCallId),
+      firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId)
+    ]));
+    const anchorSeqMap = await loadPsychAssessmentAnchorSeqMap(sql, safeRows);
+    return {
+      runs: safeRows.map((row) => {
+        const runId = firstString(row.run_id, row.runId);
+        const agentTurn = streamNumberOrNull(row.agent_turn ?? row.agentTurn);
+        const anchorSeq = runId !== null && agentTurn !== null ? anchorSeqMap.get(`${runId}::${agentTurn}`) : undefined;
+        return summarizeXiaoniOsRewriteRun(row, usageByCallId, typeof anchorSeq === 'number' ? anchorSeq : null);
+      }).filter((run) => run.startedAt)
+    };
+  } catch (error) {
+    // 表缺失 / 查询失败不拖垮整个事件流,但不许静默(复核 fork 那次教训)。
+    // eslint-disable-next-line no-console
+    console.warn('[xiaoni-activity] xiaoni_os 改写腿时间线读取失败,本次按空处理:', error?.message || error);
+    return empty;
+  }
+}
+
 const FORK_SLICE_ACTION_STREAM_SELECT = `
   id,
   slice_id,
@@ -3145,6 +3373,9 @@ function normalizeActionStreamEventKind(item) {
   if (item.source === 'recall_expand_llm_request') {
     return 'recall_expand';
   }
+  if (item.source === 'xiaoni_os_rewrite_llm_request') {
+    return 'xiaoni_os_rewrite';
+  }
   if (item.kind === 'send_in_group' || item.kind === 'send_in_private' || item.kind === 'qq_self_message') {
     return 'visible_delivery_committed';
   }
@@ -3231,7 +3462,8 @@ const LLM_PROVIDER_ACTION_STREAM_SOURCES = new Set([
   // 走 /api/internal/llm/debug、不落 llm_request_slices，但它确确实实是一次 provider 请求 ——
   // 「所有经过 LLM 的请求都要能在事件流里看到」这条规矩对它一样成立。
   'recall_rerank_llm_request',
-  'recall_expand_llm_request'
+  'recall_expand_llm_request',
+  'xiaoni_os_rewrite_llm_request'
 ]);
 
 function isLlmProviderBackedActionStreamItem(item, source) {
@@ -3323,6 +3555,10 @@ function sourceLabelForActionStreamTag(source) {
       return '召回展开';
     case 'recall_expand_llm_request':
       return '召回展开 LLM';
+    case 'xiaoni_os_rewrite':
+      return 'xiaoni_os 监督者';
+    case 'xiaoni_os_rewrite_llm_request':
+      return 'xiaoni_os 监督者 LLM';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -5005,7 +5241,8 @@ function createXiaoniActivityPersistence({
         psychAssessmentForkTimeline,
         failureReviewForkTimeline,
         cacheHeartbeatTimeline,
-        recallLlmTimelines
+        recallLlmTimelines,
+        xiaoniOsRewriteTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
           where: { identity_key: identityKey }
@@ -5155,6 +5392,11 @@ function createXiaoniActivityPersistence({
           limit: perSourceLimit
         }, config, listCodexProviderUsageEvents, sql),
         loadRecallLlmTimelines(sql, {
+          identityKey,
+          timeWindow,
+          limit: perSourceLimit
+        }),
+        loadXiaoniOsRewriteTimeline(sql, {
           identityKey,
           timeWindow,
           limit: perSourceLimit
@@ -5309,6 +5551,7 @@ function createXiaoniActivityPersistence({
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
         recallRerankTimeline: normalizeValue(recallLlmTimelines?.judge || { runs: [] }),
         recallExpandTimeline: normalizeValue(recallLlmTimelines?.expansion || { runs: [] }),
+        xiaoniOsRewriteTimeline: normalizeValue(xiaoniOsRewriteTimeline || { runs: [] }),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithOrder)
       };
     } finally {
@@ -5352,9 +5595,11 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const recallExpandRuns = (feed.recallExpandTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    const xiaoniOsRewriteRuns = (feed.xiaoniOsRewriteTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
     // 召回这两条腿没有 occurred_seq(不落 slice、不在栈上)。先用其它已 stamp 的行建参照表把
     // 它们按墙钟插回,再进下面的 repair —— 顺序反了就会被当成「历史行」沉到页面最底部。
-    stampRecallLlmStreamOrderSeq([...recallRerankRuns, ...recallExpandRuns], decoratedItems, [
+    stampRecallLlmStreamOrderSeq([...recallRerankRuns, ...recallExpandRuns, ...xiaoniOsRewriteRuns], decoratedItems, [
       ...compressionForkRuns,
       ...subconsciousForkRuns,
       ...psychAssessmentForkRuns,
@@ -5373,7 +5618,8 @@ function createXiaoniActivityPersistence({
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns,
       ...recallRerankRuns,
-      ...recallExpandRuns
+      ...recallExpandRuns,
+      ...xiaoniOsRewriteRuns
     ]);
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
@@ -5383,7 +5629,8 @@ function createXiaoniActivityPersistence({
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns,
       ...recallRerankRuns,
-      ...recallExpandRuns
+      ...recallExpandRuns,
+      ...xiaoniOsRewriteRuns
     ]);
     const taggedItems = decoratedItems
       .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
@@ -5396,6 +5643,7 @@ function createXiaoniActivityPersistence({
     const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
     const filteredRecallRerankRuns = filterActionStreamForkRunsByTags(recallRerankRuns, selectedTags);
     const filteredRecallExpandRuns = filterActionStreamForkRunsByTags(recallExpandRuns, selectedTags);
+    const filteredXiaoniOsRewriteRuns = filterActionStreamForkRunsByTags(xiaoniOsRewriteRuns, selectedTags);
     let focusedItem = null;
     if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !taggedItems.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
       const focusedRows = await listLlmRequestSlices({
@@ -5465,6 +5713,11 @@ function createXiaoniActivityPersistence({
         kind: 'fork',
         id: `recall-expand:${run.id}`,
         run
+      })),
+      ...filteredXiaoniOsRewriteRuns.map((run) => ({
+        kind: 'fork',
+        id: `xiaoni-os-rewrite:${run.id}`,
+        run
       }))
     ];
     const { visibleEntries, hasMore, nextCursor } = paginateActionStreamEntries(actionEntries, limit);
@@ -5484,6 +5737,7 @@ function createXiaoniActivityPersistence({
     const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleRecallRerankRuns = filteredRecallRerankRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleRecallExpandRuns = filteredRecallExpandRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleXiaoniOsRewriteRuns = filteredXiaoniOsRewriteRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .map((item) => item.tags ? item : decorateActionStreamItem(item));
@@ -5535,6 +5789,10 @@ function createXiaoniActivityPersistence({
       recallExpandTimeline: {
         ...(feed.recallExpandTimeline || {}),
         runs: visibleRecallExpandRuns
+      },
+      xiaoniOsRewriteTimeline: {
+        ...(feed.xiaoniOsRewriteTimeline || {}),
+        runs: visibleXiaoniOsRewriteRuns
       },
       imageVisionForkTimeline: {
         ...(feed.imageVisionForkTimeline || {}),
