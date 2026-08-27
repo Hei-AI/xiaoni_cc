@@ -536,7 +536,8 @@ function createRecallIngest({
       droppedCounts[d.verdict] = (droppedCounts[d.verdict] || 0) + 1;
     }
 
-    await persistence.insertRecallShadowLog({
+    // 投递侧要拿着**这一行**直接交精排(事件驱动,不再定时回捞 shadow_log),所以把落库的记录一并返回。
+    const shadowRecord = {
       identityKey,
       occurredAt: params.occurredAt,
       queryRef: landedRef,
@@ -574,9 +575,10 @@ function createRecallIngest({
         .sort((a, b) => b.cos - a.cos)
         .slice(0, 10)
         .map((d) => ({ verdict: d.verdict, cos: d.cos, sourceRef: d.candidate.sourceRef }))
-    });
+    };
+    await persistence.insertRecallShadowLog(shadowRecord);
 
-    return result;
+    return { ...result, shadowRecord };
   }
 
   return { ingestActionStreamItems, ingestInboundMessages, runShadowRecall };
