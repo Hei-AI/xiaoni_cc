@@ -1,5 +1,7 @@
 # xiaoni_os 迁到 type:text + 心理评估 fork 门控上下文准入
 
+> **状态 2026-08-27:** Step3 的心理评估 fork 已撤(18h 492 次判定 keep 93.5%/evict 6.5%,每次骑 ~400K 热前缀只剔 6.5%),同一落点换成独立小请求的 xiaoni_os 改写腿,开关列复用。见 `docs/specs/xiaoni-os-rewrite.md`。本文其余部分(text_admit 门、留痕表、管理端开关)仍是现行机制。
+
 ## Context
 
 今天 `xiaoni_os` 是 4 个工具（`privateReply`:1440 / `groupReply`:1476 / `imageTask`:1531 /
