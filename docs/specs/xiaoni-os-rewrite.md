@@ -66,9 +66,14 @@ text ──► 分类(Sonnet 4.6, 输出 1/0)「有没有事」
 
 ## 2026-08-28 追加:填充句禁令 + exec_command 注释剥离
 
-**xiaoni_os 不允许填充句 / 无效休息**(用户拍板)。「在。」「嗡。」「停。」「等。」「好。」、报时报数、「歇着/待着/等困意」都算。三道:
-1. `isFillerOnlyText`:整段只有填充句 → 不问模型,直接判 idle(`classify_model = filler-rule`)去改写。
-2. `stripFillerSentences`:改写出口逐句剔掉填充句,剔空 → evicted。
-3. 分类/改写提示词加规则与例子;`system_prompt.md` 加可核对禁令(下次压缩生效)。
+**xiaoni_os 不允许填充句 / 无效休息**(用户拍板)。「在。」「嗡。」「停。」「等。」「好。」、报时报数、「歇着/待着/等困意」都算。处理要**正向、由 LLM 参与**(用户 08-28 二次拍板:「不是单纯的剔除,可以润色」),机械剔除只做最后兜底。四道:
+1. `isFillerOnlyText`:整段只有填充句 → 不问分类模型,直接判 idle(`classify_model = filler-rule`)去**改写**(LLM)。
+2. **润色腿**(`xiaoni_os_polish`,`docs/xiaoni_prompt/xiaoni_os_polish.md`):判有事但 `needsPolish`(夹着填充句,或夹着「歇着/待着/等困意/先等等/再看看/不想动」这类无效休息)→ LLM 润色:内容一个不丢,填充句去掉,无效休息换成和段内已有的事接得上的一步。去向 `polished`;润色请求挂了 / 空 / 没改 → `failed_open` 原文准入(有事的内容比禁令值钱)。
+3. 润色 / 改写的出口还有填充句 → **带着残留句子再发一次纠正请求**(`buildXiaoniOsRewritePrompt(text, system, {previous, leftover})`,system 不动保前缀缓存,只在 user 段追加上一版 + 残留句);仍有 → `stripFillerSentences` 机械兜底;剔空 → 润色回原文 / 改写 evicted。留痕 `rewrite_stage`(polish / rewrite)+ `rewrite_retries`(0 / 1)。
+4. 分类/改写/润色提示词都垫过 Sonnet 4.6 的 1024 最小前缀(润色 1416 字符);`system_prompt.md` 加可核对禁令(下次压缩生效)。
+
+行动流:去向多一种「有事但夹填充句 → 润色后准入」,第二腿事件按 `rewrite_stage` 标题「xiaoni_os 润色 / 改写」,body 带「纠正 N 次」;provider `identity_key` 映射与 LLM 成本 rollup 排除都加了 `xiaoni_os_polish`。
 
 **exec_command 整行 `#` 注释在执行前剥掉**(用户拍板「禁止用 exec_command 写注释,想办法引导」)。prompt 禁令已证明无效(注释是代偿通道)。现在 turn 末在 `modelResult.canonical_response` 上就地删掉 `cmd` 里的整行注释(`exec-command-comments.ts`;heredoc 体、多行引号串、shebang、行尾注不动):执行路由 / stack ledger / live requestInput 都从这份派生 → 三处同源,下一轮她看不到注释;删过的命令 `codex_output` 末尾附 `exec_command_comment_stripped.md`(删了 N 行、想法写 xiaoni_os)。原文留在 provider 写的 `llm_request_slices.canonical_response`。双缓存:fork 克隆同一份 outputItems、stack 与 live 同源,冻结用例全绿。
+
+**工具描述同步陈述机制**(用户 08-28:「在 tool_desc 上禁止他在 exec_command 上添加 xiaoni_os 类的注释」):`EXEC_COMMAND_DESCRIPTION` 与 `cmd` 参数描述各加一句 —— 整行 `#` 注释(heredoc 体除外)执行前删掉、不留痕;想法 / xiaoni_os 类的话写进 assistant text(xiaoni_os),那部分下一轮会回到她上下文。工具定义在每次请求现建(不像 system prompt 走压缩快照),所以**部署即生效、代价是一次冷读**(tools 在前缀最前);live 与 replay 用同一份定义,run 边界不再击穿。
