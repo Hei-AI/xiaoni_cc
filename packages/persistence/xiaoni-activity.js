@@ -2179,6 +2179,7 @@ const XIAONI_OS_REWRITE_LEG = {
 };
 const XIAONI_OS_REWRITE_OUTCOME_LABELS = {
   kept: '有事 → 原文准入',
+  polished: '有事但夹填充句 → 润色后准入',
   rewritten: '空转 → 改写后准入',
   evicted: '空转 → 改写失败，不进上下文',
   failed_open: '分类失败 → fail-open 原文准入'
@@ -2203,6 +2204,8 @@ const XIAONI_OS_REWRITE_SELECT = `
   rewritten_text,
   rewrite_llm_call_id,
   rewrite_model,
+  rewrite_stage,
+  rewrite_retries,
   outcome,
   error_message,
   processing_time_ms,
@@ -2229,21 +2232,26 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
   const eventId = usageEventId || `${leg.idPrefix}:${stage}:${rowId}`;
   const providerRawTraceAvailable = Boolean(usage
     && (usage.provider_raw_trace_available === true || usage.providerRawTraceAvailable === true));
+  const isPolish = stage === 'polish';
+  const retries = streamNumberOrNull(row.rewrite_retries ?? row.rewriteRetries) || 0;
+  const retrySuffix = !isClassify && retries > 0 ? ` · 纠正 ${retries} 次` : '';
   const stageFailed = isClassify
     ? (verdict === 'failed' || verdict === 'unparsed')
-    : (outcome === 'evicted');
+    : (outcome === 'evicted' || outcome === 'failed_open');
+  const secondLegDone = outcome === 'rewritten' || outcome === 'polished';
+  const stageWord = isPolish ? '润色' : '改写';
   const summary = isClassify
     ? `判定 ${XIAONI_OS_REWRITE_VERDICT_LABELS[verdict] || verdict || '—'}`
-    : (outcome === 'rewritten' ? '改写完成' : `改写失败${errorMessage ? ` · ${recallLlmOneLine(errorMessage, 120)}` : ''}`);
+    : (secondLegDone ? `${stageWord}完成${retrySuffix}` : `${stageWord}失败${retrySuffix}${errorMessage ? ` · ${recallLlmOneLine(errorMessage, 120)}` : ''}`);
   const headline = isClassify
     ? recallLlmOneLine(original, 160)
-    : (outcome === 'rewritten' ? recallLlmOneLine(rewritten, 200) : '');
+    : (secondLegDone ? recallLlmOneLine(rewritten, 200) : '');
   const timestamp = eventTimestamp(row.created_at || row.createdAt);
   return {
     id: eventId,
     source: leg.eventSource,
     kind: leg.eventKind,
-    title: isClassify ? 'xiaoni_os 分类' : 'xiaoni_os 改写',
+    title: isClassify ? 'xiaoni_os 分类' : `xiaoni_os ${stageWord}`,
     body: truncateText([summary, headline].filter(Boolean).join(' · '), 420),
     status: stageFailed ? (verdict === 'unparsed' ? 'unparsed' : 'failed') : 'completed',
     actor: 'system',
@@ -2274,6 +2282,7 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
       agentTurn: streamNumberOrNull(row.agent_turn ?? row.agentTurn),
       outcome,
       classifyVerdict: verdict,
+      rewriteRetries: isClassify ? null : retries,
       llmCallId,
       modelName,
       modelProvider: usage ? firstString(usage.model_provider, usage.modelProvider) : null,
@@ -2287,7 +2296,7 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
       payloadPreview: truncateText(`【她写的 xiaoni_os】\n${original}`, 4000),
       responsePreview: truncateText(isClassify
         ? `${summary}${row.classify_raw != null ? `\n【模型原文】 ${recallLlmOneLine(row.classify_raw, 80)}` : ''}`
-        : [summary, rewritten ? `【改写后】\n${rewritten}` : null].filter(Boolean).join('\n\n'), 4000)
+        : [summary, rewritten ? `【${stageWord}后】\n${rewritten}` : null].filter(Boolean).join('\n\n'), 4000)
     })
   };
 }
@@ -2299,9 +2308,12 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
   const classifyCallId = firstString(row.classify_llm_call_id, row.classifyLlmCallId);
   const rewriteCallId = firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId);
   const events = [summarizeXiaoniOsRewriteLlmEvent(row, 'classify', classifyCallId ? usageByCallId.get(classifyCallId) || null : null, anchorSeq)];
-  // 改写请求只在判为空转后才发生:rewritten / evicted 两种去向都发过(evicted 可能是请求挂了或输出为空)。
-  if (outcome === 'rewritten' || outcome === 'evicted') {
-    events.push(summarizeXiaoniOsRewriteLlmEvent(row, 'rewrite', rewriteCallId ? usageByCallId.get(rewriteCallId) || null : null, anchorSeq));
+  // 第二腿:空转 → 改写(rewritten / evicted 都发过);有事夹填充句 → 润色(polished,或润色失败 fail-open —— 以
+  // rewrite_stage 为准,老行没有这列就按去向推)。
+  const stage = firstString(row.rewrite_stage, row.rewriteStage)
+    || (outcome === 'rewritten' || outcome === 'evicted' ? 'rewrite' : outcome === 'polished' ? 'polish' : null);
+  if (stage === 'rewrite' || stage === 'polish') {
+    events.push(summarizeXiaoniOsRewriteLlmEvent(row, stage, rewriteCallId ? usageByCallId.get(rewriteCallId) || null : null, anchorSeq));
   }
   const original = String(row.original_text ?? row.originalText ?? '');
   const rewritten = String(row.rewritten_text ?? row.rewrittenText ?? '');

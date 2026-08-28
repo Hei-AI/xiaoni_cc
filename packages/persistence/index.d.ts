@@ -1799,7 +1799,8 @@ export function listRuntimeTimelineEvents(
 export function ensureXiaoniDeepDiveSchema(config?: DatabaseUrlConfig): Promise<void>;
 
 // xiaoni_os 改写腿留痕(docs/specs/xiaoni-os-rewrite.md)
-export type XiaoniOsRewriteOutcome = 'kept' | 'rewritten' | 'evicted' | 'failed_open';
+export type XiaoniOsRewriteOutcome = 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
+export type XiaoniOsRewriteStage = 'polish' | 'rewrite';
 export type XiaoniOsRewriteClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed';
 export interface XiaoniOsRewriteRecord {
   id: number;
@@ -1816,6 +1817,8 @@ export interface XiaoniOsRewriteRecord {
   rewrittenText: string | null;
   rewriteLlmCallId: string | null;
   rewriteModel: string | null;
+  rewriteStage: XiaoniOsRewriteStage | null;
+  rewriteRetries: number;
   outcome: XiaoniOsRewriteOutcome;
   errorMessage: string | null;
   processingTimeMs: number | null;
@@ -1837,6 +1840,8 @@ export function recordXiaoniOsRewrite(
     rewrittenText?: string | null;
     rewriteLlmCallId?: string | null;
     rewriteModel?: string | null;
+    rewriteStage?: XiaoniOsRewriteStage | null;
+    rewriteRetries?: number | null;
     outcome: XiaoniOsRewriteOutcome;
     errorMessage?: string | null;
     processingTimeMs?: number | null;

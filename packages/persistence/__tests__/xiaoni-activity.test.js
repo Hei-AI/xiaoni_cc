@@ -2238,6 +2238,27 @@ test('Xiaoni xiaoni_os rewrite leg: kept outcome has a single classify event', a
   assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true, '它就是一次 provider 请求,要答 LLM 源标签');
 });
 
+test('Xiaoni xiaoni_os rewrite leg: polished outcome renders classify + polish events with retry count', async () => {
+  const persistence = createPersistence({
+    xiaoniOsRewriteRows: [xiaoniOsRewriteRow({ id: 12, original_text: '在。Forth 读到 ch52 了。等困意来。', classify_verdict: 'action', classify_raw: '1', rewritten_text: 'Forth 读到 ch52 了。\nratfactor 的信先回。', rewrite_llm_call_id: 'llm_polish_1', rewrite_stage: 'polish', rewrite_retries: 1, outcome: 'polished' })],
+    recallLlmUsageRows: [
+      { event_id: 'codex-provider:llm_polish_1', llm_call_id: 'llm_polish_1', model_name: 'claude-sonnet-4-6', token_usage: { input_tokens: 40, cached_input_tokens: 1300, output_tokens: 30 }, provider_raw_trace_available: true, created_at: '2026-08-28T03:00:02.000Z' }
+    ]
+  });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.xiaoniOsRewriteTimeline.runs[0];
+  assert.equal(run.metadata.outcome, 'polished');
+  assert.match(run.body, /润色后准入/u);
+  assert.notEqual(run.status, 'failed', '润色后准入不是失败');
+  assert.equal(run.events.length, 2);
+  assert.equal(run.events[1].metadata.stage, 'polish');
+  assert.equal(run.events[1].title, 'xiaoni_os 润色');
+  assert.match(run.events[1].body, /润色完成 · 纠正 1 次/u);
+  assert.equal(run.events[1].id, 'codex-provider:llm_polish_1');
+  assert.equal(run.events[1].metadata.rewriteRetries, 1);
+  assert.equal(run.events[1].metadata.orderSeq, null, '没锚就留 null 交墙钟插回');
+});
+
 test('Xiaoni xiaoni_os rewrite leg anchors next to the judged assistant output (occurred_seq − 0.5 / − 0.4)', async () => {
   const persistence = createPersistence({
     xiaoniOsRewriteRows: [xiaoniOsRewriteRow()],

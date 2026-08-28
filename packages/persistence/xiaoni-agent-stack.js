@@ -773,7 +773,7 @@ function usageRollupSourceFromCodexProviderSelectSql() {
     AND source_kind NOT IN (
       'image_generation', 'image_edit', 'image_prompt_assistant',
       'recall_rerank', 'recall_expand',
-      'xiaoni_os_classify', 'xiaoni_os_rewrite'
+      'xiaoni_os_classify', 'xiaoni_os_rewrite', 'xiaoni_os_polish'
     )
   `;
 }

@@ -8,7 +8,8 @@
 // 见 docs/specs/xiaoni-os-rewrite.md。
 //
 // 这张表存两件事:
-//   ① 可观测:每一 turn 的 原文 / 判定 / 改写 / 最终去向(kept / rewritten / evicted / failed_open),
+//   ① 可观测:每一 turn 的 原文 / 判定 / 改写 / 最终去向(kept / polished / rewritten / evicted / failed_open;
+//      polished = 判有事但夹着填充句,润色后准入;rewrite_stage 记第二腿是润色还是改写,rewrite_retries 记为去残留填充句多发的纠正次数),
 //      以及两次小模型请求的 llm_call_id —— 那是把这行和 codex_provider_usage_events 里的
 //      wire request/response、token 接起来的唯一键。
 //   ② 训练集:原文 + 判定 就是将来分类器的标注对;原文 + 改写 是改写器的标注对。
@@ -18,7 +19,8 @@
 // 是独立小请求、不克隆主请求,所以本表与缓存前缀 / stack replay 无关。
 
 const IDENTITY_KEY = 'xiaoni';
-const OUTCOMES = new Set(['kept', 'rewritten', 'evicted', 'failed_open']);
+const OUTCOMES = new Set(['kept', 'polished', 'rewritten', 'evicted', 'failed_open']);
+const REWRITE_STAGES = new Set(['polish', 'rewrite']);
 const VERDICTS = new Set(['action', 'idle', 'unparsed', 'failed']);
 
 function normalizeText(value) {
@@ -91,6 +93,9 @@ function createXiaoniOsRewritePersistence({ createSqlAdapter }) {
           created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      // 2026-08-28:润色腿。老表加列(幂等)。
+      await sql.execute('ALTER TABLE xiaoni_os_rewrites ADD COLUMN IF NOT EXISTS rewrite_stage VARCHAR(16) NULL');
+      await sql.execute('ALTER TABLE xiaoni_os_rewrites ADD COLUMN IF NOT EXISTS rewrite_retries INTEGER NOT NULL DEFAULT 0');
       await sql.execute(`
         CREATE INDEX IF NOT EXISTS idx_xiaoni_os_rewrites_trace
         ON xiaoni_os_rewrites (trace_id, id)
@@ -138,10 +143,12 @@ function createXiaoniOsRewritePersistence({ createSqlAdapter }) {
             rewritten_text,
             rewrite_llm_call_id,
             rewrite_model,
+            rewrite_stage,
+            rewrite_retries,
             outcome,
             error_message,
             processing_time_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING *
         `,
         [
@@ -160,6 +167,8 @@ function createXiaoniOsRewritePersistence({ createSqlAdapter }) {
             : typeof input.rewritten_text === 'string' ? input.rewritten_text : null,
           firstString(input.rewriteLlmCallId, input.rewrite_llm_call_id),
           firstString(input.rewriteModel, input.rewrite_model),
+          normalizeEnum(input.rewriteStage ?? input.rewrite_stage, REWRITE_STAGES, null),
+          normalizeInteger(input.rewriteRetries ?? input.rewrite_retries) ?? 0,
           outcome,
           firstString(input.errorMessage, input.error_message),
           normalizeInteger(input.processingTimeMs ?? input.processing_time_ms)
