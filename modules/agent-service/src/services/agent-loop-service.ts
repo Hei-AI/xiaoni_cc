@@ -81,6 +81,7 @@ import {
   applyXiaoniOsRewriteInPlace,
   extractAssistantItemText,
   readXiaoniOsClassifySystemPrompt,
+  readXiaoniOsPolishSystemPrompt,
   readXiaoniOsRewriteSystemPrompt,
   runXiaoniOsRewriteLeg
 } from './xiaoni-os-rewrite';
@@ -1629,6 +1630,7 @@ const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
   'Use /app as the filesystem root for repository paths.',
   'To read a file, prefer the read_file tool over cat/head/tail/sed: it returns numbered lines, pages with offset/limit, and is how you read back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output.',
+  'Full-line # comments in cmd (outside heredoc bodies) are deleted before the command runs and are not kept anywhere; thoughts, notes and xiaoni_os-style remarks go in the assistant text (xiaoni_os), which does come back to you next turn.',
   'qqbot-agent-service / compose service agent-service is you. Touching that container is suicide: you may inspect it, but you must not modify it.'
 ].join(' ');
 
@@ -1645,7 +1647,7 @@ const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
       properties: {
         cmd: {
           type: 'string',
-          description: 'Shell command to execute.'
+          description: 'Shell command to execute. Full-line # comments are stripped before execution and never persisted; write thoughts in xiaoni_os (assistant text) instead.'
         },
         justification: {
           type: 'string',
@@ -14105,9 +14107,10 @@ export class AgentLoopService {
       text,
       callLlm: callRecallLlmDetailed,
       classifySystemPrompt: readXiaoniOsClassifySystemPrompt(),
-      rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt()
+      rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt(),
+      polishSystemPrompt: readXiaoniOsPolishSystemPrompt()
     });
-    if (result.outcome === 'rewritten' && result.rewrittenText) {
+    if ((result.outcome === 'rewritten' || result.outcome === 'polished') && result.rewrittenText) {
       applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);
     } else if (result.outcome === 'kept' || result.outcome === 'failed_open') {
       stampTextAdmitInPlace([params.item as unknown as OpenResponseInputItem], true);
@@ -14118,6 +14121,8 @@ export class AgentLoopService {
       agentTurn: params.agentTurn,
       outcome: result.outcome,
       classifyVerdict: result.classifyVerdict,
+      rewriteStage: result.rewriteStage,
+      rewriteRetries: result.rewriteRetries,
       originalChars: text.length,
       rewrittenChars: result.rewrittenText ? result.rewrittenText.length : null,
       processingTimeMs: result.processingTimeMs,
@@ -14143,6 +14148,8 @@ export class AgentLoopService {
         rewrittenText: result.rewrittenText,
         rewriteLlmCallId: result.rewriteLlmCallId,
         rewriteModel: result.rewriteModel,
+        rewriteStage: result.rewriteStage,
+        rewriteRetries: result.rewriteRetries,
         outcome: result.outcome,
         errorMessage: result.errorMessage,
         processingTimeMs: result.processingTimeMs

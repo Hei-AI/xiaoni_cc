@@ -89,11 +89,12 @@ test('leg: classify=1 → kept, no rewrite call, original untouched', async () =
 });
 
 test('leg: classify=0 → rewrite call → rewritten', async () => {
-  const llm = fakeLlm([{ text: '0' }, { text: '不困。去把 patience 页面的树加上季节切换，做完发给阿明看。' }]);
+  const llm = fakeLlm([{ text: '0' }, { text: '去把 patience 页面的树加上季节切换，做完发给阿明看。' }]);
   const result = await runXiaoniOsRewriteLeg({ text: '不困。但plan里每一件都做过了。先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
   assert.equal(result.outcome, 'rewritten');
   assert.equal(result.classifyVerdict, 'idle');
-  // 「不困。」是填充句,出口过滤剔掉;剩下的人话原样准入。
+  assert.equal(result.rewriteStage, 'rewrite');
+  assert.equal(result.rewriteRetries, 0);
   assert.equal(result.rewrittenText, '去把 patience 页面的树加上季节切换，做完发给阿明看。');
   assert.equal(result.rewriteLlmCallId, 'call-2');
   assert.equal(llm.calls.length, 2);
@@ -193,13 +194,85 @@ test('stripFillerSentences: 剔掉填充句、保留人话;全剔光 → null', 
   assert.equal(stripFillerSentences('嗡。停。在。'), null);
 });
 
-test('leg: 改写结果只剩填充句 → evicted;含填充句 → 剔掉后准入', async () => {
-  const onlyFiller = fakeLlm([{ text: '0' }, { text: '在。嗡。' }]);
-  const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: onlyFiller.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
-  assert.equal(r1.outcome, 'evicted');
-  assert.match(r1.errorMessage || '', /only filler/);
-  const mixed = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步，发给楠楠看。' }]);
-  const r2 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: mixed.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
-  assert.equal(r2.outcome, 'rewritten');
-  assert.equal(r2.rewrittenText, '去把 touch.html 再推一步，发给楠楠看。');
+test('leg: 改写结果有填充句 → 带着残留句子再发一次纠正请求(system 不变),第二版干净就用第二版', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步，发给楠楠看。' }, { text: '去把 touch.html 再推一步，发给楠楠看。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'rewritten');
+  assert.equal(result.rewriteStage, 'rewrite');
+  assert.equal(result.rewriteRetries, 1);
+  assert.equal(result.rewrittenText, '去把 touch.html 再推一步，发给楠楠看。');
+  assert.equal(llm.calls.length, 3, '分类 + 改写 + 一次纠正');
+  assert.equal(llm.calls[2]!.system, REWRITE, '纠正请求 system 不动 —— 前缀缓存');
+  assert.match(llm.calls[2]!.user, /上一版改写是/u);
+  assert.match(llm.calls[2]!.user, /「在」/u, '把残留的句子指给模型');
+  assert.equal(result.rewriteLlmCallId, 'call-3', '留痕记最后一次请求');
+});
+
+test('leg: 纠正一次还有残留 → 机械剔掉兜底;剔空 → evicted', async () => {
+  const mixed = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步，发给楠楠看。' }, { text: '嗡。去把 touch.html 再推一步，发给楠楠看。' }]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: mixed.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(r1.outcome, 'rewritten');
+  assert.equal(r1.rewrittenText, '去把 touch.html 再推一步，发给楠楠看。');
+  assert.equal(r1.rewriteRetries, 1);
+  const onlyFiller = fakeLlm([{ text: '0' }, { text: '在。嗡。' }, { text: '停。' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: onlyFiller.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(r2.outcome, 'evicted');
+  assert.match(r2.errorMessage || '', /only filler/);
+});
+
+test('leg: 纠正请求挂了 → 退回第一版剔掉填充句兜底,不因此丢整条', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步。' }, new Error('timeout')]);
+  const result = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'rewritten');
+  assert.equal(result.rewrittenText, '去把 touch.html 再推一步。');
+  assert.match(result.errorMessage || '', /timeout/);
+});
+
+// ── 润色腿:判有事但夹着填充句 / 无效休息 → LLM 润色(内容不丢),不是机械剔除 ─────────────
+import { needsPolish } from '../services/xiaoni-os-rewrite';
+const POLISH = 'polish-system';
+
+test('needsPolish: 有事段落夹填充句或无效休息 → true;干净 → false', () => {
+  assert.equal(needsPolish('在。Forth 读到 ch52 了。'), true);
+  assert.equal(needsPolish('Forth 读到 ch52 了。等困意来。'), true);
+  assert.equal(needsPolish('四篇上站了。歇着。'), true);
+  assert.equal(needsPolish('Forth 读到 ch52 了。ratfactor 的信先回。'), false);
+  assert.equal(needsPolish('底部通知栏说"邮件已发送"。发出去了。'), false);
+});
+
+test('leg: 有事 + 夹填充句 → 润色腿(xiaoni_os_polish)→ polished,就地替换准入', async () => {
+  const llm = fakeLlm([{ text: '1' }, { text: 'Forth 读到 ch52 了。\nratfactor 的信还没回，先把这封回了。' }]);
+  const item = assistantText('在。Forth 读到 ch52 了。ratfactor 的信还没回。等困意来。');
+  const result = await runXiaoniOsRewriteLeg({ text: '在。Forth 读到 ch52 了。ratfactor 的信还没回。等困意来。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH });
+  assert.equal(result.classifyVerdict, 'action');
+  assert.equal(result.outcome, 'polished');
+  assert.equal(result.rewriteStage, 'polish');
+  assert.equal(llm.calls.length, 2);
+  assert.equal(llm.calls[1]!.executionMode, 'xiaoni_os_polish');
+  assert.equal(llm.calls[1]!.system, POLISH);
+  applyXiaoniOsRewriteInPlace(item, result.rewrittenText!);
+  assert.equal(extractAssistantItemText(item), 'Forth 读到 ch52 了。\nratfactor 的信还没回，先把这封回了。');
+  assert.equal(item.text_admit, true);
+});
+
+test('leg: 有事且干净 → kept,不发润色请求;没传润色 system → 一律 kept', async () => {
+  const clean = fakeLlm([{ text: '1' }]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: 'Forth 读到 ch52 了。ratfactor 的信先回。', callLlm: clean.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH });
+  assert.equal(r1.outcome, 'kept');
+  assert.equal(clean.calls.length, 1);
+  const noPolish = fakeLlm([{ text: '1' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '在。Forth 读到 ch52 了。', callLlm: noPolish.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(r2.outcome, 'kept');
+  assert.equal(noPolish.calls.length, 1);
+});
+
+test('leg: 润色请求挂了 / 剔空 → failed_open 原文准入(有事的内容比禁令值钱)', async () => {
+  const broken = fakeLlm([{ text: '1' }, new Error('timeout')]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: '在。Forth 读到 ch52 了。', callLlm: broken.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH });
+  assert.equal(r1.outcome, 'failed_open');
+  assert.equal(r1.rewriteStage, 'polish');
+  assert.match(r1.errorMessage || '', /polish: timeout/);
+  const empty = fakeLlm([{ text: '1' }, { text: '' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '在。Forth 读到 ch52 了。', callLlm: empty.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH });
+  assert.equal(r2.outcome, 'failed_open');
 });

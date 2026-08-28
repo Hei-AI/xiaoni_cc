@@ -2577,7 +2577,9 @@ export class RuntimeStore {
     rewrittenText?: string | null;
     rewriteLlmCallId?: string | null;
     rewriteModel?: string | null;
-    outcome: 'kept' | 'rewritten' | 'evicted' | 'failed_open';
+    rewriteStage?: 'polish' | 'rewrite' | null;
+    rewriteRetries?: number | null;
+    outcome: 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
     errorMessage?: string | null;
     processingTimeMs?: number | null;
   }) {

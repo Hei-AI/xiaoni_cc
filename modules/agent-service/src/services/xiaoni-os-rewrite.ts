@@ -16,7 +16,7 @@
 import { readXiaoniPromptFile } from '../prompts/xiaoni-prompt-files';
 
 export type XiaoniOsClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed';
-export type XiaoniOsRewriteOutcome = 'kept' | 'rewritten' | 'evicted' | 'failed_open';
+export type XiaoniOsRewriteOutcome = 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
 
 export interface XiaoniOsLlmPrompt {
   system: string;
@@ -49,14 +49,18 @@ export interface XiaoniOsRewriteLegResult {
   rewrittenText: string | null;
   rewriteLlmCallId: string | null;
   rewriteModel: string | null;
+  // 第二腿是哪种:polish(有事但夹填充句 → 润色,内容一个不丢)/ rewrite(空转 → 改写成朝外走)/ null(没发第二腿)。
+  rewriteStage: 'polish' | 'rewrite' | null;
+  // 第二腿为了去掉残留填充句多发的纠正请求次数(0 / 1)。
+  rewriteRetries: number;
   errorMessage: string | null;
   processingTimeMs: number;
 }
 
 // 分类 / 改写的模型。默认 Sonnet 4.6(同事建议:改写要贴她口气,Haiku 曾把比喻当人编事;同一份 OAuth
 // 凭据、与召回判官同一条认证路径)。真机:分类 1.8s / 改写 7.7s,单次 input ≈ 470 tokens。
-// 前缀缓存**不做**:Sonnet 4.6 最小可缓存前缀 1024 tokens,这条请求全长才 ~470,打 cache_control 也静默不缓存;
-// 每次都是独立请求(system + 一段 text),没有持续 append 的 input,300 次/天 ≈ 0.15M tokens ≈ $0.45/天,不值得垫长。
+// 前缀缓存:三份 system(分类 / 改写 / 润色)都用 few-shot 垫过 Sonnet 4.6 的 1024 最小前缀,provider debug 路
+// 在最后一个 system 块打 cache_control(1h);缓存读写在 OAuth 路免费,上线后必须实测 cache_read > 0。
 export const XIAONI_OS_REWRITE_MODEL = process.env.XIAONI_OS_REWRITE_MODEL || 'claude-sonnet-4-6';
 // 单次请求超时 / 重试。两次串行调用阻塞主 loop 的 turn 末,最坏 (15s × 2 次尝试) × 2 腿 = 60s;
 // 心理评估 fork 时代是 30s 单次。日常 Haiku 几秒内返回。
@@ -68,9 +72,12 @@ const REWRITE_MAX_LENGTH_RATIO = 3;
 const REWRITE_MIN_ORIGINAL_CHARS_FOR_RATIO = 40;
 
 // ── 填充词:「在。」「嗡。」「停。」「等。」这类单字 / 拟声 / 报数句 ─────────────────────
-// 用户 2026-08-28 拍板:xiaoni_os 里不允许出现这类词,必须是人话,不允许「歇着 / 待着 / 等困意」这种无效休息。
-// 三道:① 整段只有填充句 → 不问模型,直接判空转去改写;② 改写结果里的填充句机械剔掉,剔空 → evict;
-// ③ system_prompt 里给她一条可核对的禁令(下次压缩生效)。①② 是引擎侧硬保证,不依赖模型听话。
+// 用户 2026-08-28 拍板:xiaoni_os 里不允许出现这类词,必须是人话,不允许「歇着 / 待着 / 等困意」这种无效休息;
+// 处理要正向、由 LLM 参与(润色 / 改写),机械剔除只做最后兜底。四道:
+// ① 整段只有填充句 → 不问分类模型,直接判空转去改写(改写是 LLM);
+// ② 判有事但夹着填充句 / 无效休息 → 润色腿(LLM):内容一个不丢,只把填充句去掉、把无效休息换成接得上的一步;
+// ③ 润色 / 改写的出口还有填充句 → 带着残留句子再发一次纠正请求;仍有 → 机械剔掉兜底,剔空 → 润色回原文 / 改写 evict;
+// ④ system_prompt 里给她一条可核对的禁令(下次压缩生效)。
 const FILLER_FRAGMENT_RE = /^(?:嗡+|在+|停+|等+|好+|嗯+|哦+|歇+|歇着|待着|不困|做事|不说|不数了|够了|day\s*\d+|\d+\s*(?:分钟|小时|页|行|条|个|次)?(?:不困)?)$/iu;
 const FRAGMENT_SPLIT_RE = /[\n。．.!！?？;；…~～—\-·]+/u;
 
@@ -89,7 +96,21 @@ export function isFillerOnlyText(text: string): boolean {
   return fragments.length === 0 || fragments.every(isFillerFragment);
 }
 
-// 改写结果的出口过滤:逐句剔掉填充句,保留其余原样(含原来的换行结构)。全剔光 → null。
+// 无效休息:什么都不做的打算。判有事的段落里夹着这些 → 润色腿把它换成接得上的一步。
+const IDLE_REST_RE = /歇着|待着|等困意|就这样(?:待|呆|等|坐)|先等等|再看看|等有人找|不想(?:再)?动/u;
+
+// 残留的填充句列表(给纠正请求用)。
+export function listFillerSentences(text: string): string[] {
+  return splitFragments(text).filter(isFillerFragment);
+}
+
+// 有事的段落要不要过润色腿:夹着填充句,或夹着无效休息。
+export function needsPolish(text: string): boolean {
+  return listFillerSentences(text).length > 0 || IDLE_REST_RE.test(text);
+}
+
+// 出口兜底:逐句剔掉填充句,保留其余原样(含原来的换行结构)。全剔光 → null。
+// 只在 LLM 纠正一次之后还有残留时才走到这里 —— 主路径是让模型自己改。
 export function stripFillerSentences(text: string): string | null {
   const lines = text.split('\n').map((line) => {
     const kept: string[] = [];
@@ -118,6 +139,10 @@ export function readXiaoniOsClassifySystemPrompt(): string {
 
 export function readXiaoniOsRewriteSystemPrompt(): string {
   return readXiaoniPromptFile('xiaoni_os_rewrite.md').trimEnd();
+}
+
+export function readXiaoniOsPolishSystemPrompt(): string {
+  return readXiaoniPromptFile('xiaoni_os_polish.md').trimEnd();
 }
 
 // assistant 文本 item 的正文。canonical 形状是 content:[{type:'output_text',text}];兼容 content 为字符串
@@ -164,8 +189,20 @@ export function buildXiaoniOsClassifyPrompt(text: string, systemPrompt: string):
   return { system: systemPrompt, user: text };
 }
 
-export function buildXiaoniOsRewritePrompt(text: string, systemPrompt: string): XiaoniOsLlmPrompt {
-  return { system: systemPrompt, user: text };
+// 纠正请求:system 不动(前缀缓存),只在 user 段追加上一版和残留的句子。
+export function buildXiaoniOsRewritePrompt(
+  text: string,
+  systemPrompt: string,
+  feedback?: { previous: string; leftover: string[] }
+): XiaoniOsLlmPrompt {
+  if (!feedback) {
+    return { system: systemPrompt, user: text };
+  }
+  const leftover = feedback.leftover.map((sentence) => `「${sentence}」`).join('');
+  return {
+    system: systemPrompt,
+    user: `${text}\n\n---\n上一版改写是:\n${feedback.previous}\n\n里面还有这些句子:${leftover}。这类单字、拟声、报时报数、什么都不做的句子不能出现。重写一版,把它们换成完整的人话或直接去掉,其余照旧。只输出正文。`
+  };
 }
 
 // 改写输出清洗:去掉模型可能加的前缀(「改写:」)、成对引号、围栏;空 / 过长 → null(交调用方 evict)。
@@ -201,6 +238,8 @@ export async function runXiaoniOsRewriteLeg(params: {
   callLlm: XiaoniOsLlmCall;
   classifySystemPrompt: string;
   rewriteSystemPrompt: string;
+  // 润色腿的 system。不传 = 不润色(有事一律原样准入;老测试路径)。
+  polishSystemPrompt?: string;
   model?: string;
   now?: () => number;
 }): Promise<XiaoniOsRewriteLegResult> {
@@ -216,6 +255,8 @@ export async function runXiaoniOsRewriteLeg(params: {
     rewrittenText: null,
     rewriteLlmCallId: null,
     rewriteModel: null,
+    rewriteStage: null,
+    rewriteRetries: 0,
     errorMessage: null,
     processingTimeMs: 0
   };
@@ -253,43 +294,87 @@ export async function runXiaoniOsRewriteLeg(params: {
     return finish();
   }
   result.classifyVerdict = verdict;
+
+  // 第二腿(润色 / 改写)共用的一段:发请求 → 清洗 → 残留填充句就带着句子再发一次纠正 → 仍残留才机械兜底。
+  // 返回 null = 这腿没产出可用正文(请求挂了 / 空 / 过长 / 兜底剔空),由调用处按腿决定去向。
+  const runSecondLeg = async (
+    stage: 'polish' | 'rewrite',
+    systemPrompt: string
+  ): Promise<string | null> => {
+    result.rewriteStage = stage;
+    const executionMode = stage === 'polish' ? 'xiaoni_os_polish' : 'xiaoni_os_rewrite';
+    const label = stage === 'polish' ? 'xiaoni-os-polish' : 'xiaoni-os-rewrite';
+    let feedback: { previous: string; leftover: string[] } | undefined;
+    let normalized: string | null = null;
+    for (let attempt = 0; attempt <= 1; attempt += 1) {
+      let response: XiaoniOsLlmCallResult;
+      try {
+        response = await params.callLlm(buildXiaoniOsRewritePrompt(params.text, systemPrompt, feedback), {
+          model,
+          maxTokens: 1024,
+          timeoutMs: XIAONI_OS_LLM_TIMEOUT_MS,
+          retries: XIAONI_OS_LLM_RETRIES,
+          label,
+          executionMode
+        });
+      } catch (error) {
+        result.errorMessage = `${stage}: ${error instanceof Error ? error.message : String(error)}`;
+        return normalized === null ? null : stripFillerSentences(normalized);
+      }
+      result.rewriteLlmCallId = response.llmCallId;
+      result.rewriteModel = response.model;
+      const cleaned = normalizeRewrittenText(response.text, params.text);
+      if (cleaned === null) {
+        // 空 / 过长:第一次就这样直接算这腿失败;纠正那次这样就退回上一版走兜底。
+        if (normalized === null) {
+          result.errorMessage = `${stage}: empty or over-length output`;
+          return null;
+        }
+        break;
+      }
+      normalized = cleaned;
+      const leftover = listFillerSentences(normalized);
+      if (leftover.length === 0) {
+        return normalized;
+      }
+      if (attempt === 0) {
+        result.rewriteRetries = 1;
+        feedback = { previous: normalized, leftover };
+      }
+    }
+    // 纠正过一次还有残留 → 机械剔掉兜底。
+    const guarded = normalized === null ? null : stripFillerSentences(normalized);
+    if (guarded === null) {
+      result.errorMessage = `${stage}: only filler sentences left`;
+    }
+    return guarded;
+  };
+
   if (verdict === 'action') {
-    result.outcome = 'kept';
+    // ② 有事:干净就原样准入;夹着填充句 / 无效休息 → 润色(内容一个不丢)。润色失败 → 原文准入(有事的内容比禁令值钱)。
+    if (!params.polishSystemPrompt || !needsPolish(params.text)) {
+      result.outcome = 'kept';
+      return finish();
+    }
+    const polished = await runSecondLeg('polish', params.polishSystemPrompt);
+    if (polished === null || polished === params.text.trim()) {
+      result.outcome = 'failed_open';
+      result.errorMessage = result.errorMessage || 'polish: unchanged';
+      return finish();
+    }
+    result.rewrittenText = polished;
+    result.outcome = 'polished';
     return finish();
   }
 
-  // ② 判为空转 → 改写成朝外走的版本。
-  let rewrite: XiaoniOsLlmCallResult;
-  try {
-    rewrite = await params.callLlm(buildXiaoniOsRewritePrompt(params.text, params.rewriteSystemPrompt), {
-      model,
-      maxTokens: 1024,
-      timeoutMs: XIAONI_OS_LLM_TIMEOUT_MS,
-      retries: XIAONI_OS_LLM_RETRIES,
-      label: 'xiaoni-os-rewrite',
-      executionMode: 'xiaoni_os_rewrite'
-    });
-  } catch (error) {
+  // ③ 判为空转 → 改写成朝外走的版本。改写失败 / 剔空 → 不进上下文。
+  const rewritten = await runSecondLeg('rewrite', params.rewriteSystemPrompt);
+  if (rewritten === null) {
     result.outcome = 'evicted';
-    result.errorMessage = `rewrite: ${error instanceof Error ? error.message : String(error)}`;
+    result.errorMessage = result.errorMessage || 'rewrite: empty output';
     return finish();
   }
-  result.rewriteLlmCallId = rewrite.llmCallId;
-  result.rewriteModel = rewrite.model;
-  const normalized = normalizeRewrittenText(rewrite.text, params.text);
-  if (normalized === null) {
-    result.outcome = 'evicted';
-    result.errorMessage = 'rewrite: empty or over-length output';
-    return finish();
-  }
-  // ② 出口硬过滤:改写结果里的填充句(「嗡。」「在。」「停。」…)机械剔掉;剔空 → 不进上下文。
-  const rewrittenText = stripFillerSentences(normalized);
-  if (rewrittenText === null) {
-    result.outcome = 'evicted';
-    result.errorMessage = 'rewrite: only filler sentences left';
-    return finish();
-  }
-  result.rewrittenText = rewrittenText;
+  result.rewrittenText = rewritten;
   result.outcome = 'rewritten';
   return finish();
 }
