@@ -2709,7 +2709,7 @@ export function listRecentlySurfacedRecallRefs(params?: { identityKey?: string; 
 export const MAX_CANDIDATES_IN_PROMPT: number;
 export const MAX_PICKS: number;
 export function buildJudgePrompt(candidates: Array<{ id?: unknown; text?: unknown; ageDays?: unknown; leg?: unknown }>, anchorText?: string): { system: string; user: string };
-export function parseJudgeVerdict(raw: unknown, validIds?: string[] | Set<string>): { parsed: boolean; picks: Array<{ id: string; hook: string }> };
+export function parseJudgeVerdict(raw: unknown, validIds?: string[] | Set<string>): { parsed: boolean; recovered: boolean; picks: Array<{ id: string; hook: string }> };
 export function isWeakResult(stats?: { topCos?: number; qualifiedCount?: number }, opts?: { weakTopCos?: number; minQualified?: number }): boolean;
 export function buildExpansionPrompt(anchorText: string, tags: string[], queryCount?: number): { system: string; user: string };
 export function parseExpansion(raw: unknown): { tags: string[]; queries: string[] };

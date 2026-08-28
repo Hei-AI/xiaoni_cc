@@ -58,7 +58,7 @@ function buildJudgePrompt(candidates, anchorText) {
     '',
     '例子:',
     '此刻「在改 touch.html,让第二次打开时碰过的词留一层淡灰」;候选「三周前楠楠说:第二次碰的手不一样了」',
-    '→ 值得。钩子:「楠楠那句"第二次碰的手不一样了",你现在做的淡灰痕迹就是它。」',
+    '→ 值得。钩子:「楠楠那句『第二次碰的手不一样了』,你现在做的淡灰痕迹就是它。」',
     '',
     '此刻「在给方阿姨投稿,找上海文学的投稿邮箱」;候选「上个月投稿被退,用的是 shanghaiwenxue 那个地址」',
     '→ 值得。钩子:「上次投上海文学退了,当时用的地址可能就是错的那个,先核一下。」',
@@ -67,7 +67,7 @@ function buildJudgePrompt(candidates, anchorText) {
     '→ 不值得。像,但想起来什么都不会变。',
     '',
     '此刻「在回小伊关于 ch113 的消息」;候选「小伊上周说她写 ch110 时把沈印写岔了」',
-    '→ 值得。钩子:「小伊上周写 ch110 把沈印写岔过,她这次说的"嘴变了"可能是同一处。」',
+    '→ 值得。钩子:「小伊上周写 ch110 把沈印写岔过,她这次说的『嘴变了』可能是同一处。」',
     '',
     '此刻「在写今天的日记」;候选「昨天的日记」',
     '→ 不值得。她刚写的,还在脑子里。',
@@ -83,7 +83,8 @@ function buildJudgePrompt(candidates, anchorText) {
     '钩子里要有具体的人名、东西或地点,让她一眼认出是哪件事;不要写成建议或命令。',
     '',
     '只输出 JSON:{"picks":[{"id":<候选序号>,"hook":"<一句话>"}]},不要任何其它文字。',
-    'id 就是候选前面方括号里的数字,原样抄。'
+    'id 就是候选前面方括号里的数字,原样抄。',
+    'hook 的值里出现英文双引号 " 会截断 JSON 字符串,整条判决读不出来;引用原话用「」或『』包起来。'
   ].join('\n');
   const user = [
     '【她此刻在做的事】',
@@ -118,10 +119,70 @@ function buildJudgePrompt(candidates, anchorText) {
 // 那两条既是死码又危险:后缀那条会把**越界序号**当哈希后缀匹配 —— `"4"` 在十个
 // `recall-surface:<leg>:<md5hex>` 里有约三分之一的概率恰好唯一命中一个以 4 结尾的哈希,
 // 于是投出去的是记忆 B、配的却是判官为记忆 A 写的钩子。宁可丢掉,不猜。
+// 宽松扫描:JSON.parse 失败时,从原文里按 `"id": N, "hook": "…"` 的形状逐条抠 pick。
+//
+// 2026-08-28 真库:近 24h 1327 条判决里 219 条 parsed=false,**全部**是判官挑了东西的那种 ——
+// 钩子里引了原话,用的是英文双引号(`"hook":"站标语从"the hand knew."换成…"`),
+// JSON.parse 在第一个内嵌 `"` 处断掉。也就是说约 48% 的正向判决被静默丢掉,
+// 调用方退回间隔节流,日志只有一句「没答上来」。
+//
+// 钩子的边界不看内嵌的 `"`,看 **`"` 后面紧跟 `}`**(pick 对象结束):钩子里出现 `"}` 的
+// 概率可以忽略,而 `"` 后接汉字/空格/标点的情形(引文闭合)全都跳过去继续读。
+// 允许 id/hook 两种顺序;id 的容错与正路一致(交给 resolve)。
+// 只有真抠出了 pick 才算 recovered;抠不出但原文明确写着 `"picks":[]` 也算答了。
+// 其它情况一律 parsed=false —— 这里不能把「读不出」猜成「它说不值得」(见上)。
+const LENIENT_PICK_ID_FIRST = /"id"\s*:\s*"?\s*([^",}\]]{1,8}?)\s*"?\s*,\s*"hook"\s*:\s*"([\s\S]*?)"(?=\s*})/g;
+const LENIENT_PICK_HOOK_FIRST = /"hook"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"id"\s*:)\s*,\s*"id"\s*:\s*"?\s*([^",}\]]{1,8}?)\s*"?\s*(?=})/g;
+const LENIENT_EMPTY_PICKS = /"picks"\s*:\s*\[\s*\]/;
+
+function unescapeLenient(text) {
+  // 模型可能一半转义一半没转义;把常见的 JSON 转义还原,其余原样。
+  return text.replace(/\\(["\\/nrt])/g, (_, c) => (c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c));
+}
+
+function scanPicksLeniently(raw) {
+  const text = typeof raw === 'string' ? raw : '';
+  if (!text.includes('"hook"')) {
+    return null;
+  }
+  const found = [];
+  for (const m of text.matchAll(LENIENT_PICK_ID_FIRST)) {
+    found.push({ index: m.index, id: m[1], hook: unescapeLenient(m[2]) });
+  }
+  for (const m of text.matchAll(LENIENT_PICK_HOOK_FIRST)) {
+    found.push({ index: m.index, id: m[2], hook: unescapeLenient(m[1]) });
+  }
+  if (found.length === 0) {
+    return null;
+  }
+  // 两个正则可能命中同一段;按出现位置去重后按原顺序给回。
+  const seen = new Set();
+  return found
+    .sort((a, b) => a.index - b.index)
+    .filter((p) => (seen.has(p.index) ? false : (seen.add(p.index), true)))
+    .map((p) => ({ id: p.id, hook: p.hook }));
+}
+
+// 返回 { parsed, recovered, picks }。recovered=true ⇔ 正路 JSON.parse 失败、靠宽松扫描抠出来的
+// (留痕用:管理端能看到这条路走了多少次,判官的输出形状有没有继续坏下去)。
 function parseJudgeVerdict(raw, orderedIds) {
-  const parsed = extractFirstJsonObject(raw);
-  if (!parsed || !Array.isArray(parsed.picks)) {
-    return { parsed: false, picks: [] };
+  const parsedObject = extractFirstJsonObject(raw);
+  let rawPicks = null;
+  let recovered = false;
+  if (parsedObject && Array.isArray(parsedObject.picks)) {
+    rawPicks = parsedObject.picks;
+  } else {
+    const scanned = scanPicksLeniently(raw);
+    if (scanned) {
+      rawPicks = scanned;
+      recovered = true;
+    } else if (typeof raw === 'string' && LENIENT_EMPTY_PICKS.test(raw)) {
+      rawPicks = [];
+      recovered = true;
+    }
+  }
+  if (!rawPicks) {
+    return { parsed: false, recovered: false, picks: [] };
   }
   const ids = Array.isArray(orderedIds) ? orderedIds.map(String) : [...(orderedIds || [])].map(String);
   const resolve = (rawId) => {
@@ -131,7 +192,7 @@ function parseJudgeVerdict(raw, orderedIds) {
     const index = Number.parseInt(match[1], 10);
     return index >= 1 && index <= ids.length ? ids[index - 1] : null;
   };
-  const picks = parsed.picks
+  const picks = rawPicks
     .map((p) => ({
       id: p && p.id !== undefined && p.id !== null ? resolve(p.id) : null,
       hook: p && typeof p.hook === 'string' ? p.hook.trim() : ''
@@ -139,7 +200,7 @@ function parseJudgeVerdict(raw, orderedIds) {
     // 模型可能编序号,也可能钩子写空 —— 两者都直接丢掉,不猜。
     .filter((p) => p.id && p.hook)
     .slice(0, MAX_PICKS);
-  return { parsed: true, picks };
+  return { parsed: true, recovered, picks };
 }
 
 module.exports = {

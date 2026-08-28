@@ -343,7 +343,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   async function writeJudgeShadow(input: {
     anchor: string;
     items: Array<{ id: string; text: string; leg: string }>;
-    verdict: { parsed: boolean; picks: Array<{ id: string; hook: string }> };
+    verdict: { parsed: boolean; recovered?: boolean; picks: Array<{ id: string; hook: string }> };
     raw: string | null;
     error: string | null;
     llmCallId: string | null;
@@ -379,6 +379,9 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         candidates: items.map((i) => ({ id: i.id, leg: i.leg, text: String(i.text).slice(0, 200) })),
         picks: verdict.picks,
         parsed: verdict.parsed,
+        // 正路 JSON.parse 没读出来、靠宽松扫描抠回来的(钩子里夹英文双引号那种)。
+        // 2026-08-28 前这类判决全算 parsed=false 静默丢掉(近 24h 219/1327)。
+        recovered: verdict.recovered === true,
         error,
         raw
       }
@@ -387,7 +390,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
 
   // 候选交给精排 Agent。id 用 dedupeKey —— 它已经是这段记忆的稳定身份,不另铸一套编号。
   // 锚点 = 触发这次投递的事件原文(她刚消费的消息 / 她刚落地的内容)。
-  async function runJudge(leads: Lead[], anchor: string): Promise<{ parsed: boolean; picks: Array<{ id: string; hook: string }> } | null> {
+  async function runJudge(leads: Lead[], anchor: string): Promise<{ parsed: boolean; recovered: boolean; picks: Array<{ id: string; hook: string }> } | null> {
     if (!judge || leads.length === 0) {
       return null;
     }

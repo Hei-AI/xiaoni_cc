@@ -75,7 +75,7 @@ test('解析:读不出来 → 空 picks(fail-closed,判官是投递闸,读不出
 
 // parsed 与 picks 是两件事。混成一个空数组,判官一挂整条投递腿会静默死掉且无迹可循。
 test('parsed 区分「判官说不值得」和「判官没答上来」', () => {
-  assert.deepEqual(parseJudgeVerdict('{"picks":[]}', ['a']), { parsed: true, picks: [] },
+  assert.deepEqual(parseJudgeVerdict('{"picks":[]}', ['a']), { parsed: true, recovered: false, picks: [] },
     '明确空 → 答了,调用方该静默');
   assert.equal(parseJudgeVerdict('模型挂了没输出', ['a']).parsed, false, '读不出 → 没答上来');
   assert.equal(parseJudgeVerdict('{"picks":"不是数组"}', ['a']).parsed, false, '形状不对 → 没答上来');
@@ -129,5 +129,67 @@ test('解析:越界序号绝不能顺着哈希后缀匹配到别的记忆', () =
 test('解析:方括号或句点抄进来了也认', () => {
   for (const raw of ['{"picks":[{"id":"[2]","hook":"h"}]}', '{"picks":[{"id":"2.","hook":"h"}]}']) {
     assert.equal(parseJudgeVerdict(raw, ['a', FULL, 'c']).picks[0].id, FULL, raw);
+  }
+});
+
+// ── 钩子里夹英文双引号 ────────────────────────────────────────────────────
+// 2026-08-28 真库:近 24h 1327 条判决 219 条 parsed=false,**全部**是判官挑了东西的那种 ——
+// 钩子引原话用了英文双引号,JSON.parse 在第一个内嵌 `"` 处断掉,约 48% 的正向判决被静默丢掉。
+const REAL_SAMPLE = '{"picks":[{"id":3,"hook":"站标语从"the hand knew."换成…"}]}';
+
+test('解析:钩子里未转义的英文双引号 → 宽松扫描抠回来,parsed=true 且标 recovered', () => {
+  const out = parseJudgeVerdict(REAL_SAMPLE, ['a', 'b', 'c']);
+  assert.equal(out.parsed, true);
+  assert.equal(out.recovered, true);
+  assert.deepEqual(out.picks, [{ id: 'c', hook: '站标语从"the hand knew."换成…' }]);
+});
+
+test('解析:多条 pick 各夹双引号,顺序与钩子原文都保住', () => {
+  const raw = '{"picks":[{"id":1,"hook":"楠楠说"手"不一样"},{"id":"2","hook":"他说 "no" 了"},{"id":3,"hook":"干净的"}]}';
+  const out = parseJudgeVerdict(raw, ['a', 'b', 'c']);
+  assert.equal(out.recovered, true);
+  assert.deepEqual(out.picks, [
+    { id: 'a', hook: '楠楠说"手"不一样' },
+    { id: 'b', hook: '他说 "no" 了' },
+    { id: 'c', hook: '干净的' }
+  ]);
+});
+
+test('解析:hook 在前 id 在后也能抠', () => {
+  const out = parseJudgeVerdict('{"picks":[{"hook":"她说"嘴变了"","id":2}]}', ['a', 'b']);
+  assert.deepEqual(out.picks, [{ id: 'b', hook: '她说"嘴变了"' }]);
+});
+
+test('解析:正常 JSON 不走宽松路(recovered=false),已转义的引号照常还原', () => {
+  const out = parseJudgeVerdict('{"picks":[{"id":1,"hook":"正常\\"转义\\""}]}', ['a']);
+  assert.equal(out.recovered, false);
+  assert.equal(out.picks[0].hook, '正常"转义"');
+});
+
+test('解析:宽松路抠出的 id 同样只认序号,越界 / 编的照丢,但 parsed=true', () => {
+  const out = parseJudgeVerdict('{"picks":[{"id":9,"hook":"引"文""},{"id":"编的","hook":"引"文""}]}', ['a', 'b']);
+  assert.equal(out.parsed, true);
+  assert.deepEqual(out.picks, []);
+});
+
+test('解析:JSON 坏了但明确写着 "picks":[] → 算答了(静默),不当成没答上来', () => {
+  const out = parseJudgeVerdict('{"picks":[]} 顺便说一句}', ['a']);
+  assert.deepEqual(out, { parsed: true, recovered: true, picks: [] });
+});
+
+test('解析:垃圾文本 / 没有 hook 形状 → 仍然 parsed=false(不许把读不出猜成不值得)', () => {
+  for (const bad of ['模型挂了', '{"pick":[{"id":1}]}', '{"picks":[{"id":1,"hook":', '"hook" 这个词出现了但没有结构']) {
+    const out = parseJudgeVerdict(bad, ['a']);
+    assert.equal(out.parsed, false, bad);
+    assert.equal(out.recovered, false, bad);
+  }
+});
+
+test('prompt:写明英文双引号会截断 JSON 的机制,例子里的引文不再用英文双引号示范', () => {
+  const { system } = buildJudgePrompt([cand('a', 'x')], '现在');
+  assert.match(system, /hook 的值里出现英文双引号/);
+  // 例子是模型抄得最狠的地方:钩子示例里一个英文双引号都不能有。
+  for (const line of system.split('\n').filter((l) => l.startsWith('→ 值得。钩子:'))) {
+    assert.ok(!line.includes('"'), line);
   }
 });
