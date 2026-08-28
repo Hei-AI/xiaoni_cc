@@ -301,3 +301,35 @@ test('wake threshold grows with sleep pressure', () => {
       > computeWakeRequiredCount({ energy: 0.8, pressure: 0.2 })
   );
 });
+
+test('estimateVoluntaryRecoveryRetryAt:刚醒惩罚衰减后给出未来时刻;门槛永远够不着时返回 null', async () => {
+  const { estimateVoluntaryRecoveryRetryAt, DEFAULT_RECOVER_ENERGY_POLICY, shouldAcceptVoluntaryRecovery, resolveRecoverySessionPolicy } = await import('../services/recover-energy-policy');
+  const now = new Date('2026-08-28T10:27:00.000Z');
+  const lastWakeAt = new Date('2026-08-28T08:43:30.000Z');
+  const energy = 0.357;
+  const gateNow = shouldAcceptVoluntaryRecovery({
+    energy, maxEnergy: 1, lastWakeAt, now,
+    policy: resolveRecoverySessionPolicy({ startedAt: now, policy: DEFAULT_RECOVER_ENERGY_POLICY }).policy
+  });
+  assert.equal(gateNow.accepted, false);
+  const retryAt = estimateVoluntaryRecoveryRetryAt({ energy, maxEnergy: 1, lastWakeAt, now, basePolicy: DEFAULT_RECOVER_ENERGY_POLICY });
+  assert.ok(retryAt, 'expected a retry time within 24h');
+  assert.ok(retryAt!.getTime() > now.getTime());
+  assert.ok(retryAt!.getTime() - now.getTime() <= 6 * 60 * 60_000, `retry too far: ${retryAt!.toISOString()}`);
+  // 到点那一刻按同一套门槛判,应当接受(压力只涨不跌)。
+  const gateThen = shouldAcceptVoluntaryRecovery({
+    energy, maxEnergy: 1, lastWakeAt, now: retryAt!,
+    policy: resolveRecoverySessionPolicy({ startedAt: retryAt!, policy: DEFAULT_RECOVER_ENERGY_POLICY }).policy
+  });
+  assert.equal(gateThen.accepted, true);
+  // 同入参同结果(结果会落栈,replay 读存好的字节)。
+  assert.equal(
+    estimateVoluntaryRecoveryRetryAt({ energy, maxEnergy: 1, lastWakeAt, now, basePolicy: DEFAULT_RECOVER_ENERGY_POLICY })!.getTime(),
+    retryAt!.getTime()
+  );
+  const never = estimateVoluntaryRecoveryRetryAt({
+    energy: 1, maxEnergy: 1, lastWakeAt, now,
+    basePolicy: { ...DEFAULT_RECOVER_ENERGY_POLICY, freshWakePenaltyPressure: 5, restCooldownTauMinutes: 1e9 }
+  });
+  assert.equal(never, null);
+});

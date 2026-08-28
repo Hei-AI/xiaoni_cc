@@ -82,3 +82,24 @@ test('duration formatter reads the way she would say it', () => {
   // Clock skew must never render a negative gap.
   assert.equal(formatEast8Duration(base, base - 60_000), '0 分钟');
 });
+
+test('reject reminder 带 retry_after:有时刻就写几点几分钟后;24h 内没有就明说', () => {
+  const now = new Date('2026-08-28T10:27:42.000Z');
+  const withRetry = renderRecoverEnergyRejectedReminder({
+    reason: '一点困意都没有。',
+    lastWakeAt: '2026-08-28T08:43:30.000Z',
+    now,
+    retryAfter: new Date('2026-08-28T11:47:00.000Z')
+  });
+  assert.match(withRetry, /身体大约要到 2026-08-28 19:47:00（1 小时 19 分钟后）才会接受主动休息/u);
+  assert.match(withRetry, /再调 `recover_energy`,返回的还是这个 rest_rejected/u);
+  assert.match(withRetry, /第 4 档往外找/u);
+  const without = renderRecoverEnergyRejectedReminder({
+    reason: '一点困意都没有。',
+    lastWakeAt: '2026-08-28T08:43:30.000Z',
+    now,
+    retryAfter: null
+  });
+  assert.match(without, /往后 24 小时内身体都不会接受主动休息/u);
+  assert.equal(without.includes("{{RETRY_LINE}}"), false);
+});

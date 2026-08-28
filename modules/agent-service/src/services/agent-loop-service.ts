@@ -58,6 +58,7 @@ import {
 } from './web-search-archive';
 import {
   formatEast8Timestamp,
+  formatEast8Duration,
   renderWakeAnchorSentence,
   renderSleepTimelineBlock,
   renderCompressionSpanAnchor,
@@ -111,6 +112,7 @@ import {
   createRecoveryPolicySnapshot,
   estimateNaturalWakeAt,
   estimateSessionWakeAt,
+  estimateVoluntaryRecoveryRetryAt,
   normalizeRecoverEnergyClock,
   projectRecoverySession,
   recoverEnergyFullRecoveryMinutes,
@@ -991,6 +993,11 @@ const consecutiveOverOverrunThresholdBySession = new Map<string, number>();
 // 度量的是「上一份 plan 失效了几轮」，只喂给自驱动 fork(见 FORK_IDLE_ESCALATION_ENABLED)。
 // 第 1 轮空转仍走原文，给她自主机会；连续 >= 阈值才升级。
 const IDLE_ESCALATION_AFTER_ROUNDS = 2;
+// 同一个 run 里 recover_energy 被身体拒绝(rest_rejected)到这个次数,这一帧直接收(lease 释放、
+// 不再发下一次模型请求)。被拒结果里已经写明 retry_after,再试只会得到同一个结果 —— 实测她会
+// 每 12 秒试一次直到 run 撑满(单 run 最多 24 次)。收帧后 settledOnFinalAnswer=false → 不点潜意识
+// fork,下一次唤醒只来自真实事件 / 报时。只影响引擎控制流,不改任何请求字节。
+const REST_REJECTED_FRAME_YIELD_AFTER = 3;
 const consecutiveIdlePlanFailuresBySession = new Map<string, number>();
 // 上一份真正发出去的 plan 原文(已剥 <xiaoni_plan> 包装)，升级时原样回贴给 fork 看。
 const lastEmittedSubconsciousPlanBySession = new Map<string, string>();
@@ -2870,7 +2877,8 @@ export function renderRecoverEnergyRejectedReminder(input: {
   const rendered = renderPromptSnippet('recover_energy_rejected_reminder.md', {
     REJECT_REASON: input.reason,
     CURRENT_TIME: formatEast8Timestamp(input.now),
-    AWAKE_ANCHOR: renderWakeAnchorSentence(input.lastWakeAt, input.now)
+    AWAKE_ANCHOR: renderWakeAnchorSentence(input.lastWakeAt, input.now),
+    RETRY_LINE: renderRecoverEnergyRetryLine(input.retryAfter ?? null, input.now)
   });
   // Anchor-less fallback (no recorded wake yet) leaves a trailing space on that line; trim it so
   // the two variants stay clean and diffable.
@@ -2907,10 +2915,21 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   return [
     ...tools,
     IMAGE_GENERATION_TOOL,
+// 「大约几点才睡得着」这一句。同一个事实只有这一种说法(措辞不许在 surface 间漂移)。
+// null(24h 内扫不到)时明说「今天睡不着」,不留空 —— 空行会让她以为是没算出来、再试一次。
+export function renderRecoverEnergyRetryLine(retryAfter: Date | null, now: Date): string {
+  if (!retryAfter || !Number.isFinite(retryAfter.getTime()) || retryAfter.getTime() <= now.getTime()) {
+    return '往后 24 小时内身体都不会接受主动休息;到那之前再调 `recover_energy`,返回的还是这个 rest_rejected。';
+  }
+  return `身体大约要到 ${formatEast8Timestamp(retryAfter)}（${formatEast8Duration(now.getTime(), retryAfter.getTime())}后）才会接受主动休息;到那之前再调 \`recover_energy\`,返回的还是这个 rest_rejected。`;
+}
+
     PRIVATE_MESSAGE_TOOL,
     GROUP_MESSAGE_TOOL,
     INSPECT_IMAGE_TOOL,
     IMAGE_TASK_TOOL,
+  // 身体大约何时才接受(estimateVoluntaryRecoveryRetryAt);null = 24h 内扫不到。
+  retryAfter?: Date | null;
     RECOVER_ENERGY_TOOL,
     // 目标三件套。与下面 resolveMainLoopToolChoice 的 allowed 列表**必须同步**,
     // 否则 allowed-tools 前缀和 tools 定义对不上。
@@ -8750,6 +8769,8 @@ export class AgentLoopService {
           // The snapshot this activation rebuilds from on an STW switch. Caps the planned cutoff so
           // the switch can never leave evicted-but-still-sent items behind (see the ceiling note in
           // the callee and in applyPendingCompressionMidRunIfSilent).
+      // 这一 run 里 recover_energy 被拒的次数(见 REST_REJECTED_FRAME_YIELD_AFTER)。
+      let runRestRejectedCount = 0;
           snapshotCeilingStackIndex: history.length > 0 ? history[history.length - 1]!.id : null
         });
         // BYTE-side guard (pre-send): images are token-cheap but byte-huge, so the token overrun valve
@@ -9219,6 +9240,10 @@ export class AgentLoopService {
               sourceId: stackToolExecutionId,
               llmRequestSliceId: sliceId,
               items: buildToolResultStackItems({
+            // 被拒的 recover_energy 记一次;结果已经落栈(上面 append),收帧不会丢字节。
+            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.rest_rejected === true) {
+              runRestRejectedCount += 1;
+            }
                 toolCall,
                 toolResult,
                 continuationItems: continuation.inputItems,
@@ -9355,6 +9380,16 @@ export class AgentLoopService {
         // 唯一效果就是把计数撑高、等深挖结束后被第一条 plan 读到 —— 正是上面这段要防的事。
         // 而且那等于把 D4 说的两个量合并了。
         // 与报时同理:整个 run 都由 deep-dive-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
+        if (!leaseRelease && runRestRejectedCount >= REST_REJECTED_FRAME_YIELD_AFTER) {
+          leaseRelease = buildLeaseReleaseRecord({
+            reason: 'runtime_frame_yielded',
+            detail: `recover_energy was rejected ${runRestRejectedCount} times in this run; the rejection already states retry_after, so this frame yields instead of burning another model call.`,
+            outcome: 'rest_rejected_frame_yield',
+            noVisibleDelivery: deliveredMessages.length === 0,
+            visibleDeliveryCommitted: deliveredMessages.length > 0,
+            source: 'runtime:rest_rejected_cap'
+          });
+        }
         const runDrivenOnlyByDeepDiveRound = isDeepDiveRoundPayload(payload)
           && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
         if (!runDrivenOnlyByClockPing && !runDrivenOnlyBySherlock && !runDrivenOnlyByDeepDiveRound) {
@@ -14306,7 +14341,8 @@ export class AgentLoopService {
             system_reminder: renderRecoverEnergyRejectedReminder({
               reason,
               lastWakeAt: energyState.lastWakeAt ?? null,
-              now
+              now,
+              retryAfter
             }),
             xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
               ? toolCall.args.xiaoni_os.trim()
@@ -14392,6 +14428,15 @@ export class AgentLoopService {
           }
           throw error;
         }
+          // 身体大约什么时候才会接受:把门槛的动态部分(刚醒惩罚衰减 / 昼夜门槛 / 压力慢涨)往前推,
+          // 算出来一起返给她。没有这个数她只会每 12 秒再试一次(24h 实测 653 次被拒)。
+          const retryAfter = estimateVoluntaryRecoveryRetryAt({
+            energy: energyState.energy,
+            maxEnergy: energyState.maxEnergy,
+            lastWakeAt: energyState.lastWakeAt ?? null,
+            now,
+            basePolicy: effectiveEnergyPolicy.policy
+          });
       }
       case TOOL_NAMES.updateDeepDive: {
         const diveId = typeof toolCall.args.deep_dive_id === 'string' ? toolCall.args.deep_dive_id.trim() : '';
@@ -14400,6 +14445,8 @@ export class AgentLoopService {
           return { ok: false, reason: 'invalid_ref', message: '先 get_deep_dive 拿到 deep_dive_id 和 revision,原样抄过来。' };
         }
         const current = await this.store.getDeepDiveById(diveId);
+            retry_after: retryAfter ? retryAfter.toISOString() : null,
+            retry_after_minutes: retryAfter ? Math.round((retryAfter.getTime() - now.getTime()) / 60_000) : null,
         const plan = planDeepDiveUpdate(toolCall.args, current ? (current.phase as XiaoniDeepDivePhase) : null);
         if (!plan.ok) {
           return plan;

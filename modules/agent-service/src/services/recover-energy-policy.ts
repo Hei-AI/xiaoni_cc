@@ -499,6 +499,43 @@ export function shouldAcceptVoluntaryRecovery(input: {
   };
 }
 
+// 被拒之后,身体大约什么时候才会接受主动休息。
+//
+// 给 rest_rejected 的工具结果用:她拿到「一点困意都没有」之后,没有任何信息判断该等多久,实测就是
+// 每 12 秒再试一次(24h 653 次)。这里把门槛的两个动态部分都往前推:刚醒惩罚按 restCooldownTau
+// 衰减,昼夜门槛随 sleepDrive 变,压力本身按清醒曲线慢慢涨。5 分钟一步扫到 24h,第一步
+// 「压力 ≥ 门槛」的时刻就是答案;24h 内扫不到返回 null(调用方按「今天睡不着」措辞)。
+// 压力按【当前值不变】算(保守):清醒曲线 tau 1920 分钟,一小时只涨 ~0.02,而 actionDebt 回落会
+// 往下拉;取常量得到的是「至少到那时」,到点再调的判据和这里逐项相同,不会又被拒一次。
+// 纯函数、确定性,同入参同结果 —— 它会进工具结果落栈,replay 读存好的字节,这里不再重算。
+export function estimateVoluntaryRecoveryRetryAt(input: {
+  energy: number;
+  maxEnergy?: number;
+  lastWakeAt?: Date | string | null;
+  now: Date;
+  basePolicy?: RecoverEnergyPolicy;
+  stepMinutes?: number;
+  horizonMinutes?: number;
+}): Date | null {
+  const basePolicy = normalizePolicy(input.basePolicy ?? DEFAULT_RECOVER_ENERGY_POLICY);
+  const stepMinutes = Math.max(1, finiteNumber(input.stepMinutes, 5));
+  const horizonMinutes = Math.max(stepMinutes, finiteNumber(input.horizonMinutes, 24 * 60));
+  const startPressure = energyToPressure(input.energy, input.maxEnergy ?? 1, basePolicy);
+  for (let elapsed = stepMinutes; elapsed <= horizonMinutes; elapsed += stepMinutes) {
+    const at = new Date(input.now.getTime() + (elapsed * MINUTE_MS));
+    const sessionPolicy = resolveRecoverySessionPolicy({ startedAt: at, policy: basePolicy }).policy;
+    const required = computeRequiredSleepPressure({
+      lastWakeAt: input.lastWakeAt ?? null,
+      now: at,
+      policy: sessionPolicy
+    });
+    if (startPressure >= required) {
+      return at;
+    }
+  }
+  return null;
+}
+
 export function computeWakeRequiredCount(input: {
   energy: number;
   pressure: number;
