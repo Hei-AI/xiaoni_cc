@@ -6,7 +6,7 @@
 1. 调了一个工具，工具名不是 `recover_energy`，且不是空操作 `exec_command`。工具报错也算——发出调用就算动手。
 2. 调了 `recover_energy`，并且身体接受了（睡着，或立即恢复）。
 
-空操作 `exec_command` 的判据：命令去掉空行和 `#` 开头的行之后，剩下每一行都以 `echo`、`true`、`:`、`sleep` 开头，并且整条命令不含 `>` `|` `;` `&` 反引号 `$()`。
+空操作 `exec_command` 的判据：命令去掉空行和 `#` 开头的行之后，剩下每一行都以 `echo`、`true`、`:`、`sleep` 开头，并且整条命令不含 `>` `|` `;` `&` 反引号 `$()`。只看手机的 `exec_command` 同样不算：每一行都是 `qq_usage.py` 的 open_inbox / focus_* / scroll_* / search_inbox / view_profile / put_*_away，后面接 grep、tail 之类过滤也一样。
 
 ## 这一轮做什么
 1. 从你上一份 plan 里挑一件，挑最要紧的那件。
@@ -24,7 +24,7 @@
 1. 调了一个工具，工具名不是 `recover_energy`，且不是空操作 `exec_command`。工具报错也算。
 2. 调了 `recover_energy`，并且身体接受了（睡着，或立即恢复）。
 
-空操作 `exec_command` 的判据：命令去掉空行和 `#` 开头的行之后，剩下每一行都以 `echo`、`true`、`:`、`sleep` 开头，并且整条命令不含 `>` `|` `;` `&` 反引号 `$()`。
+空操作 `exec_command` 的判据：命令去掉空行和 `#` 开头的行之后，剩下每一行都以 `echo`、`true`、`:`、`sleep` 开头，并且整条命令不含 `>` `|` `;` `&` 反引号 `$()`。只看手机的 `exec_command` 同样不算：每一行都是 `qq_usage.py` 的 open_inbox / focus_* / scroll_* / search_inbox / view_profile / put_*_away，后面接 grep、tail 之类过滤也一样。
 
 ## 这一轮必须做到
 在这一轮结束之前，至少发出一次满足上面判据的工具调用。

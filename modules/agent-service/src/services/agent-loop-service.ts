@@ -1015,6 +1015,27 @@ const lastEmittedSubconsciousPlanBySession = new Map<string, string>();
 // 只影响 runTouchedWorld(计数归零),【不】影响 runCalledAnyTool(作废腿的更严累加器)。作废
 // 判定照旧要求零工具调用,空操作仍然算「调过工具」→ 仍然不作废,栈上仍然留痕。这是有意的:
 // 那些留痕正是 fork 指认时要指着说的证据。
+// qq-usage 的「看一眼手机」子命令。开信箱、翻信、搜信、看资料、把某个聊天收起来 —— 都是感知,
+// 不是动手;set_*(改头像/签名/在线状态/群通知模式)才碰世界,不在这里。
+// 为什么要判:实测醒来后 70 条 exec_command 里 37 条是 open_inbox / focus_private,每条都把
+// 空转计数洗成 0,升级腿因此 24h 零触发 —— 「查一眼收件箱 + 试睡」把整条问责链绕过去了。
+const QQ_USAGE_READ_ONLY_RE = /qq_usage\.py\s+(?:open_inbox|scroll_inbox|search_inbox|focus_private|focus_group|scroll_private|scroll_group|jump_private_to_latest|jump_group_to_latest|put_private_away|put_group_away|put_qq_away|view_profile)\b/;
+// 接在只读命令后面的纯过滤器(grep / tail / head …)不改变「只是看」这个性质。
+const READ_ONLY_PIPE_FILTER_RE = /^(?:grep|egrep|fgrep|tail|head|cut|wc|sort|uniq|tr|sed|awk|jq|cat|column|less)(?:\s|$)/;
+
+export function isQqUsageReadOnlyLine(line: string): boolean {
+  // 先把 stderr 归并 / 丢弃这两种惯用写法拿掉,它们不是重定向到文件。
+  const normalized = line.replace(/2>&1/g, ' ').replace(/2>\/dev\/null/g, ' ');
+  if (/[>`;&]|\$\(/.test(normalized)) {
+    return false;
+  }
+  const segments = normalized.split('|').map((segment) => segment.trim());
+  if (!QQ_USAGE_READ_ONLY_RE.test(segments[0] || '')) {
+    return false;
+  }
+  return segments.slice(1).every((segment) => READ_ONLY_PIPE_FILTER_RE.test(segment));
+}
+
 export function isNoOpExecCommand(rawCmd: unknown): boolean {
   if (typeof rawCmd !== 'string') {
     return false;
@@ -1026,9 +1047,33 @@ export function isNoOpExecCommand(rawCmd: unknown): boolean {
   if (realLines.length === 0) {
     return true;
   }
+  // 整条命令每一行都是「看一眼手机」→ 不算动手。混着真命令的按下面裸形式规则判(会判成真活)。
+  if (realLines.every((line) => isQqUsageReadOnlyLine(line))) {
+    return true;
+  }
   // 重定向/管道/命令替换/串联一律不算空操作:`echo "x" > f` 是在真写文件,`echo x | tee` 同理。
   // 只认「打一行字就完事」的裸形式。
   return realLines.every((line) => /^(echo|true|:|sleep)(\s|$)/.test(line) && !/[>|`;&]|\$\(/.test(line));
+}
+
+// 深度空转(连续失效轮数 ≥ 硬档)时,两次潜意识 fork 之间的最小间隔。实测每次 settle 必 fork →
+// 每 2–4 分钟一份几乎相同的 plan 把她叫醒(24h 305 份,302 份文本不同、内容同六件),她醒来看一眼
+// 「都是明天的」就试睡。升级腿在 2 / 4 轮已经把话说到最硬,再往下只是同一份话每 3 分钟念一遍。
+const SUBCONSCIOUS_FORK_DEEP_IDLE_ROUNDS = IDLE_ESCALATION_AFTER_ROUNDS + 2;
+const SUBCONSCIOUS_FORK_DEEP_IDLE_MIN_GAP_MS = 30 * 60_000;
+// 深度空转限频判定(纯函数)。硬档之前照旧每次 settle 都 fork —— 那两档提醒得先送到她手上。
+export function shouldDeferDeepIdleSubconsciousFork(params: {
+  idleRounds: number;
+  lastPlanNotifyAtMs: number;
+  nowMs: number;
+}): boolean {
+  if (params.idleRounds < SUBCONSCIOUS_FORK_DEEP_IDLE_ROUNDS) {
+    return false;
+  }
+  if (!Number.isFinite(params.lastPlanNotifyAtMs) || params.lastPlanNotifyAtMs <= 0) {
+    return false;
+  }
+  return params.nowMs - params.lastPlanNotifyAtMs < SUBCONSCIOUS_FORK_DEEP_IDLE_MIN_GAP_MS;
 }
 
 export function getConsecutiveIdlePlanFailures(sessionKey: string): number {
@@ -2869,10 +2914,21 @@ export function renderRecoverEnergyCompletedReminder(input: {
 // Rendered ONCE here at tool-execution time and frozen into the persisted function_call_output
 // (replay never re-renders → byte-identical, cache-safe), same contract as the wake reminders
 // above. Never move these stamps into the cached prefix.
+// 「大约几点才睡得着」这一句。同一个事实只有这一种说法(措辞不许在 surface 间漂移)。
+// null(24h 内扫不到)时明说「今天睡不着」,不留空 —— 空行会让她以为是没算出来、再试一次。
+export function renderRecoverEnergyRetryLine(retryAfter: Date | null, now: Date): string {
+  if (!retryAfter || !Number.isFinite(retryAfter.getTime()) || retryAfter.getTime() <= now.getTime()) {
+    return '往后 24 小时内身体都不会接受主动休息;到那之前再调 `recover_energy`,返回的还是这个 rest_rejected。';
+  }
+  return `身体大约要到 ${formatEast8Timestamp(retryAfter)}（${formatEast8Duration(now.getTime(), retryAfter.getTime())}后）才会接受主动休息;到那之前再调 \`recover_energy\`,返回的还是这个 rest_rejected。`;
+}
+
 export function renderRecoverEnergyRejectedReminder(input: {
   reason: string;
   lastWakeAt: string | null;
   now: Date;
+  // 身体大约何时才接受(estimateVoluntaryRecoveryRetryAt);null = 24h 内扫不到。
+  retryAfter?: Date | null;
 }) {
   const rendered = renderPromptSnippet('recover_energy_rejected_reminder.md', {
     REJECT_REASON: input.reason,
@@ -2915,21 +2971,10 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   return [
     ...tools,
     IMAGE_GENERATION_TOOL,
-// 「大约几点才睡得着」这一句。同一个事实只有这一种说法(措辞不许在 surface 间漂移)。
-// null(24h 内扫不到)时明说「今天睡不着」,不留空 —— 空行会让她以为是没算出来、再试一次。
-export function renderRecoverEnergyRetryLine(retryAfter: Date | null, now: Date): string {
-  if (!retryAfter || !Number.isFinite(retryAfter.getTime()) || retryAfter.getTime() <= now.getTime()) {
-    return '往后 24 小时内身体都不会接受主动休息;到那之前再调 `recover_energy`,返回的还是这个 rest_rejected。';
-  }
-  return `身体大约要到 ${formatEast8Timestamp(retryAfter)}（${formatEast8Duration(now.getTime(), retryAfter.getTime())}后）才会接受主动休息;到那之前再调 \`recover_energy\`,返回的还是这个 rest_rejected。`;
-}
-
     PRIVATE_MESSAGE_TOOL,
     GROUP_MESSAGE_TOOL,
     INSPECT_IMAGE_TOOL,
     IMAGE_TASK_TOOL,
-  // 身体大约何时才接受(estimateVoluntaryRecoveryRetryAt);null = 24h 内扫不到。
-  retryAfter?: Date | null;
     RECOVER_ENERGY_TOOL,
     // 目标三件套。与下面 resolveMainLoopToolChoice 的 allowed 列表**必须同步**,
     // 否则 allowed-tools 前缀和 tools 定义对不上。
@@ -4706,6 +4751,38 @@ export function renderDeepDiveRoundNotify(question: string, round: number, maxRe
   const block = `<deep_dive_round round="${round}" max="${maxRequests}">\n${question}\n</deep_dive_round>`;
   const reminder = readPromptSnippet('deep_dive_round_reminder.md').trim();
   return reminder ? `${block}\n\n${reminder}` : block;
+}
+
+// plan 行里的节奏限制从句。实测 24h 306 份 plan 里 246 份带这类从句(「守住一章停一天」「一天一段
+// 不赶」「收完不再碰」),而这些话的作者是 fork,不是她(plan 里 137 次 vs 她自己 3 次);她照念之后
+// 上午 10:43 就「Day 241 封了」,剩下 13 小时只剩试睡。设定里她本来就该一直找新事,plan 不该给她
+// 配额。剥的是从句不是整行:「decay 从 ch58 追到 ch70,守住一章停一天」→ 事留下,限速拿掉。
+const PLAN_PACING_CLAUSE_RE = /停一天|一天[读砍写看做翻]?一(?:段|章|篇|个人|条|封|首|页)|一周一|一天只|不赶|不碰|不再碰|手不热|慢下来|不开新线|不开始新|守住|做完关掉|关掉不碰|不连读|够了就停|做两下就停/u;
+const PLAN_CLAUSE_SPLIT_RE = /(?<=[,\uFF0C;\uFF1B\u3002])/u;
+
+export function stripPlanPacingClauses(text: string): string {
+  const lines = text.split('\n');
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (line.trim() === '') {
+      kept.push(line);
+      continue;
+    }
+    const clauses = line.split(PLAN_CLAUSE_SPLIT_RE).filter((clause) => !PLAN_PACING_CLAUSE_RE.test(clause));
+    let rebuilt = clauses.join('').replace(/[,\uFF0C;\uFF1B]+(?=[,\uFF0C;\uFF1B\u3002]|$)/gu, '').trim();
+    // 整行都是限速 → 这行没有事,丢掉。
+    if (rebuilt.replace(/[,\uFF0C;\uFF1B\u3002\s]/gu, '') === '') {
+      continue;
+    }
+    // 原行以句号收尾、剥掉尾从句后没了句号 → 补回,别留半句。
+    if (/\u3002\s*$/u.test(line) && !/\u3002$/u.test(rebuilt)) {
+      rebuilt = `${rebuilt}\u3002`;
+    }
+    kept.push(rebuilt);
+  }
+  const result = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // fail-open:剥完什么都不剩(整份 plan 都是限速)就原样发,别把一份空 plan 交给她。
+  return result === '' ? text : result;
 }
 
 function renderSubconsciousAgentNotify(finalAnswerText: string) {
@@ -6815,6 +6892,8 @@ export class AgentLoopService {
   // CacheHeartbeatRunResult promise; the lock only cares whether one is running.
   private cacheHeartbeatInFlight: Promise<unknown> | null = null;
   private subconsciousAgentForkBackoffUntilMs = 0;
+  // 上一份 plan notify 入队的时刻(进程内存)。深度空转时 fork 之间的最小间隔靠它算。
+  private lastSubconsciousPlanNotifyAtMs = 0;
   private subconsciousAgentForkInFlight: Promise<boolean> | null = null;
   // Handoff from the last settled main-agent run to the self-driven fork. The fork is a
   // complete clone of the main agent (see GOVERNING PRINCIPLE on maybeRunSubconsciousAgentFork):
@@ -7206,6 +7285,14 @@ export class AgentLoopService {
     if (!seed) {
       // No fresh main run to clone (e.g. just after a restart). Wait for the next main run
       // to repopulate the seed rather than rebuilding context independently.
+      return;
+    }
+    // 深度空转限频:seed 留着(下一次 tick 再看),不丢。真实事件(QQ 消息 / 报时)照常唤醒她。
+    if (shouldDeferDeepIdleSubconsciousFork({
+      idleRounds: getConsecutiveIdlePlanFailures(getGlobalPromptContextSessionKey()),
+      lastPlanNotifyAtMs: this.lastSubconsciousPlanNotifyAtMs,
+      nowMs: Date.now()
+    })) {
       return;
     }
     // C2 (original self-driven trigger): fork whenever she settled on a final_answer — a pure-text
@@ -8682,6 +8769,8 @@ export class AgentLoopService {
       // 与 runTouchedWorld 分开:睡一觉不算「干活」(计数不归零),但睡过的 run 不许作废
       // (把 recover_energy 调用/结果从栈上蒸发会让她时间错乱)。
       let runCalledAnyTool = false;
+      // 这一 run 里 recover_energy 被拒的次数(见 REST_REJECTED_FRAME_YIELD_AFTER)。
+      let runRestRejectedCount = 0;
 
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
@@ -8769,8 +8858,6 @@ export class AgentLoopService {
           // The snapshot this activation rebuilds from on an STW switch. Caps the planned cutoff so
           // the switch can never leave evicted-but-still-sent items behind (see the ceiling note in
           // the callee and in applyPendingCompressionMidRunIfSilent).
-      // 这一 run 里 recover_energy 被拒的次数(见 REST_REJECTED_FRAME_YIELD_AFTER)。
-      let runRestRejectedCount = 0;
           snapshotCeilingStackIndex: history.length > 0 ? history[history.length - 1]!.id : null
         });
         // BYTE-side guard (pre-send): images are token-cheap but byte-huge, so the token overrun valve
@@ -9153,6 +9240,10 @@ export class AgentLoopService {
               result: toolResult,
               stackOutputItemId
             });
+            // 被拒的 recover_energy 记一次;结果已经落栈(上面 append),收帧不会丢字节。
+            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.rest_rejected === true) {
+              runRestRejectedCount += 1;
+            }
             if (hasRecoverEnergyInBatch && toolCall.name !== TOOL_NAMES.recoverEnergy) {
               preSleepToolTimeline.push({
                 call_id: toolCall.callId,
@@ -9240,10 +9331,6 @@ export class AgentLoopService {
               sourceId: stackToolExecutionId,
               llmRequestSliceId: sliceId,
               items: buildToolResultStackItems({
-            // 被拒的 recover_energy 记一次;结果已经落栈(上面 append),收帧不会丢字节。
-            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.rest_rejected === true) {
-              runRestRejectedCount += 1;
-            }
                 toolCall,
                 toolResult,
                 continuationItems: continuation.inputItems,
@@ -9292,6 +9379,16 @@ export class AgentLoopService {
               });
             }
           }
+        }
+        if (!leaseRelease && runRestRejectedCount >= REST_REJECTED_FRAME_YIELD_AFTER) {
+          leaseRelease = buildLeaseReleaseRecord({
+            reason: 'runtime_frame_yielded',
+            detail: `recover_energy was rejected ${runRestRejectedCount} times in this run; the rejection already states retry_after, so this frame yields instead of burning another model call.`,
+            outcome: 'rest_rejected_frame_yield',
+            noVisibleDelivery: deliveredMessages.length === 0,
+            visibleDeliveryCommitted: deliveredMessages.length > 0,
+            source: 'runtime:rest_rejected_cap'
+          });
         }
         if (!hasToolCall && !actionPlan.hasFinalAnswer && !leaseRelease) {
           deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
@@ -9380,16 +9477,6 @@ export class AgentLoopService {
         // 唯一效果就是把计数撑高、等深挖结束后被第一条 plan 读到 —— 正是上面这段要防的事。
         // 而且那等于把 D4 说的两个量合并了。
         // 与报时同理:整个 run 都由 deep-dive-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
-        if (!leaseRelease && runRestRejectedCount >= REST_REJECTED_FRAME_YIELD_AFTER) {
-          leaseRelease = buildLeaseReleaseRecord({
-            reason: 'runtime_frame_yielded',
-            detail: `recover_energy was rejected ${runRestRejectedCount} times in this run; the rejection already states retry_after, so this frame yields instead of burning another model call.`,
-            outcome: 'rest_rejected_frame_yield',
-            noVisibleDelivery: deliveredMessages.length === 0,
-            visibleDeliveryCommitted: deliveredMessages.length > 0,
-            source: 'runtime:rest_rejected_cap'
-          });
-        }
         const runDrivenOnlyByDeepDiveRound = isDeepDiveRoundPayload(payload)
           && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
         if (!runDrivenOnlyByClockPing && !runDrivenOnlyBySherlock && !runDrivenOnlyByDeepDiveRound) {
@@ -12103,16 +12190,27 @@ export class AgentLoopService {
     const messageSid = `subconscious-agent:${params.forkRunId}`;
     const botAccountId = agentConfig.botAccountId;
     const sessionKey = getGlobalPromptContextSessionKey();
+    // 节奏限制从句在入队前剥掉(见 stripPlanPacingClauses)。剥在这里而不是渲染时:落库的
+    // body / 升级腿回贴的「上一份 plan」/ 她看到的,三处必须是同一份字节。
+    const planText = stripPlanPacingClauses(params.text);
+    if (planText !== params.text) {
+      moduleLogger.info('Subconscious plan pacing clauses stripped', {
+        forkRunId: params.forkRunId,
+        originalChars: params.text.length,
+        strippedChars: planText.length
+      });
+    }
     // 记下这份真正发出去的 plan 原文。下一次空转升级时原样回贴给潜意识看 —— 它得知道「失败的是哪一份」，
     // 否则只会把同一批方向换个说法再写一遍(实测 95 条 plan 只有 22 种开头)。纯进程内存，不进任何请求前缀。
-    setLastEmittedSubconsciousPlan(sessionKey, params.text);
-    const promptFacingText = renderSubconsciousAgentNotify(params.text);
+    setLastEmittedSubconsciousPlan(sessionKey, planText);
+    this.lastSubconsciousPlanNotifyAtMs = now.getTime();
+    const promptFacingText = renderSubconsciousAgentNotify(planText);
     const rawPayload = {
       reason: 'subconscious_agent',
       fork_run_id: params.forkRunId,
       fork_slice_id: params.forkSliceId,
       llm_call_id: params.llmCallId,
-      final_answer_text: params.text,
+      final_answer_text: planText,
       notify_template: 'subconscious_agent_notify.md',
       source_trace_id: params.traceId,
       source_run_id: params.runId
@@ -14329,6 +14427,15 @@ export class AgentLoopService {
           : null;
         if (energyState && gate && !gate.accepted) {
           const reason = '一点困意都没有。';
+          // 身体大约什么时候才会接受:把门槛的动态部分(刚醒惩罚衰减 / 昼夜门槛 / 压力慢涨)往前推,
+          // 算出来一起返给她。没有这个数她只会每 12 秒再试一次(24h 实测 653 次被拒)。
+          const retryAfter = estimateVoluntaryRecoveryRetryAt({
+            energy: energyState.energy,
+            maxEnergy: energyState.maxEnergy,
+            lastWakeAt: energyState.lastWakeAt ?? null,
+            now,
+            basePolicy: effectiveEnergyPolicy.policy
+          });
           return {
             recovered: false,
             rest_rejected: true,
@@ -14337,6 +14444,8 @@ export class AgentLoopService {
             max_energy: energyState.maxEnergy,
             pressure: gate.pressure,
             required_pressure: gate.requiredPressure,
+            retry_after: retryAfter ? retryAfter.toISOString() : null,
+            retry_after_minutes: retryAfter ? Math.round((retryAfter.getTime() - now.getTime()) / 60_000) : null,
             energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
             system_reminder: renderRecoverEnergyRejectedReminder({
               reason,
@@ -14428,15 +14537,6 @@ export class AgentLoopService {
           }
           throw error;
         }
-          // 身体大约什么时候才会接受:把门槛的动态部分(刚醒惩罚衰减 / 昼夜门槛 / 压力慢涨)往前推,
-          // 算出来一起返给她。没有这个数她只会每 12 秒再试一次(24h 实测 653 次被拒)。
-          const retryAfter = estimateVoluntaryRecoveryRetryAt({
-            energy: energyState.energy,
-            maxEnergy: energyState.maxEnergy,
-            lastWakeAt: energyState.lastWakeAt ?? null,
-            now,
-            basePolicy: effectiveEnergyPolicy.policy
-          });
       }
       case TOOL_NAMES.updateDeepDive: {
         const diveId = typeof toolCall.args.deep_dive_id === 'string' ? toolCall.args.deep_dive_id.trim() : '';
@@ -14445,8 +14545,6 @@ export class AgentLoopService {
           return { ok: false, reason: 'invalid_ref', message: '先 get_deep_dive 拿到 deep_dive_id 和 revision,原样抄过来。' };
         }
         const current = await this.store.getDeepDiveById(diveId);
-            retry_after: retryAfter ? retryAfter.toISOString() : null,
-            retry_after_minutes: retryAfter ? Math.round((retryAfter.getTime() - now.getTime()) / 60_000) : null,
         const plan = planDeepDiveUpdate(toolCall.args, current ? (current.phase as XiaoniDeepDivePhase) : null);
         if (!plan.ok) {
           return plan;
