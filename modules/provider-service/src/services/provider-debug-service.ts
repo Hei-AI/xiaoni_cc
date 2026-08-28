@@ -120,7 +120,7 @@ export function identityKeyForProviderUsage(sourceKind: string, replayIdentityKe
   }
   // xiaoni_os 监督者(分类 / 改写)同理:主 agent turn 末自己发的独立小请求。落 'xiaoni-internal'
   // 的直接后果是行动流里那一行的 raw-trace 回找(按 identity_key='xiaoni')404 —— 2026-08-27 踩过。
-  if (sourceKind === 'xiaoni_os_classify' || sourceKind === 'xiaoni_os_rewrite') {
+  if (sourceKind === 'xiaoni_os_classify' || sourceKind === 'xiaoni_os_rewrite' || sourceKind === 'xiaoni_os_polish') {
     return 'xiaoni';
   }
   return replayIdentityKey || 'xiaoni-internal';

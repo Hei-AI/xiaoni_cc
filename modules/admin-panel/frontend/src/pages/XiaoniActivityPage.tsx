@@ -1023,7 +1023,7 @@ function buildForkResultItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
     const outcome = metadataText(run.metadata, 'outcome');
     const outcomeLabel = metadataText(run.metadata, 'outcomeLabel');
     const rewritten = metadataText(run.metadata, 'rewrittenPreview');
-    const body = `${outcomeLabel ? `去向：${outcomeLabel}` : '去向：—'}${outcome === 'rewritten' && rewritten ? `\n改写后：${rewritten}` : ''}`;
+    const body = `${outcomeLabel ? `去向：${outcomeLabel}` : '去向：—'}${outcome === 'rewritten' && rewritten ? `\n改写后：${rewritten}` : ''}${outcome === 'polished' && rewritten ? `\n润色后：${rewritten}` : ''}`;
     return {
       id: `forkresult:${run.id}`,
       source: 'fork_result',
@@ -1039,7 +1039,7 @@ function buildForkResultItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
       peerName: null,
       traceId: run.traceId,
       traceTarget: null,
-      tone: outcome === 'kept' ? 'positive' : outcome === 'rewritten' ? 'info' : 'warn',
+      tone: outcome === 'kept' ? 'positive' : outcome === 'rewritten' || outcome === 'polished' ? 'info' : 'warn',
       metadata: {
         forkKind: 'xiaoni_os_rewrite',
         forkRunId: run.forkRunId,
