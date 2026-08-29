@@ -1309,10 +1309,30 @@ export class RuntimeStore {
 
   async getCurrentXiaoniEnergyState(now = new Date()) {
     const { projection } = await this.refreshXiaoniLifeProjection(now);
+    const lastWakeAt = projection.anchors.lastRestAt || null;
+    // 上一觉是怎么醒的(agent_recovery_sessions.wake_cause,与管理端同一条路)。只认醒来时刻
+    // 与 lastRestAt 对得上的那一条(±5 分钟);对不上 → null → 门槛按「自然醒」照旧收惩罚(fail-safe)。
+    let lastWakeCause: string | null = null;
+    if (lastWakeAt) {
+      const lastWakeMs = new Date(lastWakeAt).getTime();
+      const sessions = await listAgentRecoverySessions({
+        identityKey: 'xiaoni',
+        status: 'completed',
+        limit: 3
+      }, databaseConfig).catch(() => []) as Array<{ endedAt?: unknown; wakeCause?: unknown }>;
+      for (const session of sessions) {
+        const endedMs = new Date(String(session.endedAt ?? '')).getTime();
+        if (Number.isFinite(endedMs) && Math.abs(endedMs - lastWakeMs) <= 5 * 60_000) {
+          lastWakeCause = typeof session.wakeCause === 'string' && session.wakeCause ? session.wakeCause : null;
+          break;
+        }
+      }
+    }
     return {
       energy: Number(projection.state.energy),
       maxEnergy: 1,
-      lastWakeAt: projection.anchors.lastRestAt || null
+      lastWakeAt,
+      lastWakeCause
     };
   }
 

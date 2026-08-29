@@ -460,15 +460,23 @@ export function computeAwakePressureBetween(input: {
   return pressure;
 }
 
+// 引擎自己把她叫醒的几种 wake_cause(白天小睡封顶 / 8h 硬上限 / 夜窗到点)。这几种醒来不是
+// 「睡饱了」,是被掐断的;对它们再收「刚醒惩罚」等于:封顶把她在能量 0.6 叫起来,随后两小时
+// 门槛 0.75 她怎么也够不着(08-28 实测 16:43 被 nap-cap 叫醒 → 到 19:04 才睡着,中间 650 次被拒)。
+// 自然醒 / 被私聊 @ 叫醒的照旧收惩罚 —— 那是真的醒了。
+export const ENGINE_FORCED_WAKE_CAUSES: ReadonlySet<string> = new Set(['daytime_nap_cap', 'hard_cap', 'circadian_wake']);
+
 export function computeRequiredSleepPressure(input: {
   lastWakeAt?: Date | string | null;
+  lastWakeCause?: string | null;
   now?: Date;
   policy?: RecoverEnergyPolicy;
 }) {
   const policy = input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY;
   const now = input.now ?? new Date();
   const lastWakeAt = input.lastWakeAt ? new Date(input.lastWakeAt) : null;
-  const minutesSinceLastWake = lastWakeAt && !Number.isNaN(lastWakeAt.getTime())
+  const forcedWake = typeof input.lastWakeCause === 'string' && ENGINE_FORCED_WAKE_CAUSES.has(input.lastWakeCause);
+  const minutesSinceLastWake = lastWakeAt && !Number.isNaN(lastWakeAt.getTime()) && !forcedWake
     ? Math.max(0, (now.getTime() - lastWakeAt.getTime()) / MINUTE_MS)
     : Number.POSITIVE_INFINITY;
   const penalty = Number.isFinite(minutesSinceLastWake)
@@ -481,6 +489,7 @@ export function shouldAcceptVoluntaryRecovery(input: {
   energy: number;
   maxEnergy?: number;
   lastWakeAt?: Date | string | null;
+  lastWakeCause?: string | null;
   now?: Date;
   policy?: RecoverEnergyPolicy;
 }) {
@@ -488,6 +497,7 @@ export function shouldAcceptVoluntaryRecovery(input: {
   const pressure = energyToPressure(input.energy, input.maxEnergy ?? 1, policy);
   const requiredPressure = computeRequiredSleepPressure({
     lastWakeAt: input.lastWakeAt ?? null,
+    lastWakeCause: input.lastWakeCause ?? null,
     now: input.now,
     policy
   });
@@ -512,6 +522,7 @@ export function estimateVoluntaryRecoveryRetryAt(input: {
   energy: number;
   maxEnergy?: number;
   lastWakeAt?: Date | string | null;
+  lastWakeCause?: string | null;
   now: Date;
   basePolicy?: RecoverEnergyPolicy;
   stepMinutes?: number;
@@ -526,6 +537,7 @@ export function estimateVoluntaryRecoveryRetryAt(input: {
     const sessionPolicy = resolveRecoverySessionPolicy({ startedAt: at, policy: basePolicy }).policy;
     const required = computeRequiredSleepPressure({
       lastWakeAt: input.lastWakeAt ?? null,
+      lastWakeCause: input.lastWakeCause ?? null,
       now: at,
       policy: sessionPolicy
     });

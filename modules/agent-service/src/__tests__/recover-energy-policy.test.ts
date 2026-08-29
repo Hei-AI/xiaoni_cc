@@ -333,3 +333,20 @@ test('estimateVoluntaryRecoveryRetryAt:刚醒惩罚衰减后给出未来时刻;�
   });
   assert.equal(never, null);
 });
+
+test('引擎封顶叫醒(daytime_nap_cap / hard_cap / circadian_wake)不收刚醒惩罚;自然醒 / 被叫醒照旧', async () => {
+  const { computeRequiredSleepPressure, DEFAULT_RECOVER_ENERGY_POLICY, ENGINE_FORCED_WAKE_CAUSES } = await import('../services/recover-energy-policy');
+  const now = new Date('2026-08-28T09:00:00.000Z');
+  const lastWakeAt = new Date('2026-08-28T08:43:30.000Z');
+  const base = computeRequiredSleepPressure({ lastWakeAt: null, now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
+  const natural = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: 'natural', now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
+  const mention = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: 'private_or_mention_threshold', now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
+  const nullCause = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: null, now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
+  assert.ok(natural > base + 0.3);
+  assert.equal(mention, natural);
+  assert.equal(nullCause, natural);
+  for (const cause of ENGINE_FORCED_WAKE_CAUSES) {
+    const forced = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: cause, now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
+    assert.equal(forced, base, cause);
+  }
+});

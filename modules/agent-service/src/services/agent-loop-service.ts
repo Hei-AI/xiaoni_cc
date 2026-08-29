@@ -285,6 +285,8 @@ export type RuntimeEnergyState = {
   energy: number;
   maxEnergy: number;
   lastWakeAt?: string | null;
+  // 上一觉的 wake_cause(引擎封顶叫醒的不收刚醒惩罚,见 ENGINE_FORCED_WAKE_CAUSES)。
+  lastWakeCause?: string | null;
 };
 
 type DeliveredAssistantMessage = {
@@ -14421,6 +14423,7 @@ export class AgentLoopService {
               energy: energyState.energy,
               maxEnergy: energyState.maxEnergy,
               lastWakeAt: energyState.lastWakeAt ?? null,
+              lastWakeCause: energyState.lastWakeCause ?? null,
               now,
               policy: sessionPolicy.policy
             })
@@ -14433,6 +14436,7 @@ export class AgentLoopService {
             energy: energyState.energy,
             maxEnergy: energyState.maxEnergy,
             lastWakeAt: energyState.lastWakeAt ?? null,
+            lastWakeCause: energyState.lastWakeCause ?? null,
             now,
             basePolicy: effectiveEnergyPolicy.policy
           });
@@ -14687,7 +14691,10 @@ export class AgentLoopService {
       return {
         energy,
         maxEnergy,
-        lastWakeAt: typeof state?.lastWakeAt === 'string' ? state.lastWakeAt : null
+        lastWakeAt: typeof state?.lastWakeAt === 'string' ? state.lastWakeAt : null,
+        lastWakeCause: typeof (state as { lastWakeCause?: unknown })?.lastWakeCause === 'string'
+          ? (state as { lastWakeCause?: string }).lastWakeCause ?? null
+          : null
       };
     } catch (error) {
       moduleLogger.warn('Failed to read Xiaoni energy before recover_energy', {
