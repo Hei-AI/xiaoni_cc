@@ -316,6 +316,10 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
   }, databaseConfig);
   // created=false ⇔ 撞了 dedupe_key ⇔ 这段记忆早就投过 → 当作没投,继续看下一条。
   // 不能用 status 判:既有行没被消费时同样是 'pending'。
+  // droppedWhileAsleep=true ⇔ 她睡着,入队口把这条落成了永不 claim 的行 → 也当作没投(账本上它已经用掉了)。
+  if ((result as { droppedWhileAsleep?: boolean } | null)?.droppedWhileAsleep === true) {
+    return false;
+  }
   return result?.created === true;
 }
 

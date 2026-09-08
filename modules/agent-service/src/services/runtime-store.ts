@@ -116,6 +116,7 @@ import {
   foldPendingNotifyMessagesIntoRun,
   settleAgentQueueMessages,
   supersedePendingClockPings,
+  flushNonExternalPendingAgentQueueMessages,
   failAgentQueueMessage,
   retryAgentQueueMessage,
   ensureAgentRuntimeSchema,
@@ -2092,6 +2093,14 @@ export class RuntimeStore {
     availableAt?: string | Date;
   }) {
     return enqueueAgentQueueMessage(input, databaseConfig);
+  }
+
+  // 醒来那一帧:冲掉所有还 pending 的内部通知(非 phone_notification)。外部消息一条不动。
+  async flushInternalPendingQueueMessagesOnWake(params: { recoverySessionId: number | null }) {
+    return flushNonExternalPendingAgentQueueMessages({
+      recoverySessionId: params.recoverySessionId,
+      sqlAdapter: this.sql
+    }, databaseConfig) as Promise<{ flushedCount: number }>;
   }
 
   // 报时只留最新一格:把更早的 pending clock_ping 判为过期。已被 claim 的行绝不回改。
