@@ -59,7 +59,9 @@ export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   wakeCallGamma: 2,
   actionDebtRecoveryTauMinutes: 360,
   timeZone: 'Asia/Shanghai',
-  nightWindowStartMinute: 60,
+  // 夜窗 23:00 ~ 09:00。原 01:00 起算时,23:31 入睡算「白天小睡」,90 分钟被 nap_cap 掐醒再睡,
+  // 一夜被切成三四段(线上 09-06 23:30 / 09-07 01:01 两次 nap_cap 都在夜里)。
+  nightWindowStartMinute: 1380,
   nightWindowEndMinute: 540,
   circadianSleepPeakMinute: 300,
   circadianSleepGateAmplitude: 0.18,
@@ -201,7 +203,7 @@ export function resolveRecoveryCircadianState(now: Date = new Date(), policy: Re
   const normalizedPolicy = normalizePolicy(policy);
   const timeZone = normalizedPolicy.timeZone || 'Asia/Shanghai';
   const localMinutes = localMinutesOfDay(now, timeZone);
-  const nightWindowStartMinute = positivePolicyMinutes(normalizedPolicy.nightWindowStartMinute, 60);
+  const nightWindowStartMinute = positivePolicyMinutes(normalizedPolicy.nightWindowStartMinute, 1380);
   const nightWindowEndMinute = positivePolicyMinutes(normalizedPolicy.nightWindowEndMinute, 540);
   const sleepPeakMinute = positivePolicyMinutes(normalizedPolicy.circadianSleepPeakMinute, 300);
   const phase: RecoveryCircadianPhase = isMinuteInWindow(localMinutes, nightWindowStartMinute, nightWindowEndMinute)
