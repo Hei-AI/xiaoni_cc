@@ -250,6 +250,15 @@ do not fake function_call_output
 do not fake tool_executions
 ```
 
+## Sleep-Time Consumption Rule (2026-09-08)
+
+睡觉期间只放行外部消息,其它一切内容不消费:
+
+- 外部 = QQ 入站(`agent_queue_messages.source = 'phone_notification'`,含群聚合)。只有它们在睡觉期间照常入队、计入叫醒计数、醒来时被消费。
+- 其它来源(被动召回投递 `recall-surface:*`、潜意识 plan `subconscious-agent:*`、报时 `clock-ping:*`、`attention_lease:*`、图片任务、`self_continuation` …)在 `agent_recovery_sessions` 有 `active` 行时**不入队**:`enqueueAgentQueueMessage` 仍写行(dedupe_key 唯一索引是投递账本,「同一段记忆永远只投一次」不变),但直接落成 `status='settled'` + `result.dropped_while_asleep=true`,返回 `droppedWhileAsleep:true`;调用方按「没投出去」处理。`enqueueSelfContinuationQueueMessage` 直接返回 false。
+- 醒来那一帧(`settleRecoverySession` finalize 之后)调用 `flushNonExternalPendingAgentQueueMessages`:把所有还 `pending` 的非外部行冲成 `settled` + `result.flushed_on_wake=true`。已被 claim 的行不回改。醒来的第一个 run 只看外部消息 + 醒来结算。
+- 保留项:`core-memory-compression-done` 也走这条规则(它只是告知,压缩本身在 run 边界照常生效)。
+
 ## Notify Bucket Semantics
 
 Sleeping does not consume the status bar.
