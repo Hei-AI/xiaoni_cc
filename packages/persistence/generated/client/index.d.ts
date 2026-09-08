@@ -84,10 +84,10 @@ export type AgentStackItem = $Result.DefaultSelection<Prisma.$AgentStackItemPayl
  */
 export type LlmRequestSlice = $Result.DefaultSelection<Prisma.$LlmRequestSlicePayload>
 /**
- * Model CodexProviderUsageEvent
+ * Model ProviderUsageEvent
  * 
  */
-export type CodexProviderUsageEvent = $Result.DefaultSelection<Prisma.$CodexProviderUsageEventPayload>
+export type ProviderUsageEvent = $Result.DefaultSelection<Prisma.$ProviderUsageEventPayload>
 /**
  * Model LlmUsageRollupSource
  * 
@@ -648,14 +648,14 @@ export class PrismaClient<
   get llmRequestSlice(): Prisma.LlmRequestSliceDelegate<ExtArgs, ClientOptions>;
 
   /**
-   * `prisma.codexProviderUsageEvent`: Exposes CRUD operations for the **CodexProviderUsageEvent** model.
+   * `prisma.providerUsageEvent`: Exposes CRUD operations for the **ProviderUsageEvent** model.
     * Example usage:
     * ```ts
-    * // Fetch zero or more CodexProviderUsageEvents
-    * const codexProviderUsageEvents = await prisma.codexProviderUsageEvent.findMany()
+    * // Fetch zero or more ProviderUsageEvents
+    * const providerUsageEvents = await prisma.providerUsageEvent.findMany()
     * ```
     */
-  get codexProviderUsageEvent(): Prisma.CodexProviderUsageEventDelegate<ExtArgs, ClientOptions>;
+  get providerUsageEvent(): Prisma.ProviderUsageEventDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.llmUsageRollupSource`: Exposes CRUD operations for the **LlmUsageRollupSource** model.
@@ -1711,7 +1711,7 @@ export namespace Prisma {
     AgentLifeEvent: 'AgentLifeEvent',
     AgentStackItem: 'AgentStackItem',
     LlmRequestSlice: 'LlmRequestSlice',
-    CodexProviderUsageEvent: 'CodexProviderUsageEvent',
+    ProviderUsageEvent: 'ProviderUsageEvent',
     LlmUsageRollupSource: 'LlmUsageRollupSource',
     LlmUsageRollup: 'LlmUsageRollup',
     LlmUsageRollupState: 'LlmUsageRollupState',
@@ -1790,7 +1790,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "codexProviderUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniDeepDive" | "failureReviewForkSlice"
+      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "providerUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniDeepDive" | "failureReviewForkSlice"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -2830,77 +2830,77 @@ export namespace Prisma {
           }
         }
       }
-      CodexProviderUsageEvent: {
-        payload: Prisma.$CodexProviderUsageEventPayload<ExtArgs>
-        fields: Prisma.CodexProviderUsageEventFieldRefs
+      ProviderUsageEvent: {
+        payload: Prisma.$ProviderUsageEventPayload<ExtArgs>
+        fields: Prisma.ProviderUsageEventFieldRefs
         operations: {
           findUnique: {
-            args: Prisma.CodexProviderUsageEventFindUniqueArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload> | null
+            args: Prisma.ProviderUsageEventFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload> | null
           }
           findUniqueOrThrow: {
-            args: Prisma.CodexProviderUsageEventFindUniqueOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>
+            args: Prisma.ProviderUsageEventFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>
           }
           findFirst: {
-            args: Prisma.CodexProviderUsageEventFindFirstArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload> | null
+            args: Prisma.ProviderUsageEventFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload> | null
           }
           findFirstOrThrow: {
-            args: Prisma.CodexProviderUsageEventFindFirstOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>
+            args: Prisma.ProviderUsageEventFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>
           }
           findMany: {
-            args: Prisma.CodexProviderUsageEventFindManyArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>[]
+            args: Prisma.ProviderUsageEventFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>[]
           }
           create: {
-            args: Prisma.CodexProviderUsageEventCreateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>
+            args: Prisma.ProviderUsageEventCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>
           }
           createMany: {
-            args: Prisma.CodexProviderUsageEventCreateManyArgs<ExtArgs>
+            args: Prisma.ProviderUsageEventCreateManyArgs<ExtArgs>
             result: BatchPayload
           }
           createManyAndReturn: {
-            args: Prisma.CodexProviderUsageEventCreateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>[]
+            args: Prisma.ProviderUsageEventCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>[]
           }
           delete: {
-            args: Prisma.CodexProviderUsageEventDeleteArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>
+            args: Prisma.ProviderUsageEventDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>
           }
           update: {
-            args: Prisma.CodexProviderUsageEventUpdateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>
+            args: Prisma.ProviderUsageEventUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>
           }
           deleteMany: {
-            args: Prisma.CodexProviderUsageEventDeleteManyArgs<ExtArgs>
+            args: Prisma.ProviderUsageEventDeleteManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateMany: {
-            args: Prisma.CodexProviderUsageEventUpdateManyArgs<ExtArgs>
+            args: Prisma.ProviderUsageEventUpdateManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateManyAndReturn: {
-            args: Prisma.CodexProviderUsageEventUpdateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>[]
+            args: Prisma.ProviderUsageEventUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>[]
           }
           upsert: {
-            args: Prisma.CodexProviderUsageEventUpsertArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$CodexProviderUsageEventPayload>
+            args: Prisma.ProviderUsageEventUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ProviderUsageEventPayload>
           }
           aggregate: {
-            args: Prisma.CodexProviderUsageEventAggregateArgs<ExtArgs>
-            result: $Utils.Optional<AggregateCodexProviderUsageEvent>
+            args: Prisma.ProviderUsageEventAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateProviderUsageEvent>
           }
           groupBy: {
-            args: Prisma.CodexProviderUsageEventGroupByArgs<ExtArgs>
-            result: $Utils.Optional<CodexProviderUsageEventGroupByOutputType>[]
+            args: Prisma.ProviderUsageEventGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ProviderUsageEventGroupByOutputType>[]
           }
           count: {
-            args: Prisma.CodexProviderUsageEventCountArgs<ExtArgs>
-            result: $Utils.Optional<CodexProviderUsageEventCountAggregateOutputType> | number
+            args: Prisma.ProviderUsageEventCountArgs<ExtArgs>
+            result: $Utils.Optional<ProviderUsageEventCountAggregateOutputType> | number
           }
         }
       }
@@ -7454,7 +7454,7 @@ export namespace Prisma {
     agentLifeEvent?: AgentLifeEventOmit
     agentStackItem?: AgentStackItemOmit
     llmRequestSlice?: LlmRequestSliceOmit
-    codexProviderUsageEvent?: CodexProviderUsageEventOmit
+    providerUsageEvent?: ProviderUsageEventOmit
     llmUsageRollupSource?: LlmUsageRollupSourceOmit
     llmUsageRollup?: LlmUsageRollupOmit
     llmUsageRollupState?: LlmUsageRollupStateOmit
@@ -25088,48 +25088,28 @@ export namespace Prisma {
 
 
   /**
-   * Model CodexProviderUsageEvent
+   * Model ProviderUsageEvent
    */
 
-  export type AggregateCodexProviderUsageEvent = {
-    _count: CodexProviderUsageEventCountAggregateOutputType | null
-    _avg: CodexProviderUsageEventAvgAggregateOutputType | null
-    _sum: CodexProviderUsageEventSumAggregateOutputType | null
-    _min: CodexProviderUsageEventMinAggregateOutputType | null
-    _max: CodexProviderUsageEventMaxAggregateOutputType | null
+  export type AggregateProviderUsageEvent = {
+    _count: ProviderUsageEventCountAggregateOutputType | null
+    _avg: ProviderUsageEventAvgAggregateOutputType | null
+    _sum: ProviderUsageEventSumAggregateOutputType | null
+    _min: ProviderUsageEventMinAggregateOutputType | null
+    _max: ProviderUsageEventMaxAggregateOutputType | null
   }
 
-  export type CodexProviderUsageEventAvgAggregateOutputType = {
+  export type ProviderUsageEventAvgAggregateOutputType = {
     id: number | null
     processing_time_ms: number | null
   }
 
-  export type CodexProviderUsageEventSumAggregateOutputType = {
+  export type ProviderUsageEventSumAggregateOutputType = {
     id: bigint | null
     processing_time_ms: number | null
   }
 
-  export type CodexProviderUsageEventMinAggregateOutputType = {
-    id: bigint | null
-    event_id: string | null
-    source_kind: string | null
-    source_id: string | null
-    identity_key: string | null
-    llm_call_id: string | null
-    trace_id: string | null
-    run_id: string | null
-    status: string | null
-    model_name: string | null
-    model_provider: string | null
-    request_format_version: string | null
-    wire_provider_format: string | null
-    processing_time_ms: number | null
-    created_at: Date | null
-    completed_at: Date | null
-    updated_at: Date | null
-  }
-
-  export type CodexProviderUsageEventMaxAggregateOutputType = {
+  export type ProviderUsageEventMinAggregateOutputType = {
     id: bigint | null
     event_id: string | null
     source_kind: string | null
@@ -25149,7 +25129,27 @@ export namespace Prisma {
     updated_at: Date | null
   }
 
-  export type CodexProviderUsageEventCountAggregateOutputType = {
+  export type ProviderUsageEventMaxAggregateOutputType = {
+    id: bigint | null
+    event_id: string | null
+    source_kind: string | null
+    source_id: string | null
+    identity_key: string | null
+    llm_call_id: string | null
+    trace_id: string | null
+    run_id: string | null
+    status: string | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    created_at: Date | null
+    completed_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type ProviderUsageEventCountAggregateOutputType = {
     id: number
     event_id: number
     source_kind: number
@@ -25179,37 +25179,17 @@ export namespace Prisma {
   }
 
 
-  export type CodexProviderUsageEventAvgAggregateInputType = {
+  export type ProviderUsageEventAvgAggregateInputType = {
     id?: true
     processing_time_ms?: true
   }
 
-  export type CodexProviderUsageEventSumAggregateInputType = {
+  export type ProviderUsageEventSumAggregateInputType = {
     id?: true
     processing_time_ms?: true
   }
 
-  export type CodexProviderUsageEventMinAggregateInputType = {
-    id?: true
-    event_id?: true
-    source_kind?: true
-    source_id?: true
-    identity_key?: true
-    llm_call_id?: true
-    trace_id?: true
-    run_id?: true
-    status?: true
-    model_name?: true
-    model_provider?: true
-    request_format_version?: true
-    wire_provider_format?: true
-    processing_time_ms?: true
-    created_at?: true
-    completed_at?: true
-    updated_at?: true
-  }
-
-  export type CodexProviderUsageEventMaxAggregateInputType = {
+  export type ProviderUsageEventMinAggregateInputType = {
     id?: true
     event_id?: true
     source_kind?: true
@@ -25229,7 +25209,27 @@ export namespace Prisma {
     updated_at?: true
   }
 
-  export type CodexProviderUsageEventCountAggregateInputType = {
+  export type ProviderUsageEventMaxAggregateInputType = {
+    id?: true
+    event_id?: true
+    source_kind?: true
+    source_id?: true
+    identity_key?: true
+    llm_call_id?: true
+    trace_id?: true
+    run_id?: true
+    status?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
+  }
+
+  export type ProviderUsageEventCountAggregateInputType = {
     id?: true
     event_id?: true
     source_kind?: true
@@ -25258,93 +25258,93 @@ export namespace Prisma {
     _all?: true
   }
 
-  export type CodexProviderUsageEventAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which CodexProviderUsageEvent to aggregate.
+     * Filter which ProviderUsageEvent to aggregate.
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of CodexProviderUsageEvents to fetch.
+     * Determine the order of ProviderUsageEvents to fetch.
      */
-    orderBy?: CodexProviderUsageEventOrderByWithRelationInput | CodexProviderUsageEventOrderByWithRelationInput[]
+    orderBy?: ProviderUsageEventOrderByWithRelationInput | ProviderUsageEventOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
      * Sets the start position
      */
-    cursor?: CodexProviderUsageEventWhereUniqueInput
+    cursor?: ProviderUsageEventWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` CodexProviderUsageEvents from the position of the cursor.
+     * Take `±n` ProviderUsageEvents from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` CodexProviderUsageEvents.
+     * Skip the first `n` ProviderUsageEvents.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
-     * Count returned CodexProviderUsageEvents
+     * Count returned ProviderUsageEvents
     **/
-    _count?: true | CodexProviderUsageEventCountAggregateInputType
+    _count?: true | ProviderUsageEventCountAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to average
     **/
-    _avg?: CodexProviderUsageEventAvgAggregateInputType
+    _avg?: ProviderUsageEventAvgAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to sum
     **/
-    _sum?: CodexProviderUsageEventSumAggregateInputType
+    _sum?: ProviderUsageEventSumAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the minimum value
     **/
-    _min?: CodexProviderUsageEventMinAggregateInputType
+    _min?: ProviderUsageEventMinAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the maximum value
     **/
-    _max?: CodexProviderUsageEventMaxAggregateInputType
+    _max?: ProviderUsageEventMaxAggregateInputType
   }
 
-  export type GetCodexProviderUsageEventAggregateType<T extends CodexProviderUsageEventAggregateArgs> = {
-        [P in keyof T & keyof AggregateCodexProviderUsageEvent]: P extends '_count' | 'count'
+  export type GetProviderUsageEventAggregateType<T extends ProviderUsageEventAggregateArgs> = {
+        [P in keyof T & keyof AggregateProviderUsageEvent]: P extends '_count' | 'count'
       ? T[P] extends true
         ? number
-        : GetScalarType<T[P], AggregateCodexProviderUsageEvent[P]>
-      : GetScalarType<T[P], AggregateCodexProviderUsageEvent[P]>
+        : GetScalarType<T[P], AggregateProviderUsageEvent[P]>
+      : GetScalarType<T[P], AggregateProviderUsageEvent[P]>
   }
 
 
 
 
-  export type CodexProviderUsageEventGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    where?: CodexProviderUsageEventWhereInput
-    orderBy?: CodexProviderUsageEventOrderByWithAggregationInput | CodexProviderUsageEventOrderByWithAggregationInput[]
-    by: CodexProviderUsageEventScalarFieldEnum[] | CodexProviderUsageEventScalarFieldEnum
-    having?: CodexProviderUsageEventScalarWhereWithAggregatesInput
+  export type ProviderUsageEventGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ProviderUsageEventWhereInput
+    orderBy?: ProviderUsageEventOrderByWithAggregationInput | ProviderUsageEventOrderByWithAggregationInput[]
+    by: ProviderUsageEventScalarFieldEnum[] | ProviderUsageEventScalarFieldEnum
+    having?: ProviderUsageEventScalarWhereWithAggregatesInput
     take?: number
     skip?: number
-    _count?: CodexProviderUsageEventCountAggregateInputType | true
-    _avg?: CodexProviderUsageEventAvgAggregateInputType
-    _sum?: CodexProviderUsageEventSumAggregateInputType
-    _min?: CodexProviderUsageEventMinAggregateInputType
-    _max?: CodexProviderUsageEventMaxAggregateInputType
+    _count?: ProviderUsageEventCountAggregateInputType | true
+    _avg?: ProviderUsageEventAvgAggregateInputType
+    _sum?: ProviderUsageEventSumAggregateInputType
+    _min?: ProviderUsageEventMinAggregateInputType
+    _max?: ProviderUsageEventMaxAggregateInputType
   }
 
-  export type CodexProviderUsageEventGroupByOutputType = {
+  export type ProviderUsageEventGroupByOutputType = {
     id: bigint
     event_id: string
     source_kind: string
@@ -25370,28 +25370,28 @@ export namespace Prisma {
     created_at: Date
     completed_at: Date | null
     updated_at: Date
-    _count: CodexProviderUsageEventCountAggregateOutputType | null
-    _avg: CodexProviderUsageEventAvgAggregateOutputType | null
-    _sum: CodexProviderUsageEventSumAggregateOutputType | null
-    _min: CodexProviderUsageEventMinAggregateOutputType | null
-    _max: CodexProviderUsageEventMaxAggregateOutputType | null
+    _count: ProviderUsageEventCountAggregateOutputType | null
+    _avg: ProviderUsageEventAvgAggregateOutputType | null
+    _sum: ProviderUsageEventSumAggregateOutputType | null
+    _min: ProviderUsageEventMinAggregateOutputType | null
+    _max: ProviderUsageEventMaxAggregateOutputType | null
   }
 
-  type GetCodexProviderUsageEventGroupByPayload<T extends CodexProviderUsageEventGroupByArgs> = Prisma.PrismaPromise<
+  type GetProviderUsageEventGroupByPayload<T extends ProviderUsageEventGroupByArgs> = Prisma.PrismaPromise<
     Array<
-      PickEnumerable<CodexProviderUsageEventGroupByOutputType, T['by']> &
+      PickEnumerable<ProviderUsageEventGroupByOutputType, T['by']> &
         {
-          [P in ((keyof T) & (keyof CodexProviderUsageEventGroupByOutputType))]: P extends '_count'
+          [P in ((keyof T) & (keyof ProviderUsageEventGroupByOutputType))]: P extends '_count'
             ? T[P] extends boolean
               ? number
-              : GetScalarType<T[P], CodexProviderUsageEventGroupByOutputType[P]>
-            : GetScalarType<T[P], CodexProviderUsageEventGroupByOutputType[P]>
+              : GetScalarType<T[P], ProviderUsageEventGroupByOutputType[P]>
+            : GetScalarType<T[P], ProviderUsageEventGroupByOutputType[P]>
         }
       >
     >
 
 
-  export type CodexProviderUsageEventSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type ProviderUsageEventSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     event_id?: boolean
     source_kind?: boolean
@@ -25417,9 +25417,9 @@ export namespace Prisma {
     created_at?: boolean
     completed_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["codexProviderUsageEvent"]>
+  }, ExtArgs["result"]["providerUsageEvent"]>
 
-  export type CodexProviderUsageEventSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type ProviderUsageEventSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     event_id?: boolean
     source_kind?: boolean
@@ -25445,9 +25445,9 @@ export namespace Prisma {
     created_at?: boolean
     completed_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["codexProviderUsageEvent"]>
+  }, ExtArgs["result"]["providerUsageEvent"]>
 
-  export type CodexProviderUsageEventSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type ProviderUsageEventSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     event_id?: boolean
     source_kind?: boolean
@@ -25473,9 +25473,9 @@ export namespace Prisma {
     created_at?: boolean
     completed_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["codexProviderUsageEvent"]>
+  }, ExtArgs["result"]["providerUsageEvent"]>
 
-  export type CodexProviderUsageEventSelectScalar = {
+  export type ProviderUsageEventSelectScalar = {
     id?: boolean
     event_id?: boolean
     source_kind?: boolean
@@ -25503,10 +25503,10 @@ export namespace Prisma {
     updated_at?: boolean
   }
 
-  export type CodexProviderUsageEventOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "event_id" | "source_kind" | "source_id" | "identity_key" | "llm_call_id" | "trace_id" | "run_id" | "canonical_request" | "wire_request" | "canonical_response" | "wire_response" | "raw_response" | "output_items" | "status" | "token_usage" | "model_name" | "model_provider" | "request_format_version" | "wire_provider_format" | "processing_time_ms" | "metadata" | "created_at" | "completed_at" | "updated_at", ExtArgs["result"]["codexProviderUsageEvent"]>
+  export type ProviderUsageEventOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "event_id" | "source_kind" | "source_id" | "identity_key" | "llm_call_id" | "trace_id" | "run_id" | "canonical_request" | "wire_request" | "canonical_response" | "wire_response" | "raw_response" | "output_items" | "status" | "token_usage" | "model_name" | "model_provider" | "request_format_version" | "wire_provider_format" | "processing_time_ms" | "metadata" | "created_at" | "completed_at" | "updated_at", ExtArgs["result"]["providerUsageEvent"]>
 
-  export type $CodexProviderUsageEventPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    name: "CodexProviderUsageEvent"
+  export type $ProviderUsageEventPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ProviderUsageEvent"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: bigint
@@ -25534,136 +25534,136 @@ export namespace Prisma {
       created_at: Date
       completed_at: Date | null
       updated_at: Date
-    }, ExtArgs["result"]["codexProviderUsageEvent"]>
+    }, ExtArgs["result"]["providerUsageEvent"]>
     composites: {}
   }
 
-  type CodexProviderUsageEventGetPayload<S extends boolean | null | undefined | CodexProviderUsageEventDefaultArgs> = $Result.GetResult<Prisma.$CodexProviderUsageEventPayload, S>
+  type ProviderUsageEventGetPayload<S extends boolean | null | undefined | ProviderUsageEventDefaultArgs> = $Result.GetResult<Prisma.$ProviderUsageEventPayload, S>
 
-  type CodexProviderUsageEventCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
-    Omit<CodexProviderUsageEventFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
-      select?: CodexProviderUsageEventCountAggregateInputType | true
+  type ProviderUsageEventCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ProviderUsageEventFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ProviderUsageEventCountAggregateInputType | true
     }
 
-  export interface CodexProviderUsageEventDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
-    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['CodexProviderUsageEvent'], meta: { name: 'CodexProviderUsageEvent' } }
+  export interface ProviderUsageEventDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ProviderUsageEvent'], meta: { name: 'ProviderUsageEvent' } }
     /**
-     * Find zero or one CodexProviderUsageEvent that matches the filter.
-     * @param {CodexProviderUsageEventFindUniqueArgs} args - Arguments to find a CodexProviderUsageEvent
+     * Find zero or one ProviderUsageEvent that matches the filter.
+     * @param {ProviderUsageEventFindUniqueArgs} args - Arguments to find a ProviderUsageEvent
      * @example
-     * // Get one CodexProviderUsageEvent
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.findUnique({
+     * // Get one ProviderUsageEvent
+     * const providerUsageEvent = await prisma.providerUsageEvent.findUnique({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUnique<T extends CodexProviderUsageEventFindUniqueArgs>(args: SelectSubset<T, CodexProviderUsageEventFindUniqueArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findUnique<T extends ProviderUsageEventFindUniqueArgs>(args: SelectSubset<T, ProviderUsageEventFindUniqueArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find one CodexProviderUsageEvent that matches the filter or throw an error with `error.code='P2025'`
+     * Find one ProviderUsageEvent that matches the filter or throw an error with `error.code='P2025'`
      * if no matches were found.
-     * @param {CodexProviderUsageEventFindUniqueOrThrowArgs} args - Arguments to find a CodexProviderUsageEvent
+     * @param {ProviderUsageEventFindUniqueOrThrowArgs} args - Arguments to find a ProviderUsageEvent
      * @example
-     * // Get one CodexProviderUsageEvent
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.findUniqueOrThrow({
+     * // Get one ProviderUsageEvent
+     * const providerUsageEvent = await prisma.providerUsageEvent.findUniqueOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUniqueOrThrow<T extends CodexProviderUsageEventFindUniqueOrThrowArgs>(args: SelectSubset<T, CodexProviderUsageEventFindUniqueOrThrowArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findUniqueOrThrow<T extends ProviderUsageEventFindUniqueOrThrowArgs>(args: SelectSubset<T, ProviderUsageEventFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first CodexProviderUsageEvent that matches the filter.
+     * Find the first ProviderUsageEvent that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventFindFirstArgs} args - Arguments to find a CodexProviderUsageEvent
+     * @param {ProviderUsageEventFindFirstArgs} args - Arguments to find a ProviderUsageEvent
      * @example
-     * // Get one CodexProviderUsageEvent
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.findFirst({
+     * // Get one ProviderUsageEvent
+     * const providerUsageEvent = await prisma.providerUsageEvent.findFirst({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirst<T extends CodexProviderUsageEventFindFirstArgs>(args?: SelectSubset<T, CodexProviderUsageEventFindFirstArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findFirst<T extends ProviderUsageEventFindFirstArgs>(args?: SelectSubset<T, ProviderUsageEventFindFirstArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first CodexProviderUsageEvent that matches the filter or
+     * Find the first ProviderUsageEvent that matches the filter or
      * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventFindFirstOrThrowArgs} args - Arguments to find a CodexProviderUsageEvent
+     * @param {ProviderUsageEventFindFirstOrThrowArgs} args - Arguments to find a ProviderUsageEvent
      * @example
-     * // Get one CodexProviderUsageEvent
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.findFirstOrThrow({
+     * // Get one ProviderUsageEvent
+     * const providerUsageEvent = await prisma.providerUsageEvent.findFirstOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirstOrThrow<T extends CodexProviderUsageEventFindFirstOrThrowArgs>(args?: SelectSubset<T, CodexProviderUsageEventFindFirstOrThrowArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findFirstOrThrow<T extends ProviderUsageEventFindFirstOrThrowArgs>(args?: SelectSubset<T, ProviderUsageEventFindFirstOrThrowArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find zero or more CodexProviderUsageEvents that matches the filter.
+     * Find zero or more ProviderUsageEvents that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @param {ProviderUsageEventFindManyArgs} args - Arguments to filter and select certain fields only.
      * @example
-     * // Get all CodexProviderUsageEvents
-     * const codexProviderUsageEvents = await prisma.codexProviderUsageEvent.findMany()
+     * // Get all ProviderUsageEvents
+     * const providerUsageEvents = await prisma.providerUsageEvent.findMany()
      * 
-     * // Get first 10 CodexProviderUsageEvents
-     * const codexProviderUsageEvents = await prisma.codexProviderUsageEvent.findMany({ take: 10 })
+     * // Get first 10 ProviderUsageEvents
+     * const providerUsageEvents = await prisma.providerUsageEvent.findMany({ take: 10 })
      * 
      * // Only select the `id`
-     * const codexProviderUsageEventWithIdOnly = await prisma.codexProviderUsageEvent.findMany({ select: { id: true } })
+     * const providerUsageEventWithIdOnly = await prisma.providerUsageEvent.findMany({ select: { id: true } })
      * 
      */
-    findMany<T extends CodexProviderUsageEventFindManyArgs>(args?: SelectSubset<T, CodexProviderUsageEventFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+    findMany<T extends ProviderUsageEventFindManyArgs>(args?: SelectSubset<T, ProviderUsageEventFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
 
     /**
-     * Create a CodexProviderUsageEvent.
-     * @param {CodexProviderUsageEventCreateArgs} args - Arguments to create a CodexProviderUsageEvent.
+     * Create a ProviderUsageEvent.
+     * @param {ProviderUsageEventCreateArgs} args - Arguments to create a ProviderUsageEvent.
      * @example
-     * // Create one CodexProviderUsageEvent
-     * const CodexProviderUsageEvent = await prisma.codexProviderUsageEvent.create({
+     * // Create one ProviderUsageEvent
+     * const ProviderUsageEvent = await prisma.providerUsageEvent.create({
      *   data: {
-     *     // ... data to create a CodexProviderUsageEvent
+     *     // ... data to create a ProviderUsageEvent
      *   }
      * })
      * 
      */
-    create<T extends CodexProviderUsageEventCreateArgs>(args: SelectSubset<T, CodexProviderUsageEventCreateArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    create<T extends ProviderUsageEventCreateArgs>(args: SelectSubset<T, ProviderUsageEventCreateArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Create many CodexProviderUsageEvents.
-     * @param {CodexProviderUsageEventCreateManyArgs} args - Arguments to create many CodexProviderUsageEvents.
+     * Create many ProviderUsageEvents.
+     * @param {ProviderUsageEventCreateManyArgs} args - Arguments to create many ProviderUsageEvents.
      * @example
-     * // Create many CodexProviderUsageEvents
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.createMany({
+     * // Create many ProviderUsageEvents
+     * const providerUsageEvent = await prisma.providerUsageEvent.createMany({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      *     
      */
-    createMany<T extends CodexProviderUsageEventCreateManyArgs>(args?: SelectSubset<T, CodexProviderUsageEventCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    createMany<T extends ProviderUsageEventCreateManyArgs>(args?: SelectSubset<T, ProviderUsageEventCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Create many CodexProviderUsageEvents and returns the data saved in the database.
-     * @param {CodexProviderUsageEventCreateManyAndReturnArgs} args - Arguments to create many CodexProviderUsageEvents.
+     * Create many ProviderUsageEvents and returns the data saved in the database.
+     * @param {ProviderUsageEventCreateManyAndReturnArgs} args - Arguments to create many ProviderUsageEvents.
      * @example
-     * // Create many CodexProviderUsageEvents
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.createManyAndReturn({
+     * // Create many ProviderUsageEvents
+     * const providerUsageEvent = await prisma.providerUsageEvent.createManyAndReturn({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      * 
-     * // Create many CodexProviderUsageEvents and only return the `id`
-     * const codexProviderUsageEventWithIdOnly = await prisma.codexProviderUsageEvent.createManyAndReturn({
+     * // Create many ProviderUsageEvents and only return the `id`
+     * const providerUsageEventWithIdOnly = await prisma.providerUsageEvent.createManyAndReturn({
      *   select: { id: true },
      *   data: [
      *     // ... provide data here
@@ -25673,28 +25673,28 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    createManyAndReturn<T extends CodexProviderUsageEventCreateManyAndReturnArgs>(args?: SelectSubset<T, CodexProviderUsageEventCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+    createManyAndReturn<T extends ProviderUsageEventCreateManyAndReturnArgs>(args?: SelectSubset<T, ProviderUsageEventCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Delete a CodexProviderUsageEvent.
-     * @param {CodexProviderUsageEventDeleteArgs} args - Arguments to delete one CodexProviderUsageEvent.
+     * Delete a ProviderUsageEvent.
+     * @param {ProviderUsageEventDeleteArgs} args - Arguments to delete one ProviderUsageEvent.
      * @example
-     * // Delete one CodexProviderUsageEvent
-     * const CodexProviderUsageEvent = await prisma.codexProviderUsageEvent.delete({
+     * // Delete one ProviderUsageEvent
+     * const ProviderUsageEvent = await prisma.providerUsageEvent.delete({
      *   where: {
-     *     // ... filter to delete one CodexProviderUsageEvent
+     *     // ... filter to delete one ProviderUsageEvent
      *   }
      * })
      * 
      */
-    delete<T extends CodexProviderUsageEventDeleteArgs>(args: SelectSubset<T, CodexProviderUsageEventDeleteArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    delete<T extends ProviderUsageEventDeleteArgs>(args: SelectSubset<T, ProviderUsageEventDeleteArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Update one CodexProviderUsageEvent.
-     * @param {CodexProviderUsageEventUpdateArgs} args - Arguments to update one CodexProviderUsageEvent.
+     * Update one ProviderUsageEvent.
+     * @param {ProviderUsageEventUpdateArgs} args - Arguments to update one ProviderUsageEvent.
      * @example
-     * // Update one CodexProviderUsageEvent
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.update({
+     * // Update one ProviderUsageEvent
+     * const providerUsageEvent = await prisma.providerUsageEvent.update({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -25704,30 +25704,30 @@ export namespace Prisma {
      * })
      * 
      */
-    update<T extends CodexProviderUsageEventUpdateArgs>(args: SelectSubset<T, CodexProviderUsageEventUpdateArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    update<T extends ProviderUsageEventUpdateArgs>(args: SelectSubset<T, ProviderUsageEventUpdateArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Delete zero or more CodexProviderUsageEvents.
-     * @param {CodexProviderUsageEventDeleteManyArgs} args - Arguments to filter CodexProviderUsageEvents to delete.
+     * Delete zero or more ProviderUsageEvents.
+     * @param {ProviderUsageEventDeleteManyArgs} args - Arguments to filter ProviderUsageEvents to delete.
      * @example
-     * // Delete a few CodexProviderUsageEvents
-     * const { count } = await prisma.codexProviderUsageEvent.deleteMany({
+     * // Delete a few ProviderUsageEvents
+     * const { count } = await prisma.providerUsageEvent.deleteMany({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      * 
      */
-    deleteMany<T extends CodexProviderUsageEventDeleteManyArgs>(args?: SelectSubset<T, CodexProviderUsageEventDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    deleteMany<T extends ProviderUsageEventDeleteManyArgs>(args?: SelectSubset<T, ProviderUsageEventDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more CodexProviderUsageEvents.
+     * Update zero or more ProviderUsageEvents.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventUpdateManyArgs} args - Arguments to update one or more rows.
+     * @param {ProviderUsageEventUpdateManyArgs} args - Arguments to update one or more rows.
      * @example
-     * // Update many CodexProviderUsageEvents
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.updateMany({
+     * // Update many ProviderUsageEvents
+     * const providerUsageEvent = await prisma.providerUsageEvent.updateMany({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -25737,14 +25737,14 @@ export namespace Prisma {
      * })
      * 
      */
-    updateMany<T extends CodexProviderUsageEventUpdateManyArgs>(args: SelectSubset<T, CodexProviderUsageEventUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    updateMany<T extends ProviderUsageEventUpdateManyArgs>(args: SelectSubset<T, ProviderUsageEventUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more CodexProviderUsageEvents and returns the data updated in the database.
-     * @param {CodexProviderUsageEventUpdateManyAndReturnArgs} args - Arguments to update many CodexProviderUsageEvents.
+     * Update zero or more ProviderUsageEvents and returns the data updated in the database.
+     * @param {ProviderUsageEventUpdateManyAndReturnArgs} args - Arguments to update many ProviderUsageEvents.
      * @example
-     * // Update many CodexProviderUsageEvents
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.updateManyAndReturn({
+     * // Update many ProviderUsageEvents
+     * const providerUsageEvent = await prisma.providerUsageEvent.updateManyAndReturn({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -25753,8 +25753,8 @@ export namespace Prisma {
      *   ]
      * })
      * 
-     * // Update zero or more CodexProviderUsageEvents and only return the `id`
-     * const codexProviderUsageEventWithIdOnly = await prisma.codexProviderUsageEvent.updateManyAndReturn({
+     * // Update zero or more ProviderUsageEvents and only return the `id`
+     * const providerUsageEventWithIdOnly = await prisma.providerUsageEvent.updateManyAndReturn({
      *   select: { id: true },
      *   where: {
      *     // ... provide filter here
@@ -25767,56 +25767,56 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    updateManyAndReturn<T extends CodexProviderUsageEventUpdateManyAndReturnArgs>(args: SelectSubset<T, CodexProviderUsageEventUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+    updateManyAndReturn<T extends ProviderUsageEventUpdateManyAndReturnArgs>(args: SelectSubset<T, ProviderUsageEventUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Create or update one CodexProviderUsageEvent.
-     * @param {CodexProviderUsageEventUpsertArgs} args - Arguments to update or create a CodexProviderUsageEvent.
+     * Create or update one ProviderUsageEvent.
+     * @param {ProviderUsageEventUpsertArgs} args - Arguments to update or create a ProviderUsageEvent.
      * @example
-     * // Update or create a CodexProviderUsageEvent
-     * const codexProviderUsageEvent = await prisma.codexProviderUsageEvent.upsert({
+     * // Update or create a ProviderUsageEvent
+     * const providerUsageEvent = await prisma.providerUsageEvent.upsert({
      *   create: {
-     *     // ... data to create a CodexProviderUsageEvent
+     *     // ... data to create a ProviderUsageEvent
      *   },
      *   update: {
      *     // ... in case it already exists, update
      *   },
      *   where: {
-     *     // ... the filter for the CodexProviderUsageEvent we want to update
+     *     // ... the filter for the ProviderUsageEvent we want to update
      *   }
      * })
      */
-    upsert<T extends CodexProviderUsageEventUpsertArgs>(args: SelectSubset<T, CodexProviderUsageEventUpsertArgs<ExtArgs>>): Prisma__CodexProviderUsageEventClient<$Result.GetResult<Prisma.$CodexProviderUsageEventPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    upsert<T extends ProviderUsageEventUpsertArgs>(args: SelectSubset<T, ProviderUsageEventUpsertArgs<ExtArgs>>): Prisma__ProviderUsageEventClient<$Result.GetResult<Prisma.$ProviderUsageEventPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
 
     /**
-     * Count the number of CodexProviderUsageEvents.
+     * Count the number of ProviderUsageEvents.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventCountArgs} args - Arguments to filter CodexProviderUsageEvents to count.
+     * @param {ProviderUsageEventCountArgs} args - Arguments to filter ProviderUsageEvents to count.
      * @example
-     * // Count the number of CodexProviderUsageEvents
-     * const count = await prisma.codexProviderUsageEvent.count({
+     * // Count the number of ProviderUsageEvents
+     * const count = await prisma.providerUsageEvent.count({
      *   where: {
-     *     // ... the filter for the CodexProviderUsageEvents we want to count
+     *     // ... the filter for the ProviderUsageEvents we want to count
      *   }
      * })
     **/
-    count<T extends CodexProviderUsageEventCountArgs>(
-      args?: Subset<T, CodexProviderUsageEventCountArgs>,
+    count<T extends ProviderUsageEventCountArgs>(
+      args?: Subset<T, ProviderUsageEventCountArgs>,
     ): Prisma.PrismaPromise<
       T extends $Utils.Record<'select', any>
         ? T['select'] extends true
           ? number
-          : GetScalarType<T['select'], CodexProviderUsageEventCountAggregateOutputType>
+          : GetScalarType<T['select'], ProviderUsageEventCountAggregateOutputType>
         : number
     >
 
     /**
-     * Allows you to perform aggregations operations on a CodexProviderUsageEvent.
+     * Allows you to perform aggregations operations on a ProviderUsageEvent.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @param {ProviderUsageEventAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
      * @example
      * // Ordered by age ascending
      * // Where email contains prisma.io
@@ -25836,13 +25836,13 @@ export namespace Prisma {
      *   take: 10,
      * })
     **/
-    aggregate<T extends CodexProviderUsageEventAggregateArgs>(args: Subset<T, CodexProviderUsageEventAggregateArgs>): Prisma.PrismaPromise<GetCodexProviderUsageEventAggregateType<T>>
+    aggregate<T extends ProviderUsageEventAggregateArgs>(args: Subset<T, ProviderUsageEventAggregateArgs>): Prisma.PrismaPromise<GetProviderUsageEventAggregateType<T>>
 
     /**
-     * Group by CodexProviderUsageEvent.
+     * Group by ProviderUsageEvent.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {CodexProviderUsageEventGroupByArgs} args - Group by arguments.
+     * @param {ProviderUsageEventGroupByArgs} args - Group by arguments.
      * @example
      * // Group by city, order by createdAt, get count
      * const result = await prisma.user.groupBy({
@@ -25857,14 +25857,14 @@ export namespace Prisma {
      * 
     **/
     groupBy<
-      T extends CodexProviderUsageEventGroupByArgs,
+      T extends ProviderUsageEventGroupByArgs,
       HasSelectOrTake extends Or<
         Extends<'skip', Keys<T>>,
         Extends<'take', Keys<T>>
       >,
       OrderByArg extends True extends HasSelectOrTake
-        ? { orderBy: CodexProviderUsageEventGroupByArgs['orderBy'] }
-        : { orderBy?: CodexProviderUsageEventGroupByArgs['orderBy'] },
+        ? { orderBy: ProviderUsageEventGroupByArgs['orderBy'] }
+        : { orderBy?: ProviderUsageEventGroupByArgs['orderBy'] },
       OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
       ByFields extends MaybeTupleToUnion<T['by']>,
       ByValid extends Has<ByFields, OrderFields>,
@@ -25913,20 +25913,20 @@ export namespace Prisma {
             ? never
             : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
         }[OrderFields]
-    >(args: SubsetIntersection<T, CodexProviderUsageEventGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetCodexProviderUsageEventGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+    >(args: SubsetIntersection<T, ProviderUsageEventGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetProviderUsageEventGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
   /**
-   * Fields of the CodexProviderUsageEvent model
+   * Fields of the ProviderUsageEvent model
    */
-  readonly fields: CodexProviderUsageEventFieldRefs;
+  readonly fields: ProviderUsageEventFieldRefs;
   }
 
   /**
-   * The delegate class that acts as a "Promise-like" for CodexProviderUsageEvent.
+   * The delegate class that acts as a "Promise-like" for ProviderUsageEvent.
    * Why is this prefixed with `Prisma__`?
    * Because we want to prevent naming conflicts as mentioned in
    * https://github.com/prisma/prisma-client-js/issues/707
    */
-  export interface Prisma__CodexProviderUsageEventClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+  export interface Prisma__ProviderUsageEventClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
     readonly [Symbol.toStringTag]: "PrismaPromise"
     /**
      * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -25954,397 +25954,397 @@ export namespace Prisma {
 
 
   /**
-   * Fields of the CodexProviderUsageEvent model
+   * Fields of the ProviderUsageEvent model
    */
-  interface CodexProviderUsageEventFieldRefs {
-    readonly id: FieldRef<"CodexProviderUsageEvent", 'BigInt'>
-    readonly event_id: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly source_kind: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly source_id: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly identity_key: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly llm_call_id: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly trace_id: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly run_id: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly canonical_request: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly wire_request: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly canonical_response: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly wire_response: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly raw_response: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly output_items: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly status: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly token_usage: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly model_name: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly model_provider: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly request_format_version: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly wire_provider_format: FieldRef<"CodexProviderUsageEvent", 'String'>
-    readonly processing_time_ms: FieldRef<"CodexProviderUsageEvent", 'Int'>
-    readonly metadata: FieldRef<"CodexProviderUsageEvent", 'Json'>
-    readonly created_at: FieldRef<"CodexProviderUsageEvent", 'DateTime'>
-    readonly completed_at: FieldRef<"CodexProviderUsageEvent", 'DateTime'>
-    readonly updated_at: FieldRef<"CodexProviderUsageEvent", 'DateTime'>
+  interface ProviderUsageEventFieldRefs {
+    readonly id: FieldRef<"ProviderUsageEvent", 'BigInt'>
+    readonly event_id: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly source_kind: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly source_id: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly identity_key: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly llm_call_id: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly trace_id: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly run_id: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly canonical_request: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly wire_request: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly canonical_response: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly wire_response: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly raw_response: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly output_items: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly status: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly token_usage: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly model_name: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly model_provider: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly request_format_version: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly wire_provider_format: FieldRef<"ProviderUsageEvent", 'String'>
+    readonly processing_time_ms: FieldRef<"ProviderUsageEvent", 'Int'>
+    readonly metadata: FieldRef<"ProviderUsageEvent", 'Json'>
+    readonly created_at: FieldRef<"ProviderUsageEvent", 'DateTime'>
+    readonly completed_at: FieldRef<"ProviderUsageEvent", 'DateTime'>
+    readonly updated_at: FieldRef<"ProviderUsageEvent", 'DateTime'>
   }
     
 
   // Custom InputTypes
   /**
-   * CodexProviderUsageEvent findUnique
+   * ProviderUsageEvent findUnique
    */
-  export type CodexProviderUsageEventFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * Filter, which CodexProviderUsageEvent to fetch.
+     * Filter, which ProviderUsageEvent to fetch.
      */
-    where: CodexProviderUsageEventWhereUniqueInput
+    where: ProviderUsageEventWhereUniqueInput
   }
 
   /**
-   * CodexProviderUsageEvent findUniqueOrThrow
+   * ProviderUsageEvent findUniqueOrThrow
    */
-  export type CodexProviderUsageEventFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * Filter, which CodexProviderUsageEvent to fetch.
+     * Filter, which ProviderUsageEvent to fetch.
      */
-    where: CodexProviderUsageEventWhereUniqueInput
+    where: ProviderUsageEventWhereUniqueInput
   }
 
   /**
-   * CodexProviderUsageEvent findFirst
+   * ProviderUsageEvent findFirst
    */
-  export type CodexProviderUsageEventFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * Filter, which CodexProviderUsageEvent to fetch.
+     * Filter, which ProviderUsageEvent to fetch.
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of CodexProviderUsageEvents to fetch.
+     * Determine the order of ProviderUsageEvents to fetch.
      */
-    orderBy?: CodexProviderUsageEventOrderByWithRelationInput | CodexProviderUsageEventOrderByWithRelationInput[]
+    orderBy?: ProviderUsageEventOrderByWithRelationInput | ProviderUsageEventOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for CodexProviderUsageEvents.
+     * Sets the position for searching for ProviderUsageEvents.
      */
-    cursor?: CodexProviderUsageEventWhereUniqueInput
+    cursor?: ProviderUsageEventWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` CodexProviderUsageEvents from the position of the cursor.
+     * Take `±n` ProviderUsageEvents from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` CodexProviderUsageEvents.
+     * Skip the first `n` ProviderUsageEvents.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of CodexProviderUsageEvents.
+     * Filter by unique combinations of ProviderUsageEvents.
      */
-    distinct?: CodexProviderUsageEventScalarFieldEnum | CodexProviderUsageEventScalarFieldEnum[]
+    distinct?: ProviderUsageEventScalarFieldEnum | ProviderUsageEventScalarFieldEnum[]
   }
 
   /**
-   * CodexProviderUsageEvent findFirstOrThrow
+   * ProviderUsageEvent findFirstOrThrow
    */
-  export type CodexProviderUsageEventFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * Filter, which CodexProviderUsageEvent to fetch.
+     * Filter, which ProviderUsageEvent to fetch.
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of CodexProviderUsageEvents to fetch.
+     * Determine the order of ProviderUsageEvents to fetch.
      */
-    orderBy?: CodexProviderUsageEventOrderByWithRelationInput | CodexProviderUsageEventOrderByWithRelationInput[]
+    orderBy?: ProviderUsageEventOrderByWithRelationInput | ProviderUsageEventOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for CodexProviderUsageEvents.
+     * Sets the position for searching for ProviderUsageEvents.
      */
-    cursor?: CodexProviderUsageEventWhereUniqueInput
+    cursor?: ProviderUsageEventWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` CodexProviderUsageEvents from the position of the cursor.
+     * Take `±n` ProviderUsageEvents from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` CodexProviderUsageEvents.
+     * Skip the first `n` ProviderUsageEvents.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of CodexProviderUsageEvents.
+     * Filter by unique combinations of ProviderUsageEvents.
      */
-    distinct?: CodexProviderUsageEventScalarFieldEnum | CodexProviderUsageEventScalarFieldEnum[]
+    distinct?: ProviderUsageEventScalarFieldEnum | ProviderUsageEventScalarFieldEnum[]
   }
 
   /**
-   * CodexProviderUsageEvent findMany
+   * ProviderUsageEvent findMany
    */
-  export type CodexProviderUsageEventFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * Filter, which CodexProviderUsageEvents to fetch.
+     * Filter, which ProviderUsageEvents to fetch.
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of CodexProviderUsageEvents to fetch.
+     * Determine the order of ProviderUsageEvents to fetch.
      */
-    orderBy?: CodexProviderUsageEventOrderByWithRelationInput | CodexProviderUsageEventOrderByWithRelationInput[]
+    orderBy?: ProviderUsageEventOrderByWithRelationInput | ProviderUsageEventOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for listing CodexProviderUsageEvents.
+     * Sets the position for listing ProviderUsageEvents.
      */
-    cursor?: CodexProviderUsageEventWhereUniqueInput
+    cursor?: ProviderUsageEventWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` CodexProviderUsageEvents from the position of the cursor.
+     * Take `±n` ProviderUsageEvents from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` CodexProviderUsageEvents.
+     * Skip the first `n` ProviderUsageEvents.
      */
     skip?: number
-    distinct?: CodexProviderUsageEventScalarFieldEnum | CodexProviderUsageEventScalarFieldEnum[]
+    distinct?: ProviderUsageEventScalarFieldEnum | ProviderUsageEventScalarFieldEnum[]
   }
 
   /**
-   * CodexProviderUsageEvent create
+   * ProviderUsageEvent create
    */
-  export type CodexProviderUsageEventCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * The data needed to create a CodexProviderUsageEvent.
+     * The data needed to create a ProviderUsageEvent.
      */
-    data: XOR<CodexProviderUsageEventCreateInput, CodexProviderUsageEventUncheckedCreateInput>
+    data: XOR<ProviderUsageEventCreateInput, ProviderUsageEventUncheckedCreateInput>
   }
 
   /**
-   * CodexProviderUsageEvent createMany
+   * ProviderUsageEvent createMany
    */
-  export type CodexProviderUsageEventCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to create many CodexProviderUsageEvents.
+     * The data used to create many ProviderUsageEvents.
      */
-    data: CodexProviderUsageEventCreateManyInput | CodexProviderUsageEventCreateManyInput[]
+    data: ProviderUsageEventCreateManyInput | ProviderUsageEventCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * CodexProviderUsageEvent createManyAndReturn
+   * ProviderUsageEvent createManyAndReturn
    */
-  export type CodexProviderUsageEventCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelectCreateManyAndReturn<ExtArgs> | null
+    select?: ProviderUsageEventSelectCreateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * The data used to create many CodexProviderUsageEvents.
+     * The data used to create many ProviderUsageEvents.
      */
-    data: CodexProviderUsageEventCreateManyInput | CodexProviderUsageEventCreateManyInput[]
+    data: ProviderUsageEventCreateManyInput | ProviderUsageEventCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * CodexProviderUsageEvent update
+   * ProviderUsageEvent update
    */
-  export type CodexProviderUsageEventUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * The data needed to update a CodexProviderUsageEvent.
+     * The data needed to update a ProviderUsageEvent.
      */
-    data: XOR<CodexProviderUsageEventUpdateInput, CodexProviderUsageEventUncheckedUpdateInput>
+    data: XOR<ProviderUsageEventUpdateInput, ProviderUsageEventUncheckedUpdateInput>
     /**
-     * Choose, which CodexProviderUsageEvent to update.
+     * Choose, which ProviderUsageEvent to update.
      */
-    where: CodexProviderUsageEventWhereUniqueInput
+    where: ProviderUsageEventWhereUniqueInput
   }
 
   /**
-   * CodexProviderUsageEvent updateMany
+   * ProviderUsageEvent updateMany
    */
-  export type CodexProviderUsageEventUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to update CodexProviderUsageEvents.
+     * The data used to update ProviderUsageEvents.
      */
-    data: XOR<CodexProviderUsageEventUpdateManyMutationInput, CodexProviderUsageEventUncheckedUpdateManyInput>
+    data: XOR<ProviderUsageEventUpdateManyMutationInput, ProviderUsageEventUncheckedUpdateManyInput>
     /**
-     * Filter which CodexProviderUsageEvents to update
+     * Filter which ProviderUsageEvents to update
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
-     * Limit how many CodexProviderUsageEvents to update.
+     * Limit how many ProviderUsageEvents to update.
      */
     limit?: number
   }
 
   /**
-   * CodexProviderUsageEvent updateManyAndReturn
+   * ProviderUsageEvent updateManyAndReturn
    */
-  export type CodexProviderUsageEventUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelectUpdateManyAndReturn<ExtArgs> | null
+    select?: ProviderUsageEventSelectUpdateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * The data used to update CodexProviderUsageEvents.
+     * The data used to update ProviderUsageEvents.
      */
-    data: XOR<CodexProviderUsageEventUpdateManyMutationInput, CodexProviderUsageEventUncheckedUpdateManyInput>
+    data: XOR<ProviderUsageEventUpdateManyMutationInput, ProviderUsageEventUncheckedUpdateManyInput>
     /**
-     * Filter which CodexProviderUsageEvents to update
+     * Filter which ProviderUsageEvents to update
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
-     * Limit how many CodexProviderUsageEvents to update.
+     * Limit how many ProviderUsageEvents to update.
      */
     limit?: number
   }
 
   /**
-   * CodexProviderUsageEvent upsert
+   * ProviderUsageEvent upsert
    */
-  export type CodexProviderUsageEventUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * The filter to search for the CodexProviderUsageEvent to update in case it exists.
+     * The filter to search for the ProviderUsageEvent to update in case it exists.
      */
-    where: CodexProviderUsageEventWhereUniqueInput
+    where: ProviderUsageEventWhereUniqueInput
     /**
-     * In case the CodexProviderUsageEvent found by the `where` argument doesn't exist, create a new CodexProviderUsageEvent with this data.
+     * In case the ProviderUsageEvent found by the `where` argument doesn't exist, create a new ProviderUsageEvent with this data.
      */
-    create: XOR<CodexProviderUsageEventCreateInput, CodexProviderUsageEventUncheckedCreateInput>
+    create: XOR<ProviderUsageEventCreateInput, ProviderUsageEventUncheckedCreateInput>
     /**
-     * In case the CodexProviderUsageEvent was found with the provided `where` argument, update it with this data.
+     * In case the ProviderUsageEvent was found with the provided `where` argument, update it with this data.
      */
-    update: XOR<CodexProviderUsageEventUpdateInput, CodexProviderUsageEventUncheckedUpdateInput>
+    update: XOR<ProviderUsageEventUpdateInput, ProviderUsageEventUncheckedUpdateInput>
   }
 
   /**
-   * CodexProviderUsageEvent delete
+   * ProviderUsageEvent delete
    */
-  export type CodexProviderUsageEventDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
     /**
-     * Filter which CodexProviderUsageEvent to delete.
+     * Filter which ProviderUsageEvent to delete.
      */
-    where: CodexProviderUsageEventWhereUniqueInput
+    where: ProviderUsageEventWhereUniqueInput
   }
 
   /**
-   * CodexProviderUsageEvent deleteMany
+   * ProviderUsageEvent deleteMany
    */
-  export type CodexProviderUsageEventDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which CodexProviderUsageEvents to delete
+     * Filter which ProviderUsageEvents to delete
      */
-    where?: CodexProviderUsageEventWhereInput
+    where?: ProviderUsageEventWhereInput
     /**
-     * Limit how many CodexProviderUsageEvents to delete.
+     * Limit how many ProviderUsageEvents to delete.
      */
     limit?: number
   }
 
   /**
-   * CodexProviderUsageEvent without action
+   * ProviderUsageEvent without action
    */
-  export type CodexProviderUsageEventDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type ProviderUsageEventDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the CodexProviderUsageEvent
+     * Select specific fields to fetch from the ProviderUsageEvent
      */
-    select?: CodexProviderUsageEventSelect<ExtArgs> | null
+    select?: ProviderUsageEventSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the CodexProviderUsageEvent
+     * Omit specific fields from the ProviderUsageEvent
      */
-    omit?: CodexProviderUsageEventOmit<ExtArgs> | null
+    omit?: ProviderUsageEventOmit<ExtArgs> | null
   }
 
 
@@ -98797,7 +98797,7 @@ export namespace Prisma {
   export type LlmRequestSliceScalarFieldEnum = (typeof LlmRequestSliceScalarFieldEnum)[keyof typeof LlmRequestSliceScalarFieldEnum]
 
 
-  export const CodexProviderUsageEventScalarFieldEnum: {
+  export const ProviderUsageEventScalarFieldEnum: {
     id: 'id',
     event_id: 'event_id',
     source_kind: 'source_kind',
@@ -98825,7 +98825,7 @@ export namespace Prisma {
     updated_at: 'updated_at'
   };
 
-  export type CodexProviderUsageEventScalarFieldEnum = (typeof CodexProviderUsageEventScalarFieldEnum)[keyof typeof CodexProviderUsageEventScalarFieldEnum]
+  export type ProviderUsageEventScalarFieldEnum = (typeof ProviderUsageEventScalarFieldEnum)[keyof typeof ProviderUsageEventScalarFieldEnum]
 
 
   export const LlmUsageRollupSourceScalarFieldEnum: {
@@ -102167,38 +102167,38 @@ export namespace Prisma {
     updated_at?: DateTimeWithAggregatesFilter<"LlmRequestSlice"> | Date | string
   }
 
-  export type CodexProviderUsageEventWhereInput = {
-    AND?: CodexProviderUsageEventWhereInput | CodexProviderUsageEventWhereInput[]
-    OR?: CodexProviderUsageEventWhereInput[]
-    NOT?: CodexProviderUsageEventWhereInput | CodexProviderUsageEventWhereInput[]
-    id?: BigIntFilter<"CodexProviderUsageEvent"> | bigint | number
-    event_id?: StringFilter<"CodexProviderUsageEvent"> | string
-    source_kind?: StringFilter<"CodexProviderUsageEvent"> | string
-    source_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    identity_key?: StringFilter<"CodexProviderUsageEvent"> | string
-    llm_call_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    trace_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    run_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    canonical_request?: JsonFilter<"CodexProviderUsageEvent">
-    wire_request?: JsonNullableFilter<"CodexProviderUsageEvent">
-    canonical_response?: JsonNullableFilter<"CodexProviderUsageEvent">
-    wire_response?: JsonNullableFilter<"CodexProviderUsageEvent">
-    raw_response?: JsonNullableFilter<"CodexProviderUsageEvent">
-    output_items?: JsonFilter<"CodexProviderUsageEvent">
-    status?: StringFilter<"CodexProviderUsageEvent"> | string
-    token_usage?: JsonFilter<"CodexProviderUsageEvent">
-    model_name?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    model_provider?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    request_format_version?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    wire_provider_format?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    processing_time_ms?: IntNullableFilter<"CodexProviderUsageEvent"> | number | null
-    metadata?: JsonFilter<"CodexProviderUsageEvent">
-    created_at?: DateTimeFilter<"CodexProviderUsageEvent"> | Date | string
-    completed_at?: DateTimeNullableFilter<"CodexProviderUsageEvent"> | Date | string | null
-    updated_at?: DateTimeFilter<"CodexProviderUsageEvent"> | Date | string
+  export type ProviderUsageEventWhereInput = {
+    AND?: ProviderUsageEventWhereInput | ProviderUsageEventWhereInput[]
+    OR?: ProviderUsageEventWhereInput[]
+    NOT?: ProviderUsageEventWhereInput | ProviderUsageEventWhereInput[]
+    id?: BigIntFilter<"ProviderUsageEvent"> | bigint | number
+    event_id?: StringFilter<"ProviderUsageEvent"> | string
+    source_kind?: StringFilter<"ProviderUsageEvent"> | string
+    source_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    identity_key?: StringFilter<"ProviderUsageEvent"> | string
+    llm_call_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    trace_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    run_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    canonical_request?: JsonFilter<"ProviderUsageEvent">
+    wire_request?: JsonNullableFilter<"ProviderUsageEvent">
+    canonical_response?: JsonNullableFilter<"ProviderUsageEvent">
+    wire_response?: JsonNullableFilter<"ProviderUsageEvent">
+    raw_response?: JsonNullableFilter<"ProviderUsageEvent">
+    output_items?: JsonFilter<"ProviderUsageEvent">
+    status?: StringFilter<"ProviderUsageEvent"> | string
+    token_usage?: JsonFilter<"ProviderUsageEvent">
+    model_name?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    model_provider?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    request_format_version?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    wire_provider_format?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    processing_time_ms?: IntNullableFilter<"ProviderUsageEvent"> | number | null
+    metadata?: JsonFilter<"ProviderUsageEvent">
+    created_at?: DateTimeFilter<"ProviderUsageEvent"> | Date | string
+    completed_at?: DateTimeNullableFilter<"ProviderUsageEvent"> | Date | string | null
+    updated_at?: DateTimeFilter<"ProviderUsageEvent"> | Date | string
   }
 
-  export type CodexProviderUsageEventOrderByWithRelationInput = {
+  export type ProviderUsageEventOrderByWithRelationInput = {
     id?: SortOrder
     event_id?: SortOrder
     source_kind?: SortOrder
@@ -102226,38 +102226,38 @@ export namespace Prisma {
     updated_at?: SortOrder
   }
 
-  export type CodexProviderUsageEventWhereUniqueInput = Prisma.AtLeast<{
+  export type ProviderUsageEventWhereUniqueInput = Prisma.AtLeast<{
     id?: bigint | number
     event_id?: string
-    AND?: CodexProviderUsageEventWhereInput | CodexProviderUsageEventWhereInput[]
-    OR?: CodexProviderUsageEventWhereInput[]
-    NOT?: CodexProviderUsageEventWhereInput | CodexProviderUsageEventWhereInput[]
-    source_kind?: StringFilter<"CodexProviderUsageEvent"> | string
-    source_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    identity_key?: StringFilter<"CodexProviderUsageEvent"> | string
-    llm_call_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    trace_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    run_id?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    canonical_request?: JsonFilter<"CodexProviderUsageEvent">
-    wire_request?: JsonNullableFilter<"CodexProviderUsageEvent">
-    canonical_response?: JsonNullableFilter<"CodexProviderUsageEvent">
-    wire_response?: JsonNullableFilter<"CodexProviderUsageEvent">
-    raw_response?: JsonNullableFilter<"CodexProviderUsageEvent">
-    output_items?: JsonFilter<"CodexProviderUsageEvent">
-    status?: StringFilter<"CodexProviderUsageEvent"> | string
-    token_usage?: JsonFilter<"CodexProviderUsageEvent">
-    model_name?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    model_provider?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    request_format_version?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    wire_provider_format?: StringNullableFilter<"CodexProviderUsageEvent"> | string | null
-    processing_time_ms?: IntNullableFilter<"CodexProviderUsageEvent"> | number | null
-    metadata?: JsonFilter<"CodexProviderUsageEvent">
-    created_at?: DateTimeFilter<"CodexProviderUsageEvent"> | Date | string
-    completed_at?: DateTimeNullableFilter<"CodexProviderUsageEvent"> | Date | string | null
-    updated_at?: DateTimeFilter<"CodexProviderUsageEvent"> | Date | string
+    AND?: ProviderUsageEventWhereInput | ProviderUsageEventWhereInput[]
+    OR?: ProviderUsageEventWhereInput[]
+    NOT?: ProviderUsageEventWhereInput | ProviderUsageEventWhereInput[]
+    source_kind?: StringFilter<"ProviderUsageEvent"> | string
+    source_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    identity_key?: StringFilter<"ProviderUsageEvent"> | string
+    llm_call_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    trace_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    run_id?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    canonical_request?: JsonFilter<"ProviderUsageEvent">
+    wire_request?: JsonNullableFilter<"ProviderUsageEvent">
+    canonical_response?: JsonNullableFilter<"ProviderUsageEvent">
+    wire_response?: JsonNullableFilter<"ProviderUsageEvent">
+    raw_response?: JsonNullableFilter<"ProviderUsageEvent">
+    output_items?: JsonFilter<"ProviderUsageEvent">
+    status?: StringFilter<"ProviderUsageEvent"> | string
+    token_usage?: JsonFilter<"ProviderUsageEvent">
+    model_name?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    model_provider?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    request_format_version?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    wire_provider_format?: StringNullableFilter<"ProviderUsageEvent"> | string | null
+    processing_time_ms?: IntNullableFilter<"ProviderUsageEvent"> | number | null
+    metadata?: JsonFilter<"ProviderUsageEvent">
+    created_at?: DateTimeFilter<"ProviderUsageEvent"> | Date | string
+    completed_at?: DateTimeNullableFilter<"ProviderUsageEvent"> | Date | string | null
+    updated_at?: DateTimeFilter<"ProviderUsageEvent"> | Date | string
   }, "id" | "event_id">
 
-  export type CodexProviderUsageEventOrderByWithAggregationInput = {
+  export type ProviderUsageEventOrderByWithAggregationInput = {
     id?: SortOrder
     event_id?: SortOrder
     source_kind?: SortOrder
@@ -102283,42 +102283,42 @@ export namespace Prisma {
     created_at?: SortOrder
     completed_at?: SortOrderInput | SortOrder
     updated_at?: SortOrder
-    _count?: CodexProviderUsageEventCountOrderByAggregateInput
-    _avg?: CodexProviderUsageEventAvgOrderByAggregateInput
-    _max?: CodexProviderUsageEventMaxOrderByAggregateInput
-    _min?: CodexProviderUsageEventMinOrderByAggregateInput
-    _sum?: CodexProviderUsageEventSumOrderByAggregateInput
+    _count?: ProviderUsageEventCountOrderByAggregateInput
+    _avg?: ProviderUsageEventAvgOrderByAggregateInput
+    _max?: ProviderUsageEventMaxOrderByAggregateInput
+    _min?: ProviderUsageEventMinOrderByAggregateInput
+    _sum?: ProviderUsageEventSumOrderByAggregateInput
   }
 
-  export type CodexProviderUsageEventScalarWhereWithAggregatesInput = {
-    AND?: CodexProviderUsageEventScalarWhereWithAggregatesInput | CodexProviderUsageEventScalarWhereWithAggregatesInput[]
-    OR?: CodexProviderUsageEventScalarWhereWithAggregatesInput[]
-    NOT?: CodexProviderUsageEventScalarWhereWithAggregatesInput | CodexProviderUsageEventScalarWhereWithAggregatesInput[]
-    id?: BigIntWithAggregatesFilter<"CodexProviderUsageEvent"> | bigint | number
-    event_id?: StringWithAggregatesFilter<"CodexProviderUsageEvent"> | string
-    source_kind?: StringWithAggregatesFilter<"CodexProviderUsageEvent"> | string
-    source_id?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    identity_key?: StringWithAggregatesFilter<"CodexProviderUsageEvent"> | string
-    llm_call_id?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    trace_id?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    run_id?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    canonical_request?: JsonWithAggregatesFilter<"CodexProviderUsageEvent">
-    wire_request?: JsonNullableWithAggregatesFilter<"CodexProviderUsageEvent">
-    canonical_response?: JsonNullableWithAggregatesFilter<"CodexProviderUsageEvent">
-    wire_response?: JsonNullableWithAggregatesFilter<"CodexProviderUsageEvent">
-    raw_response?: JsonNullableWithAggregatesFilter<"CodexProviderUsageEvent">
-    output_items?: JsonWithAggregatesFilter<"CodexProviderUsageEvent">
-    status?: StringWithAggregatesFilter<"CodexProviderUsageEvent"> | string
-    token_usage?: JsonWithAggregatesFilter<"CodexProviderUsageEvent">
-    model_name?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    model_provider?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    request_format_version?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    wire_provider_format?: StringNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | string | null
-    processing_time_ms?: IntNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | number | null
-    metadata?: JsonWithAggregatesFilter<"CodexProviderUsageEvent">
-    created_at?: DateTimeWithAggregatesFilter<"CodexProviderUsageEvent"> | Date | string
-    completed_at?: DateTimeNullableWithAggregatesFilter<"CodexProviderUsageEvent"> | Date | string | null
-    updated_at?: DateTimeWithAggregatesFilter<"CodexProviderUsageEvent"> | Date | string
+  export type ProviderUsageEventScalarWhereWithAggregatesInput = {
+    AND?: ProviderUsageEventScalarWhereWithAggregatesInput | ProviderUsageEventScalarWhereWithAggregatesInput[]
+    OR?: ProviderUsageEventScalarWhereWithAggregatesInput[]
+    NOT?: ProviderUsageEventScalarWhereWithAggregatesInput | ProviderUsageEventScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"ProviderUsageEvent"> | bigint | number
+    event_id?: StringWithAggregatesFilter<"ProviderUsageEvent"> | string
+    source_kind?: StringWithAggregatesFilter<"ProviderUsageEvent"> | string
+    source_id?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    identity_key?: StringWithAggregatesFilter<"ProviderUsageEvent"> | string
+    llm_call_id?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    trace_id?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    canonical_request?: JsonWithAggregatesFilter<"ProviderUsageEvent">
+    wire_request?: JsonNullableWithAggregatesFilter<"ProviderUsageEvent">
+    canonical_response?: JsonNullableWithAggregatesFilter<"ProviderUsageEvent">
+    wire_response?: JsonNullableWithAggregatesFilter<"ProviderUsageEvent">
+    raw_response?: JsonNullableWithAggregatesFilter<"ProviderUsageEvent">
+    output_items?: JsonWithAggregatesFilter<"ProviderUsageEvent">
+    status?: StringWithAggregatesFilter<"ProviderUsageEvent"> | string
+    token_usage?: JsonWithAggregatesFilter<"ProviderUsageEvent">
+    model_name?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    model_provider?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    request_format_version?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    wire_provider_format?: StringNullableWithAggregatesFilter<"ProviderUsageEvent"> | string | null
+    processing_time_ms?: IntNullableWithAggregatesFilter<"ProviderUsageEvent"> | number | null
+    metadata?: JsonWithAggregatesFilter<"ProviderUsageEvent">
+    created_at?: DateTimeWithAggregatesFilter<"ProviderUsageEvent"> | Date | string
+    completed_at?: DateTimeNullableWithAggregatesFilter<"ProviderUsageEvent"> | Date | string | null
+    updated_at?: DateTimeWithAggregatesFilter<"ProviderUsageEvent"> | Date | string
   }
 
   export type LlmUsageRollupSourceWhereInput = {
@@ -111529,7 +111529,7 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type CodexProviderUsageEventCreateInput = {
+  export type ProviderUsageEventCreateInput = {
     id?: bigint | number
     event_id: string
     source_kind?: string
@@ -111557,7 +111557,7 @@ export namespace Prisma {
     updated_at?: Date | string
   }
 
-  export type CodexProviderUsageEventUncheckedCreateInput = {
+  export type ProviderUsageEventUncheckedCreateInput = {
     id?: bigint | number
     event_id: string
     source_kind?: string
@@ -111585,7 +111585,7 @@ export namespace Prisma {
     updated_at?: Date | string
   }
 
-  export type CodexProviderUsageEventUpdateInput = {
+  export type ProviderUsageEventUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     event_id?: StringFieldUpdateOperationsInput | string
     source_kind?: StringFieldUpdateOperationsInput | string
@@ -111613,7 +111613,7 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type CodexProviderUsageEventUncheckedUpdateInput = {
+  export type ProviderUsageEventUncheckedUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     event_id?: StringFieldUpdateOperationsInput | string
     source_kind?: StringFieldUpdateOperationsInput | string
@@ -111641,7 +111641,7 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type CodexProviderUsageEventCreateManyInput = {
+  export type ProviderUsageEventCreateManyInput = {
     id?: bigint | number
     event_id: string
     source_kind?: string
@@ -111669,7 +111669,7 @@ export namespace Prisma {
     updated_at?: Date | string
   }
 
-  export type CodexProviderUsageEventUpdateManyMutationInput = {
+  export type ProviderUsageEventUpdateManyMutationInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     event_id?: StringFieldUpdateOperationsInput | string
     source_kind?: StringFieldUpdateOperationsInput | string
@@ -111697,7 +111697,7 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type CodexProviderUsageEventUncheckedUpdateManyInput = {
+  export type ProviderUsageEventUncheckedUpdateManyInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     event_id?: StringFieldUpdateOperationsInput | string
     source_kind?: StringFieldUpdateOperationsInput | string
@@ -121856,7 +121856,7 @@ export namespace Prisma {
     processing_time_ms?: SortOrder
   }
 
-  export type CodexProviderUsageEventCountOrderByAggregateInput = {
+  export type ProviderUsageEventCountOrderByAggregateInput = {
     id?: SortOrder
     event_id?: SortOrder
     source_kind?: SortOrder
@@ -121884,32 +121884,12 @@ export namespace Prisma {
     updated_at?: SortOrder
   }
 
-  export type CodexProviderUsageEventAvgOrderByAggregateInput = {
+  export type ProviderUsageEventAvgOrderByAggregateInput = {
     id?: SortOrder
     processing_time_ms?: SortOrder
   }
 
-  export type CodexProviderUsageEventMaxOrderByAggregateInput = {
-    id?: SortOrder
-    event_id?: SortOrder
-    source_kind?: SortOrder
-    source_id?: SortOrder
-    identity_key?: SortOrder
-    llm_call_id?: SortOrder
-    trace_id?: SortOrder
-    run_id?: SortOrder
-    status?: SortOrder
-    model_name?: SortOrder
-    model_provider?: SortOrder
-    request_format_version?: SortOrder
-    wire_provider_format?: SortOrder
-    processing_time_ms?: SortOrder
-    created_at?: SortOrder
-    completed_at?: SortOrder
-    updated_at?: SortOrder
-  }
-
-  export type CodexProviderUsageEventMinOrderByAggregateInput = {
+  export type ProviderUsageEventMaxOrderByAggregateInput = {
     id?: SortOrder
     event_id?: SortOrder
     source_kind?: SortOrder
@@ -121929,7 +121909,27 @@ export namespace Prisma {
     updated_at?: SortOrder
   }
 
-  export type CodexProviderUsageEventSumOrderByAggregateInput = {
+  export type ProviderUsageEventMinOrderByAggregateInput = {
+    id?: SortOrder
+    event_id?: SortOrder
+    source_kind?: SortOrder
+    source_id?: SortOrder
+    identity_key?: SortOrder
+    llm_call_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    status?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ProviderUsageEventSumOrderByAggregateInput = {
     id?: SortOrder
     processing_time_ms?: SortOrder
   }

@@ -487,7 +487,7 @@ function buildUsageSearchQuery({ scope, pattern, identityKey, timeWhere, searchL
           FROM failure_review_fork_slices WHERE identity_key = ? ${timeWhere.clause}
           UNION ALL
           SELECT event_id AS slice_id, source_kind, source_id AS fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
-          FROM codex_provider_usage_events WHERE identity_key = ? ${timeWhere.clause}
+          FROM provider_usage_events WHERE identity_key = ? ${timeWhere.clause}
         )
         SELECT
           slice_id AS llm_request_slice_id,
@@ -710,14 +710,14 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       ${tokenSql.input} AS input_tokens,
       ${tokenSql.cached} AS cached_tokens,
       ${tokenSql.output} AS output_tokens
-    FROM codex_provider_usage_events
+    FROM provider_usage_events
     WHERE NOT (
       source_kind = 'core_memory_compression_fork'
       AND llm_call_id IS NOT NULL
       AND EXISTS (
         SELECT 1
         FROM core_memory_compression_fork_slices
-        WHERE core_memory_compression_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+        WHERE core_memory_compression_fork_slices.llm_call_id = provider_usage_events.llm_call_id
       )
     )
     AND NOT (
@@ -726,7 +726,7 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       AND EXISTS (
         SELECT 1
         FROM subconscious_agent_fork_slices
-        WHERE subconscious_agent_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+        WHERE subconscious_agent_fork_slices.llm_call_id = provider_usage_events.llm_call_id
       )
     )
     AND NOT (
@@ -735,7 +735,7 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       AND EXISTS (
         SELECT 1
         FROM psych_assessment_fork_slices
-        WHERE psych_assessment_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+        WHERE psych_assessment_fork_slices.llm_call_id = provider_usage_events.llm_call_id
       )
     )
     AND NOT (
@@ -744,7 +744,7 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       AND EXISTS (
         SELECT 1
         FROM failure_review_fork_slices
-        WHERE failure_review_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+        WHERE failure_review_fork_slices.llm_call_id = provider_usage_events.llm_call_id
       )
     )
     AND NOT (
@@ -753,7 +753,7 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       AND EXISTS (
         SELECT 1
         FROM image_vision_fork_slices
-        WHERE image_vision_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+        WHERE image_vision_fork_slices.llm_call_id = provider_usage_events.llm_call_id
       )
     )
     -- 生图/改图/生图 prompt 助手不进 LLM Cost 聚合：它们是按图计费的 image 请求，
@@ -1011,7 +1011,7 @@ function normalizeCompressionForkSliceRow(row) {
   } : null;
 }
 
-function normalizeCodexProviderUsageEventRow(row) {
+function normalizeProviderUsageEventRow(row) {
   if (!row) {
     return null;
   }
@@ -1174,7 +1174,7 @@ function buildSubconsciousForkItemEventId(forkRunId, item, indexHint) {
     || `subconscious-fork-stack:${forkRunId}:${indexHint}:${randomUUID().slice(0, 8)}`;
 }
 
-function normalizeCodexProviderUsageSourceKind(value) {
+function normalizeProviderUsageSourceKind(value) {
   const raw = firstString(value, USAGE_SOURCE_CODEX_PROVIDER);
   const normalized = raw
     .toLowerCase()
@@ -1184,12 +1184,12 @@ function normalizeCodexProviderUsageSourceKind(value) {
   return (normalized || USAGE_SOURCE_CODEX_PROVIDER).slice(0, 32);
 }
 
-function buildCodexProviderUsageEventId(input = {}) {
+function buildProviderUsageEventId(input = {}) {
   const explicit = firstString(input.eventId, input.event_id, input.sliceId, input.slice_id);
   if (explicit) {
     return explicit.slice(0, 191);
   }
-  const sourceKind = normalizeCodexProviderUsageSourceKind(input.sourceKind ?? input.source_kind);
+  const sourceKind = normalizeProviderUsageSourceKind(input.sourceKind ?? input.source_kind);
   const llmCallId = firstString(input.llmCallId, input.llm_call_id);
   if (llmCallId) {
     return `codex-provider:${llmCallId}`.slice(0, 191);
@@ -1426,7 +1426,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               COALESCE((SELECT MAX(id) FROM psych_assessment_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM image_vision_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM failure_review_fork_slices), 0),
-              COALESCE((SELECT MAX(id) FROM codex_provider_usage_events), 0)
+              COALESCE((SELECT MAX(id) FROM provider_usage_events), 0)
             ),
             source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
             updated_at = CURRENT_TIMESTAMP
@@ -1772,7 +1772,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       `
         UPDATE llm_usage_rollup_state
         SET
-          source_max_id = GREATEST(source_max_id, COALESCE((SELECT id FROM codex_provider_usage_events WHERE event_id = ?), 0)),
+          source_max_id = GREATEST(source_max_id, COALESCE((SELECT id FROM provider_usage_events WHERE event_id = ?), 0)),
           source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
           updated_at = CURRENT_TIMESTAMP
         WHERE identity_key = ?
@@ -1859,8 +1859,67 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
+        // 旧名 `codex_provider_usage_events` → `provider_usage_events` 的幂等自迁移。
+        // **必须排在下面那条 CREATE TABLE IF NOT EXISTS 之前**：否则新代码一上线就会
+        // 建出一张空的 provider_usage_events，而历史行全留在旧表里(2026-09-08 实测 32816 行,model_provider 全部是 anthropic)。
+        // 改名的理由:这张表 2026-06-13 为 codex image provider 的用量而建(commit 8ef41a2c),
+        // 但那部分用量后来被明确排除出 LLM Cost 聚合(按图计费,token 口径不可比)。它实际装的
+        // 一直是「没有专属 slice 账本的 anthropic 调用」——心跳、xiaoni_os 监督者、召回两条腿,
+        // 一条 codex 都没有。名字和内容脱节到会把人带沟里。
+        // 索引/约束/序列名在 ALTER TABLE RENAME 后**不会**跟着改,要逐个改;
+        // 不改的话下面那几条 CREATE INDEX IF NOT EXISTS 会按新名字再建一套重复索引。
+        //
+        // 每条改名**两边都要守**(旧名在 AND 新名不在)。只守旧名会在「新旧表并存」时炸:
+        // 新代码改完名后,还跑着旧代码的服务会用 CREATE TABLE IF NOT EXISTS 重建一张旧名表
+        // 并带上一套 idx_codex_provider_usage_* 索引 —— 这时旧名和新名同时存在,裸的
+        // ALTER INDEX ... RENAME 抛 `relation "idx_provider_usage_identity_time" already exists`,
+        // 整个 ensureXiaoniAgentStackSchema 事务回滚,于是**每一次持久化调用都失败**。
+        // 2026-09-08 实测踩过,在隔离库复现并对照验证过(旧写法炸 / 现写法通过)。
         `
-          CREATE TABLE IF NOT EXISTS codex_provider_usage_events (
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'codex_provider_usage_events'
+            ) AND NOT EXISTS (
+              SELECT 1 FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'provider_usage_events'
+            ) THEN
+              EXECUTE 'ALTER TABLE codex_provider_usage_events RENAME TO provider_usage_events';
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_codex_provider_usage_identity_time')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_provider_usage_identity_time') THEN
+              EXECUTE 'ALTER INDEX idx_codex_provider_usage_identity_time RENAME TO idx_provider_usage_identity_time';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_codex_provider_usage_source_time')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_provider_usage_source_time') THEN
+              EXECUTE 'ALTER INDEX idx_codex_provider_usage_source_time RENAME TO idx_provider_usage_source_time';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_codex_provider_usage_trace')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_provider_usage_trace') THEN
+              EXECUTE 'ALTER INDEX idx_codex_provider_usage_trace RENAME TO idx_provider_usage_trace';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_codex_provider_usage_llm_call')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_provider_usage_llm_call') THEN
+              EXECUTE 'ALTER INDEX idx_codex_provider_usage_llm_call RENAME TO idx_provider_usage_llm_call';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'codex_provider_usage_events_pkey')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'provider_usage_events_pkey') THEN
+              EXECUTE 'ALTER INDEX codex_provider_usage_events_pkey RENAME TO provider_usage_events_pkey';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'codex_provider_usage_events_event_id_key')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'provider_usage_events_event_id_key') THEN
+              EXECUTE 'ALTER INDEX codex_provider_usage_events_event_id_key RENAME TO provider_usage_events_event_id_key';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'codex_provider_usage_events_id_seq')
+               AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'provider_usage_events_id_seq') THEN
+              EXECUTE 'ALTER SEQUENCE codex_provider_usage_events_id_seq RENAME TO provider_usage_events_id_seq';
+            END IF;
+          END $$;
+        `,
+        `
+          CREATE TABLE IF NOT EXISTS provider_usage_events (
             id BIGSERIAL PRIMARY KEY,
             event_id VARCHAR(191) NOT NULL UNIQUE,
             source_kind VARCHAR(32) NOT NULL DEFAULT 'codex_provider',
@@ -1901,15 +1960,15 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           BEGIN
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
-              WHERE table_name = 'codex_provider_usage_events' AND column_name = 'source_kind'
+              WHERE table_name = 'provider_usage_events' AND column_name = 'source_kind'
             ) THEN
-              EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT ''codex_provider''';
+              EXECUTE 'ALTER TABLE provider_usage_events ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT ''codex_provider''';
             END IF;
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
-              WHERE table_name = 'codex_provider_usage_events' AND column_name = 'source_id'
+              WHERE table_name = 'provider_usage_events' AND column_name = 'source_id'
             ) THEN
-              EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_id VARCHAR(191)';
+              EXECUTE 'ALTER TABLE provider_usage_events ADD COLUMN source_id VARCHAR(191)';
             END IF;
           END $$;
         `,
@@ -1938,7 +1997,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             UNIQUE(identity_key, bucket, bucket_start)
           )
         `,
-        // Guarded ADD COLUMN (same rationale as the codex_provider_usage_events
+        // Guarded ADD COLUMN (same rationale as the provider_usage_events
         // guard above): skip the per-op ACCESS EXCLUSIVE lock once the columns
         // exist.
         `
@@ -2499,10 +2558,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_identity_time ON llm_request_slices (identity_key, created_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_trace ON llm_request_slices (trace_id, agent_turn, id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_llm_call ON llm_request_slices (llm_call_id)',
-        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_identity_time ON codex_provider_usage_events (identity_key, created_at DESC, id DESC)',
-        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_source_time ON codex_provider_usage_events (source_kind, created_at DESC, id DESC)',
-        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_trace ON codex_provider_usage_events (trace_id, id)',
-        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_llm_call ON codex_provider_usage_events (llm_call_id)',
+        'CREATE INDEX IF NOT EXISTS idx_provider_usage_identity_time ON provider_usage_events (identity_key, created_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_provider_usage_source_time ON provider_usage_events (source_kind, created_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_provider_usage_trace ON provider_usage_events (trace_id, id)',
+        'CREATE INDEX IF NOT EXISTS idx_provider_usage_llm_call ON provider_usage_events (llm_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_identity_time ON llm_usage_rollup_sources (identity_key, created_at, slice_id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_hour ON llm_usage_rollup_sources (identity_key, hour_bucket_start)',
         'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_day ON llm_usage_rollup_sources (identity_key, day_bucket_start)',
@@ -2896,16 +2955,16 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
-  async function recordCodexProviderUsageEvent(input = {}, config = {}) {
+  async function recordProviderUsageEvent(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
-    const eventId = buildCodexProviderUsageEventId(input);
+    const eventId = buildProviderUsageEventId(input);
     const completedAt = input.completedAt || input.completed_at || (firstString(input.status, 'completed') === 'running' ? null : new Date());
     const createdAt = input.createdAt || input.created_at || null;
     return withSql(input, config, async (sql) => {
       const recordWithExecutor = async (executor) => {
         const rows = await executor.query(
           `
-            INSERT INTO codex_provider_usage_events (
+            INSERT INTO provider_usage_events (
               event_id,
               source_kind,
               source_id,
@@ -2952,13 +3011,13 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               wire_provider_format = EXCLUDED.wire_provider_format,
               processing_time_ms = EXCLUDED.processing_time_ms,
               metadata = EXCLUDED.metadata,
-              completed_at = COALESCE(EXCLUDED.completed_at, codex_provider_usage_events.completed_at),
+              completed_at = COALESCE(EXCLUDED.completed_at, provider_usage_events.completed_at),
               updated_at = CURRENT_TIMESTAMP
             RETURNING *
           `,
           [
             eventId,
-            normalizeCodexProviderUsageSourceKind(input.sourceKind ?? input.source_kind),
+            normalizeProviderUsageSourceKind(input.sourceKind ?? input.source_kind),
             firstString(input.sourceId, input.source_id),
             firstString(input.identityKey, input.identity_key, 'xiaoni'),
             firstString(input.llmCallId, input.llm_call_id),
@@ -2983,7 +3042,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           ]
         );
         await syncLlmUsageRollupForCodexProviderEvent(executor, eventId);
-        return normalizeCodexProviderUsageEventRow(rows[0]);
+        return normalizeProviderUsageEventRow(rows[0]);
       };
       if (typeof sql.withTransaction === 'function') {
         return sql.withTransaction(recordWithExecutor);
@@ -4807,7 +4866,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
-  async function listCodexProviderUsageEvents(input = {}, config = {}) {
+  async function listProviderUsageEvents(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const clauses = ['identity_key = ?'];
     const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
@@ -4859,7 +4918,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     }
     if (sourceKind) {
       clauses.push('source_kind = ?');
-      params.push(normalizeCodexProviderUsageSourceKind(sourceKind));
+      params.push(normalizeProviderUsageSourceKind(sourceKind));
     }
     if (sourceId) {
       clauses.push('source_id = ?');
@@ -4884,14 +4943,14 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       const rows = await sql.query(
         `
           SELECT ${selectColumns}
-          FROM codex_provider_usage_events
+          FROM provider_usage_events
           WHERE ${clauses.join(' AND ')}
           ORDER BY created_at ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}
           LIMIT ?
         `,
         params
       );
-      return rows.map(normalizeCodexProviderUsageEventRow).filter(Boolean);
+      return rows.map(normalizeProviderUsageEventRow).filter(Boolean);
     });
   }
 
@@ -5225,7 +5284,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendAgentStackItems,
     voidAgentStackRunSegment,
     recordLlmRequestSlice,
-    recordCodexProviderUsageEvent,
+    recordProviderUsageEvent,
     updateLlmRequestSliceStackLinks,
     recordToolExecution,
     completeToolExecution,
@@ -5252,7 +5311,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     recordCacheHeartbeatForkRun,
     listAgentStackItems,
     listLlmRequestSlices,
-    listCodexProviderUsageEvents,
+    listProviderUsageEvents,
     getXiaoniLlmUsageTimeline,
     listToolExecutions,
     findAgentStackItemByEventId

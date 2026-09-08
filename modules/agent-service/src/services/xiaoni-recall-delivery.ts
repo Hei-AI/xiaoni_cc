@@ -372,7 +372,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         .map((i) => ({ verdict: 'judge_skipped', sourceRef: i.id, text: String(i.text).slice(0, 200) })),
       llmWork: {
         kind: 'judge',
-        // provider 侧这次请求的 id。事件流靠它把这行接回 codex_provider_usage_events
+        // provider 侧这次请求的 id。事件流靠它把这行接回 provider_usage_events
         // (token / model / 原始 wire 报文);拿不到就只能显示「判了什么」。
         llmCallId,
         anchor: anchor.slice(0, 1000),

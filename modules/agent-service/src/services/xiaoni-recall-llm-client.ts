@@ -39,7 +39,7 @@ export interface RecallLlmOptions {
 export interface RecallLlmResult {
   text: string;
   /**
-   * provider 侧这次请求的 id。**唯一**能把 shadow 留痕和 codex_provider_usage_events 里那行
+   * provider 侧这次请求的 id。**唯一**能把 shadow 留痕和 provider_usage_events 里那行
    * (wire request/response、token、model)接起来的键 —— 不记下来,事件流就只能显示「判了什么」,
    * 显示不了「这次请求花了多少、原始报文长什么样」。
    */

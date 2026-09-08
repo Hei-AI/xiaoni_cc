@@ -399,7 +399,7 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 | `core_memory_compression_fork_runs/items/slices/tool_executions` | 上下文压力触发的记忆压缩 fork。fork 可重试；如果模型没有调用 `compress_core_memory` 而返回 `final_answer`，工程会按 retry reminder 再跑，成功后把 text 写入未来 `<xiaoni_status>`。 |
 | `image_vision_fork_runs/items/slices` | 图片理解 fork。保存 no-persist vision 请求的文字栈、输出和 usage；base64 不进入主 stack。 |
 | `subconscious_agent_fork_runs/items/slices/tool_executions` | 空 Notify Bucket 且主 stack 停在 `final_answer` 时触发的自驱动 fork。保存多轮 fork 输入、自然语言输出、受限工具调用、provider wire payload、usage，并关联后续投递到 Notify Bucket 的 queue id。 |
-| `codex_provider_usage_events` | Codex provider 侧生成图、修图、prompt assistant、sleep cache heartbeat 等非主 loop provider 用量事件。 |
+| `provider_usage_events` | Codex provider 侧生成图、修图、prompt assistant、sleep cache heartbeat 等非主 loop provider 用量事件。 |
 
 LLM usage observatory 会合并主 `llm_request_slices`、compression fork、image vision fork、
 自驱动 fork 和 Codex provider usage。call bucket 太密时会自动下采样到 hour/day/month；搜索 overlay
@@ -504,7 +504,7 @@ visible delivery card
 
 - `agent-service` 主 loop 已写入 stack ledger；`agent-service/index.ts` 只启动 runtime。
 - `provider-service` / Codex Provider 负责记录完整 canonical / wire request / response。
-- sleep cache heartbeat 只记录为 `codex_provider_usage_events`，不写主
+- sleep cache heartbeat 只记录为 `provider_usage_events`，不写主
   `llm_request_slices`，也不追加到 `agent_stack_items`。本机手动入口
   `POST /api/internal/runtime/cache-heartbeat` 只触发同一 no-persist fork 并返回 usage 摘要。
 - 管理端行动流和 Raw Trace 从 stack item、LLM slice、tool execution、life/media/task

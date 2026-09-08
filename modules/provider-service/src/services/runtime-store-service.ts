@@ -8,7 +8,7 @@ import {
   scheduleQqGroupNotificationAggregation,
   claimDueQqGroupNotificationAggregations,
   cancelQqGroupNotificationAggregation,
-  recordCodexProviderUsageEvent as persistCodexProviderUsageEvent,
+  recordProviderUsageEvent as persistProviderUsageEvent,
   recordLlmRequestSlice,
   type SqlAdapter
 } from '@qq-bot/persistence';
@@ -237,7 +237,7 @@ export class RuntimeStoreService {
     }, databaseConfig);
   }
 
-  async recordCodexProviderUsageEvent(params: {
+  async recordProviderUsageEvent(params: {
     eventId?: string;
     sourceKind: string;
     sourceId?: string | null;
@@ -266,7 +266,7 @@ export class RuntimeStoreService {
     status?: string | null;
     metadata?: Record<string, unknown>;
   }) {
-    return persistCodexProviderUsageEvent({
+    return persistProviderUsageEvent({
       identityKey: params.identityKey || 'xiaoni',
       eventId: params.eventId,
       sourceKind: params.sourceKind,

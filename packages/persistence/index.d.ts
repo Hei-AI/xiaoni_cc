@@ -981,7 +981,7 @@ export type XiaoniImageVisionForkItem = Omit<XiaoniAgentStackItem, 'stackIndex'>
 export type XiaoniImageVisionForkSlice = XiaoniLlmRequestSlice & {
   forkRunId: string;
 };
-export type XiaoniCodexProviderUsageEvent = {
+export type XiaoniProviderUsageEvent = {
   id: string | null;
   eventId: string;
   sourceKind: string;
@@ -1135,7 +1135,7 @@ export type XiaoniAgentStackPersistenceApi = {
   appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   voidAgentStackRunSegment(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackVoidResult>;
   recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
-  recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
+  recordProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniProviderUsageEvent | null>;
   updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
   recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
   completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
@@ -1161,7 +1161,7 @@ export type XiaoniAgentStackPersistenceApi = {
   recordCacheHeartbeatForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
   listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
-  listCodexProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent[]>;
+  listProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniProviderUsageEvent[]>;
   getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
   listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
   findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
@@ -1183,7 +1183,7 @@ export type XiaoniAgentStackVoidResult = {
 };
 export function voidAgentStackRunSegment(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackVoidResult>;
 export function recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
-export function recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
+export function recordProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniProviderUsageEvent | null>;
 export function updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
 export function recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
 export function completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
@@ -1209,7 +1209,7 @@ export function recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCa
 export function recordCacheHeartbeatForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
 export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
-export function listCodexProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent[]>;
+export function listProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniProviderUsageEvent[]>;
 export function getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
 export function listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
 export function findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
@@ -2888,7 +2888,7 @@ export function createRecallIngest(deps: {
   readContextMenus?: () => Promise<string[]>;
   /** 可选。算术结果弱时发一发小模型做 query 展开,返回原文。不注入 → 不展开。 */
   // 裸字符串 = 只有正文的老契约;给 { text, llmCallId } 时 llmCallId 会记进 shadow 行的
-  // llmWork,事件流才接得回 codex_provider_usage_events(token / model / 原始 wire 报文)。
+  // llmWork,事件流才接得回 provider_usage_events(token / model / 原始 wire 报文)。
   expandQueries?: (prompt: { system: string; user: string }) => Promise<string | { text: string; llmCallId?: string | null }>;
   /** 可选。她自己的标签命名空间(topics 文件名 + 人物菜单名字),给展开当词表。 */
   readTags?: () => Promise<string[]>;

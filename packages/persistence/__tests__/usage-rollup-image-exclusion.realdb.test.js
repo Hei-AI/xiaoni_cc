@@ -84,7 +84,7 @@ function dbTest(name, fn) {
     // incremental sync on each record() is what populates the table.
     await sql.execute('TRUNCATE llm_usage_rollup_sources', []);
     await sql.execute('TRUNCATE llm_usage_rollups', []);
-    await sql.execute('TRUNCATE codex_provider_usage_events RESTART IDENTITY', []);
+    await sql.execute('TRUNCATE provider_usage_events RESTART IDENTITY', []);
     await fn();
   });
 }
@@ -105,17 +105,17 @@ function codexEvent(eventId, sourceKind, tokens) {
 
 dbTest('image_generation / image_edit / image_prompt_assistant are excluded from the LLM Cost timeline', async () => {
   // Control: a cache_heartbeat codex event flows to cost as usual.
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:control-heartbeat', 'cache_heartbeat', { input_tokens: 4000, cached_input_tokens: 3900, output_tokens: 3 })
   );
   // The three image kinds must NOT reach the aggregate.
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:image-generate-1', 'image_generation', { input_tokens: 157, output_tokens: 5488 })
   );
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:image-edit-1', 'image_edit', { input_tokens: 200, output_tokens: 3000 })
   );
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:image-prompt-1', 'image_prompt_assistant', { input_tokens: 88, output_tokens: 120 })
   );
 
@@ -140,13 +140,13 @@ dbTest('image_generation / image_edit / image_prompt_assistant are excluded from
 // 一次，把这条线唯一的用途 ——「缓存有没有击穿」—— 的信号淹掉。
 dbTest('召回的独立小请求不进 LLM Cost 折线（否则每次都把线拽到底）', async () => {
   // 对照组：cache_heartbeat 是克隆主请求的 fork，照常进聚合。
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:control-heartbeat-2', 'cache_heartbeat', { input_tokens: 212895, cached_input_tokens: 212000, output_tokens: 1 })
   );
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:recall-rerank-1', 'recall_rerank', { input_tokens: 1154, output_tokens: 89 })
   );
-  await persistence.recordCodexProviderUsageEvent(
+  await persistence.recordProviderUsageEvent(
     codexEvent('codex-provider:recall-expand-1', 'recall_expand', { input_tokens: 995, output_tokens: 167 })
   );
 

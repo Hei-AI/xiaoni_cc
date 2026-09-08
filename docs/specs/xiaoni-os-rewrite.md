@@ -47,7 +47,7 @@ text ──► 分类(Sonnet 4.6, 输出 1/0)「有没有事」
 
 ## 留痕 / 训练集
 
-表 `xiaoni_os_rewrites`（`packages/persistence/xiaoni-os-rewrite.js`，启动 ensure）：原文、`classify_verdict`(action/idle/unparsed/failed)、分类原始输出、改写、`outcome`(kept/rewritten/evicted/failed_open)、两次 `llm_call_id`（接 `codex_provider_usage_events` 看 wire/token）、耗时。
+表 `xiaoni_os_rewrites`（`packages/persistence/xiaoni-os-rewrite.js`，启动 ensure）：原文、`classify_verdict`(action/idle/unparsed/failed)、分类原始输出、改写、`outcome`(kept/rewritten/evicted/failed_open)、两次 `llm_call_id`（接 `provider_usage_events` 看 wire/token）、耗时。
 
 - 原文 + 判定 = 分类器训练对；原文 + 改写 = 改写器训练对。v1 两条腿都是 Sonnet 4.6（最初 Haiku，改写会把比喻当人编事，同事建议换），数据攒够再训分类器，Sonnet 退为兜底。
 - 观察：`summarizeXiaoniOsRewrites({sinceHours})` 按 (判定, 去向) 计数；日志 `xiaoni_os_rewrite`。

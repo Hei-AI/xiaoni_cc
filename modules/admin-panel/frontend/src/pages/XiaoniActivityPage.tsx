@@ -438,7 +438,7 @@ function rawTraceSpanIdForSource(
     && source !== 'image_vision_fork_llm_request'
     && source !== 'failure_review_fork_llm_request'
     && source !== 'cache_heartbeat'
-    // 召回两条小模型腿的原始报文在 codex_provider_usage_events 里,后端 raw-trace 路由按
+    // 召回两条小模型腿的原始报文在 provider_usage_events 里,后端 raw-trace 路由按
     // `codex-provider:` 事件 id 前缀已经能取到 —— 这里放行,否则展开面不给「原始 LLM 请求」页签。
     && source !== 'recall_rerank_llm_request'
     && source !== 'recall_expand_llm_request'
