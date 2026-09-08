@@ -1,0 +1,40 @@
+-- =====================================================================
+-- llm_usage_rollup_sources.model_name 死列清理 —— 已执行记录 (APPLIED)
+-- =====================================================================
+-- 执行时间: 2026-09-08 ~17:45 CST
+-- 目标库:   主栈 qqbot_db (docker container qqbot-postgres)
+-- 授权:     user「1. 做」
+-- 前置:     PR #7 (221c44bd) 已合并并部署,provider-service / agent-service /
+--           admin-backend 三个服务同时重建上线,表已改名 provider_usage_events。
+--
+-- 提案稿见同目录 rollup-sources-drop-stray-model-name.sql(含背景:这列是
+-- 2026-08-23 把未部署分支的 ensureSchema 跑到生产库留下的事故残留,没有任何
+-- 代码写它;main 的 d4c0a354 走了「独立小请求整个排除出 LLM Cost」的相反路线,
+-- 按模型分组这个需求方也不存在了)。
+--
+-- 执行前复查(实测):
+--   SELECT count(*) AS total, count(model_name) AS non_null
+--   FROM llm_usage_rollup_sources;
+--   -> total = 118943, non_null = 0        ✅ 确认全空
+--   SELECT count(*) FROM pg_stat_activity
+--   WHERE state <> 'idle' AND query NOT LIKE '%pg_stat_activity%';
+--   -> 0                                    ✅ 无长事务压表
+--
+-- 实际执行(单个原子事务):
+--
+--   BEGIN;
+--   SET LOCAL lock_timeout = '15s';
+--   ALTER TABLE llm_usage_rollup_sources DROP COLUMN IF EXISTS model_name;
+--   COMMIT;
+--
+-- 执行后验证(实测):
+--   - information_schema.columns 里 model_name 已不存在
+--   - 行数 118944(执行中仍在正常增长),rollup 写入未中断
+--   - provider-service / agent-service / admin-backend 三个服务日志无相关报错
+--     (provider-service 有 1 条 QQ 表情 gif 从腾讯 CDN 下载 abort 的既有噪声,无关)
+--   - GET /api/xiaoni/action-stream/llm-usage?bucket=hour -> HTTP 200
+--
+-- 没有 bump USAGE_ROLLUP_VERSION:版本门是用来触发全量重建回填的,这里没有数据
+-- 要回填(删的是一列 NULL);而重建挂在每一次持久化操作的路径上、持 advisory lock,
+-- 所有服务排队等,主 loop 可能停等数分钟。
+-- =====================================================================
