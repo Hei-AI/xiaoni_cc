@@ -108,6 +108,7 @@ import {
   LEGACY_RECOVER_ENERGY_POLICY_VERSION,
   RECOVER_ENERGY_CLOCK_MAX_MINUTES,
   type RecoverySessionPolicy,
+  type RecentSleepSession,
   type EffectiveEnergyPolicy,
   createRecoveryPolicySnapshot,
   estimateNaturalWakeAt,
@@ -285,8 +286,8 @@ export type RuntimeEnergyState = {
   energy: number;
   maxEnergy: number;
   lastWakeAt?: string | null;
-  // 上一觉的 wake_cause(引擎封顶叫醒的不收刚醒惩罚,见 ENGINE_FORCED_WAKE_CAUSES)。
-  lastWakeCause?: string | null;
+  // 最近 36h 内睡过的会话(醒来时刻 + 分钟数),给刚醒惩罚的权重曲线 w(S) 用;null = 读不到,按 w=1 收。
+  recentSleepSessions?: RecentSleepSession[] | null;
 };
 
 type DeliveredAssistantMessage = {
@@ -14423,7 +14424,7 @@ export class AgentLoopService {
               energy: energyState.energy,
               maxEnergy: energyState.maxEnergy,
               lastWakeAt: energyState.lastWakeAt ?? null,
-              lastWakeCause: energyState.lastWakeCause ?? null,
+              recentSleepSessions: energyState.recentSleepSessions ?? null,
               now,
               policy: sessionPolicy.policy
             })
@@ -14436,7 +14437,7 @@ export class AgentLoopService {
             energy: energyState.energy,
             maxEnergy: energyState.maxEnergy,
             lastWakeAt: energyState.lastWakeAt ?? null,
-            lastWakeCause: energyState.lastWakeCause ?? null,
+            recentSleepSessions: energyState.recentSleepSessions ?? null,
             now,
             basePolicy: effectiveEnergyPolicy.policy
           });
@@ -14692,8 +14693,8 @@ export class AgentLoopService {
         energy,
         maxEnergy,
         lastWakeAt: typeof state?.lastWakeAt === 'string' ? state.lastWakeAt : null,
-        lastWakeCause: typeof (state as { lastWakeCause?: unknown })?.lastWakeCause === 'string'
-          ? (state as { lastWakeCause?: string }).lastWakeCause ?? null
+        recentSleepSessions: Array.isArray((state as { recentSleepSessions?: unknown })?.recentSleepSessions)
+          ? (state as { recentSleepSessions: RecentSleepSession[] }).recentSleepSessions
           : null
       };
     } catch (error) {

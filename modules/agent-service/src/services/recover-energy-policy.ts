@@ -14,6 +14,10 @@ export type RecoverEnergyPolicy = {
   normalSleepOnsetPressure: number;
   freshWakePenaltyPressure: number;
   restCooldownTauMinutes: number;
+  // 刚醒惩罚的权重曲线 w(S) = S^n / (S^n + S0^n),S = 最近睡眠分钟数(按 τ_mem 指数遗忘累加)。
+  freshWakeSleepMemoryTauMinutes?: number;
+  freshWakeSleepSaturationMinutes?: number;
+  freshWakeSleepSaturationExponent?: number;
   minWakeCalls: number;
   wakeCallSpan: number;
   wakeCallGamma: number;
@@ -47,6 +51,9 @@ export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   normalSleepOnsetPressure: 0.3,
   freshWakePenaltyPressure: 0.5,
   restCooldownTauMinutes: 180,
+  freshWakeSleepMemoryTauMinutes: 180,
+  freshWakeSleepSaturationMinutes: 160,
+  freshWakeSleepSaturationExponent: 3,
   minWakeCalls: 3,
   wakeCallSpan: 9,
   wakeCallGamma: 2,
@@ -76,6 +83,9 @@ export const LEGACY_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   normalSleepOnsetPressure: 0.3,
   freshWakePenaltyPressure: 0.5,
   restCooldownTauMinutes: 45,
+  freshWakeSleepMemoryTauMinutes: 180,
+  freshWakeSleepSaturationMinutes: 160,
+  freshWakeSleepSaturationExponent: 3,
   minWakeCalls: 3,
   wakeCallSpan: 9,
   wakeCallGamma: 2,
@@ -460,28 +470,79 @@ export function computeAwakePressureBetween(input: {
   return pressure;
 }
 
-// 引擎自己把她叫醒的几种 wake_cause(白天小睡封顶 / 8h 硬上限 / 夜窗到点)。这几种醒来不是
-// 「睡饱了」,是被掐断的;对它们再收「刚醒惩罚」等于:封顶把她在能量 0.6 叫起来,随后两小时
-// 门槛 0.75 她怎么也够不着(08-28 实测 16:43 被 nap-cap 叫醒 → 到 19:04 才睡着,中间 650 次被拒)。
-// 自然醒 / 被私聊 @ 叫醒的照旧收惩罚 —— 那是真的醒了。
-export const ENGINE_FORCED_WAKE_CAUSES: ReadonlySet<string> = new Set(['daytime_nap_cap', 'hard_cap', 'circadian_wake']);
+export type RecentSleepSession = {
+  endedAt: Date | string;
+  minutes: number;
+};
 
+// 最近睡了多少:S = Σ minutes_i · e^(−age_i / τ_mem),age_i = now − 那一觉的醒来时刻。
+// 指数遗忘让「今早的整觉」在下午只剩零头,而「刚睡完的一觉 + 上一觉」几乎全额计入。
+export function computeRecentSleepMinutes(input: {
+  sessions: ReadonlyArray<RecentSleepSession>;
+  now: Date;
+  policy?: RecoverEnergyPolicy;
+}) {
+  const policy = normalizePolicy(input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY);
+  const tau = positivePolicyMinutes(policy.freshWakeSleepMemoryTauMinutes, 180);
+  let total = 0;
+  for (const session of input.sessions) {
+    const endedMs = new Date(session.endedAt).getTime();
+    const minutes = finiteNumber(session.minutes, 0);
+    if (!Number.isFinite(endedMs) || endedMs > input.now.getTime() || minutes <= 0) {
+      continue;
+    }
+    const ageMinutes = (input.now.getTime() - endedMs) / MINUTE_MS;
+    total += minutes * Math.exp(-ageMinutes / tau);
+  }
+  return total;
+}
+
+// w(S) = S^n / (S^n + S0^n):Hill 曲线,0→0、S0→0.5、单调、处处连续。
+// 默认 S0=160、n=3:一觉 90 分钟小睡(今早整觉已淡出)→ 0.15;连着第二觉 → 0.59;刚睡完 8h → 0.96。
+export function computeFreshWakePenaltyWeight(recentSleepMinutes: number, policy: RecoverEnergyPolicy = DEFAULT_RECOVER_ENERGY_POLICY) {
+  const normalizedPolicy = normalizePolicy(policy);
+  const saturation = positivePolicyMinutes(normalizedPolicy.freshWakeSleepSaturationMinutes, 160);
+  const exponent = Math.max(1, finiteNumber(normalizedPolicy.freshWakeSleepSaturationExponent, 3));
+  const s = Math.max(0, finiteNumber(recentSleepMinutes, 0));
+  if (s <= 0) {
+    return 0;
+  }
+  const sn = Math.pow(s, exponent);
+  return clampNumber(sn / (sn + Math.pow(saturation, exponent)), 0, 1);
+}
+
+// 刚醒惩罚 = P0 · e^(−t/τ_cool) · w(S)。
+//
+// 2026-08-29 之前:凡有 lastWakeAt 就全额收(w≡1)。封顶叫醒把她在能量 0.6 掐醒,随后两小时门槛 0.75
+// 怎么也够不着(08-28 实测 650 次被拒)。
+// 2026-08-29 ~ 09-08:引擎封顶叫醒(nap_cap / hard_cap / circadian_wake)一律免惩罚(w=0)。结果是
+// 醒了就再睡:nap_cap 叫醒后 30 分钟内回睡 40/54(改前 1/83),白天睡眠 3.8h → 8.0h/天,总睡眠 17h/天。
+// 现在:不看 wake_cause,只看最近睡了多少。第一觉小睡几乎不收(w≈0.15),连着睡才越收越重,
+// 整觉睡完全额收 —— 同一条曲线,没有分段。
+//
+// recentSleepSessions 拿不到(undefined / null)时退回 w=1:只知道刚醒、不知道睡了多久,按最重的收(fail-safe)。
 export function computeRequiredSleepPressure(input: {
   lastWakeAt?: Date | string | null;
-  lastWakeCause?: string | null;
+  recentSleepSessions?: ReadonlyArray<RecentSleepSession> | null;
   now?: Date;
   policy?: RecoverEnergyPolicy;
 }) {
   const policy = input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY;
   const now = input.now ?? new Date();
   const lastWakeAt = input.lastWakeAt ? new Date(input.lastWakeAt) : null;
-  const forcedWake = typeof input.lastWakeCause === 'string' && ENGINE_FORCED_WAKE_CAUSES.has(input.lastWakeCause);
-  const minutesSinceLastWake = lastWakeAt && !Number.isNaN(lastWakeAt.getTime()) && !forcedWake
+  const minutesSinceLastWake = lastWakeAt && !Number.isNaN(lastWakeAt.getTime())
     ? Math.max(0, (now.getTime() - lastWakeAt.getTime()) / MINUTE_MS)
     : Number.POSITIVE_INFINITY;
-  const penalty = Number.isFinite(minutesSinceLastWake)
-    ? policy.freshWakePenaltyPressure * Math.exp(-minutesSinceLastWake / policy.restCooldownTauMinutes)
-    : 0;
+  if (!Number.isFinite(minutesSinceLastWake)) {
+    return policy.normalSleepOnsetPressure;
+  }
+  const weight = Array.isArray(input.recentSleepSessions)
+    ? computeFreshWakePenaltyWeight(
+        computeRecentSleepMinutes({ sessions: input.recentSleepSessions, now, policy }),
+        policy
+      )
+    : 1;
+  const penalty = policy.freshWakePenaltyPressure * Math.exp(-minutesSinceLastWake / policy.restCooldownTauMinutes) * weight;
   return policy.normalSleepOnsetPressure + penalty;
 }
 
@@ -489,7 +550,7 @@ export function shouldAcceptVoluntaryRecovery(input: {
   energy: number;
   maxEnergy?: number;
   lastWakeAt?: Date | string | null;
-  lastWakeCause?: string | null;
+  recentSleepSessions?: ReadonlyArray<RecentSleepSession> | null;
   now?: Date;
   policy?: RecoverEnergyPolicy;
 }) {
@@ -497,7 +558,7 @@ export function shouldAcceptVoluntaryRecovery(input: {
   const pressure = energyToPressure(input.energy, input.maxEnergy ?? 1, policy);
   const requiredPressure = computeRequiredSleepPressure({
     lastWakeAt: input.lastWakeAt ?? null,
-    lastWakeCause: input.lastWakeCause ?? null,
+    recentSleepSessions: input.recentSleepSessions ?? null,
     now: input.now,
     policy
   });
@@ -512,8 +573,8 @@ export function shouldAcceptVoluntaryRecovery(input: {
 // 被拒之后,身体大约什么时候才会接受主动休息。
 //
 // 给 rest_rejected 的工具结果用:她拿到「一点困意都没有」之后,没有任何信息判断该等多久,实测就是
-// 每 12 秒再试一次(24h 653 次)。这里把门槛的两个动态部分都往前推:刚醒惩罚按 restCooldownTau
-// 衰减,昼夜门槛随 sleepDrive 变,压力本身按清醒曲线慢慢涨。5 分钟一步扫到 24h,第一步
+// 每 12 秒再试一次(24h 653 次)。这里把门槛的动态部分都往前推:刚醒惩罚按 restCooldownTau
+// 衰减、权重 w(S) 随最近睡眠按 τ_mem 淡出,昼夜门槛随 sleepDrive 变,压力本身按清醒曲线慢慢涨。5 分钟一步扫到 24h,第一步
 // 「压力 ≥ 门槛」的时刻就是答案;24h 内扫不到返回 null(调用方按「今天睡不着」措辞)。
 // 压力按【当前值不变】算(保守):清醒曲线 tau 1920 分钟,一小时只涨 ~0.02,而 actionDebt 回落会
 // 往下拉;取常量得到的是「至少到那时」,到点再调的判据和这里逐项相同,不会又被拒一次。
@@ -522,7 +583,7 @@ export function estimateVoluntaryRecoveryRetryAt(input: {
   energy: number;
   maxEnergy?: number;
   lastWakeAt?: Date | string | null;
-  lastWakeCause?: string | null;
+  recentSleepSessions?: ReadonlyArray<RecentSleepSession> | null;
   now: Date;
   basePolicy?: RecoverEnergyPolicy;
   stepMinutes?: number;
@@ -537,7 +598,7 @@ export function estimateVoluntaryRecoveryRetryAt(input: {
     const sessionPolicy = resolveRecoverySessionPolicy({ startedAt: at, policy: basePolicy }).policy;
     const required = computeRequiredSleepPressure({
       lastWakeAt: input.lastWakeAt ?? null,
-      lastWakeCause: input.lastWakeCause ?? null,
+      recentSleepSessions: input.recentSleepSessions ?? null,
       now: at,
       policy: sessionPolicy
     });

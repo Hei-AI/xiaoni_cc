@@ -334,19 +334,86 @@ test('estimateVoluntaryRecoveryRetryAt:刚醒惩罚衰减后给出未来时刻;�
   assert.equal(never, null);
 });
 
-test('引擎封顶叫醒(daytime_nap_cap / hard_cap / circadian_wake)不收刚醒惩罚;自然醒 / 被叫醒照旧', async () => {
-  const { computeRequiredSleepPressure, DEFAULT_RECOVER_ENERGY_POLICY, ENGINE_FORCED_WAKE_CAUSES } = await import('../services/recover-energy-policy');
-  const now = new Date('2026-08-28T09:00:00.000Z');
-  const lastWakeAt = new Date('2026-08-28T08:43:30.000Z');
-  const base = computeRequiredSleepPressure({ lastWakeAt: null, now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
-  const natural = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: 'natural', now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
-  const mention = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: 'private_or_mention_threshold', now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
-  const nullCause = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: null, now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
-  assert.ok(natural > base + 0.3);
-  assert.equal(mention, natural);
-  assert.equal(nullCause, natural);
-  for (const cause of ENGINE_FORCED_WAKE_CAUSES) {
-    const forced = computeRequiredSleepPressure({ lastWakeAt, lastWakeCause: cause, now, policy: DEFAULT_RECOVER_ENERGY_POLICY });
-    assert.equal(forced, base, cause);
+test('刚醒惩罚权重 w(S) 是一条连续单调曲线:第一觉小睡几乎不收,连着睡越收越重,整觉睡完全额收', async () => {
+  const { computeFreshWakePenaltyWeight, computeRecentSleepMinutes, DEFAULT_RECOVER_ENERGY_POLICY } = await import('../services/recover-energy-policy');
+  const policy = DEFAULT_RECOVER_ENERGY_POLICY;
+  assert.equal(computeFreshWakePenaltyWeight(0, policy), 0);
+  assert.ok(computeFreshWakePenaltyWeight(90, policy) < 0.2, 'single 90-min nap should be nearly free');
+  assert.ok(computeFreshWakePenaltyWeight(180, policy) > 0.5, 'two naps back to back should be penalized');
+  assert.ok(computeFreshWakePenaltyWeight(480, policy) > 0.9, 'a full night should be nearly full penalty');
+  assert.ok(Math.abs(computeFreshWakePenaltyWeight(160, policy) - 0.5) < 1e-9, 'S0 is the half-way point');
+  // 单调 + 连续:每分钟一步扫 0..600,不减、单步跳变 < 0.01。
+  let prev = 0;
+  for (let s = 1; s <= 600; s += 1) {
+    const w = computeFreshWakePenaltyWeight(s, policy);
+    assert.ok(w >= prev, `not monotone at ${s}`);
+    assert.ok(w - prev < 0.01, `jump at ${s}: ${w - prev}`);
+    prev = w;
   }
+  // S 按 τ_mem 指数遗忘:今早 09:00 醒的整觉,到 14:30 只剩零头;刚睡完的一觉全额计入。
+  const now = new Date('2026-09-08T06:30:00.000Z'); // 14:30 东八区
+  const night = { endedAt: '2026-09-08T01:00:00.000Z', minutes: 420 };
+  const nap = { endedAt: '2026-09-08T06:30:00.000Z', minutes: 90 };
+  const nightOnly = computeRecentSleepMinutes({ sessions: [night], now, policy });
+  assert.ok(nightOnly < 70 && nightOnly > 50, `night residual ${nightOnly}`);
+  const withNap = computeRecentSleepMinutes({ sessions: [night, nap], now, policy });
+  assert.ok(Math.abs(withNap - (nightOnly + 90)) < 1e-6);
+});
+
+test('封顶叫醒后回睡:第一觉小睡后门槛≈昼夜基线,连着第二觉后被拒;没有睡眠史时退回全额惩罚', async () => {
+  const {
+    computeRequiredSleepPressure, shouldAcceptVoluntaryRecovery, resolveRecoverySessionPolicy, DEFAULT_RECOVER_ENERGY_POLICY
+  } = await import('../services/recover-energy-policy');
+  const night = { endedAt: '2026-09-08T01:00:00.000Z', minutes: 420 }; // 09:00 醒
+  // 14:30 → 16:00 第一觉(nap_cap 掐醒),16:15 想再睡。
+  const firstWake = new Date('2026-09-08T08:00:00.000Z');
+  const t1 = new Date('2026-09-08T08:15:00.000Z');
+  const sessionPolicy1 = resolveRecoverySessionPolicy({ startedAt: t1, policy: DEFAULT_RECOVER_ENERGY_POLICY }).policy;
+  const base1 = computeRequiredSleepPressure({ lastWakeAt: null, now: t1, policy: sessionPolicy1 });
+  const afterFirstNap = computeRequiredSleepPressure({
+    lastWakeAt: firstWake,
+    recentSleepSessions: [night, { endedAt: firstWake, minutes: 90 }],
+    now: t1,
+    policy: sessionPolicy1
+  });
+  assert.ok(afterFirstNap - base1 < 0.2, `first nap penalty too heavy: ${afterFirstNap - base1}`);
+  assert.ok(afterFirstNap > base1, 'still a penalty, just small');
+  // 16:15 → 17:45 第二觉又被 nap_cap 掐醒,18:00 想再睡:连着两觉,权重过半。
+  const secondWake = new Date('2026-09-08T09:45:00.000Z');
+  const t2 = new Date('2026-09-08T10:00:00.000Z');
+  const sessionPolicy2 = resolveRecoverySessionPolicy({ startedAt: t2, policy: DEFAULT_RECOVER_ENERGY_POLICY }).policy;
+  const base2 = computeRequiredSleepPressure({ lastWakeAt: null, now: t2, policy: sessionPolicy2 });
+  const sessions2 = [night, { endedAt: firstWake, minutes: 90 }, { endedAt: secondWake, minutes: 90 }];
+  const afterSecondNap = computeRequiredSleepPressure({ lastWakeAt: secondWake, recentSleepSessions: sessions2, now: t2, policy: sessionPolicy2 });
+  assert.ok(afterSecondNap - base2 > 0.2, `second nap penalty too light: ${afterSecondNap - base2}`);
+  // 线上回睡链的典型入参:醒来能量 0.7(压力 0.3)。第一觉后按昼夜基线判,第二觉后被拒。
+  const gate2 = shouldAcceptVoluntaryRecovery({ energy: 0.7, maxEnergy: 1, lastWakeAt: secondWake, recentSleepSessions: sessions2, now: t2, policy: sessionPolicy2 });
+  assert.equal(gate2.accepted, false);
+  // 睡眠史拿不到 → w=1(fail-safe),与 2026-08-29 之前的全额惩罚一致。
+  const noHistory = computeRequiredSleepPressure({ lastWakeAt: secondWake, recentSleepSessions: null, now: t2, policy: sessionPolicy2 });
+  const legacy = computeRequiredSleepPressure({ lastWakeAt: secondWake, now: t2, policy: sessionPolicy2 });
+  assert.equal(noHistory, legacy);
+  assert.ok(noHistory > afterSecondNap);
+});
+
+test('estimateVoluntaryRecoveryRetryAt 带睡眠史:权重随 τ_mem 淡出,给出的时刻按同一套门槛能接受', async () => {
+  const { estimateVoluntaryRecoveryRetryAt, shouldAcceptVoluntaryRecovery, resolveRecoverySessionPolicy, DEFAULT_RECOVER_ENERGY_POLICY } = await import('../services/recover-energy-policy');
+  const night = { endedAt: '2026-09-08T01:00:00.000Z', minutes: 420 };
+  const firstWake = new Date('2026-09-08T08:00:00.000Z');
+  const secondWake = new Date('2026-09-08T09:45:00.000Z');
+  const sessions = [night, { endedAt: firstWake, minutes: 90 }, { endedAt: secondWake, minutes: 90 }];
+  const now = new Date('2026-09-08T10:00:00.000Z');
+  const energy = 0.62;
+  const retryAt = estimateVoluntaryRecoveryRetryAt({ energy, maxEnergy: 1, lastWakeAt: secondWake, recentSleepSessions: sessions, now, basePolicy: DEFAULT_RECOVER_ENERGY_POLICY });
+  assert.ok(retryAt, 'expected a retry time within 24h');
+  assert.ok(retryAt!.getTime() > now.getTime());
+  const gateThen = shouldAcceptVoluntaryRecovery({
+    energy, maxEnergy: 1, lastWakeAt: secondWake, recentSleepSessions: sessions, now: retryAt!,
+    policy: resolveRecoverySessionPolicy({ startedAt: retryAt!, policy: DEFAULT_RECOVER_ENERGY_POLICY }).policy
+  });
+  assert.equal(gateThen.accepted, true);
+  assert.equal(
+    estimateVoluntaryRecoveryRetryAt({ energy, maxEnergy: 1, lastWakeAt: secondWake, recentSleepSessions: sessions, now, basePolicy: DEFAULT_RECOVER_ENERGY_POLICY })!.getTime(),
+    retryAt!.getTime()
+  );
 });

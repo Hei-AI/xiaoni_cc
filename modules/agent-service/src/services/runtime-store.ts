@@ -167,7 +167,8 @@ import {
   mergeRecoverEnergyPolicy,
   DEFAULT_RECOVER_ENERGY_POLICY,
   DEFAULT_ACTION_COST_SCALE,
-  type EffectiveEnergyPolicy
+  type EffectiveEnergyPolicy,
+  type RecentSleepSession
 } from './recover-energy-policy';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
@@ -1310,29 +1311,33 @@ export class RuntimeStore {
   async getCurrentXiaoniEnergyState(now = new Date()) {
     const { projection } = await this.refreshXiaoniLifeProjection(now);
     const lastWakeAt = projection.anchors.lastRestAt || null;
-    // 上一觉是怎么醒的(agent_recovery_sessions.wake_cause,与管理端同一条路)。只认醒来时刻
-    // 与 lastRestAt 对得上的那一条(±5 分钟);对不上 → null → 门槛按「自然醒」照旧收惩罚(fail-safe)。
-    let lastWakeCause: string | null = null;
-    if (lastWakeAt) {
-      const lastWakeMs = new Date(lastWakeAt).getTime();
+    // 最近睡了多少(agent_recovery_sessions 已完成的会话,与管理端同一条路),给刚醒惩罚的权重曲线
+    // w(S) 用(见 computeRequiredSleepPressure)。只取 36h 内醒来的;读不到 → null → 门槛按 w=1 收(fail-safe)。
+    let recentSleepSessions: RecentSleepSession[] | null = null;
+    try {
       const sessions = await listAgentRecoverySessions({
         identityKey: 'xiaoni',
         status: 'completed',
-        limit: 3
-      }, databaseConfig).catch(() => []) as Array<{ endedAt?: unknown; wakeCause?: unknown }>;
+        limit: 30
+      }, databaseConfig) as Array<{ startedAt?: unknown; endedAt?: unknown }>;
+      const horizonMs = now.getTime() - (36 * 60 * 60_000);
+      recentSleepSessions = [];
       for (const session of sessions) {
+        const startedMs = new Date(String(session.startedAt ?? '')).getTime();
         const endedMs = new Date(String(session.endedAt ?? '')).getTime();
-        if (Number.isFinite(endedMs) && Math.abs(endedMs - lastWakeMs) <= 5 * 60_000) {
-          lastWakeCause = typeof session.wakeCause === 'string' && session.wakeCause ? session.wakeCause : null;
-          break;
+        if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs || endedMs < horizonMs) {
+          continue;
         }
+        recentSleepSessions.push({ endedAt: new Date(endedMs).toISOString(), minutes: (endedMs - startedMs) / 60_000 });
       }
+    } catch {
+      recentSleepSessions = null;
     }
     return {
       energy: Number(projection.state.energy),
       maxEnergy: 1,
       lastWakeAt,
-      lastWakeCause
+      recentSleepSessions
     };
   }
 
