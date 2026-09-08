@@ -155,9 +155,35 @@ function mapClaimedRun(input) {
   };
 }
 
+// 睡觉期间只放行外部消息。外部 = QQ 入站(source=phone_notification,含群聚合);其它一切通知
+// (被动召回投递 / 潜意识 plan / 报时 / attention lease / 图片任务 …)在她睡着时**不入队**:
+// 行照写(dedupe_key 唯一索引就是投递账本,「同一段记忆永远只投一次」照旧成立),但直接落成
+// settled + result.dropped_while_asleep,永远不会被 claim。醒来那一帧再由
+// flushNonExternalPendingAgentQueueMessages 把睡前残留的内部 pending 一并冲掉 —— 醒来只看
+// 外部消息,不看睡觉期间/睡前攒下的内部念头(2026-09-08 user 拍板)。
+const EXTERNAL_QUEUE_SOURCES = new Set(['phone_notification']);
+
+function isExternalQueueSource(source) {
+  return EXTERNAL_QUEUE_SOURCES.has(String(source || ''));
+}
+
 function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   function getClient(config) {
     return getPrismaClient(config);
+  }
+
+  // 她此刻睡着吗(agent_recovery_sessions 有 active 行)。查不到 / 查挂 → null(fail-open:照常入队)。
+  async function findActiveRecoverySessionId(prisma) {
+    try {
+      const row = await prisma.agentRecoverySession.findFirst({
+        where: { status: 'active' },
+        select: { id: true },
+        orderBy: { started_at: 'asc' }
+      });
+      return row && row.id !== null && typeof row.id !== 'undefined' ? Number(row.id) : null;
+    } catch {
+      return null;
+    }
   }
 
   function createSql(input, config) {
@@ -192,6 +218,9 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     // createTraceId); this guards simulator / internal / replay callers that don't.
     const resolvedTraceId = normalizeOptionalString(message.traceId || message.trace_id)
       || `runtrace_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const asleepSessionId = isExternalQueueSource(message.source)
+      ? null
+      : await findActiveRecoverySessionId(prisma);
 
     try {
       const created = await prisma.agentQueueMessage.create({
@@ -211,14 +240,25 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           raw_payload: normalizeJsonObject(message.rawPayload || message.raw_payload),
           inbound_context: normalizeJsonObject(message.inboundContext || message.inbound_context),
           payload,
-          status: 'pending',
-          available_at: availableAt
+          status: asleepSessionId === null ? 'pending' : 'settled',
+          available_at: availableAt,
+          ...(asleepSessionId === null
+            ? {}
+            : {
+                completed_at: new Date(),
+                result: { dropped_while_asleep: true, recovery_session_id: asleepSessionId }
+              })
         }
       });
       // created:true 只在真的新插了一行时为真。撞唯一索引返回既有行时是 false ——
       // 调用方(如被动浮现投递闸)靠它区分「这次投出去了」和「早就投过了」,
       // 光看 status 区分不了(既有行没被消费时同样是 pending)。
-      return { ...normalizeQueueRow(created, payload), created: true };
+      // droppedWhileAsleep:true = 行写了但她睡着,永远不会被 claim;调用方按「没投出去」处理。
+      return {
+        ...normalizeQueueRow(created, payload),
+        created: true,
+        droppedWhileAsleep: asleepSessionId !== null
+      };
     } catch (error) {
       if (error?.code !== 'P2002') {
         throw error;
@@ -665,8 +705,42 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
+  // 醒来那一帧调用:把所有还 pending 的**内部**通知(非 phone_notification)冲掉。它们是睡前 /
+  // 睡觉期间攒下的念头,对醒来的她已经是旧的;外部消息一条不动(它们本来就是叫醒她的理由)。
+  // 已被 claim(processing)的行绝不回改。
+  async function flushNonExternalPendingAgentQueueMessages(input = {}, config = {}) {
+    const recoverySessionId = Number.isFinite(Number(input.recoverySessionId ?? input.recovery_session_id))
+      ? Number(input.recoverySessionId ?? input.recovery_session_id)
+      : null;
+    const externalSources = Array.from(EXTERNAL_QUEUE_SOURCES);
+    const { sql, shouldClose } = createSql(input, config);
+    try {
+      const flushedCount = await sql.execute(
+        `
+          UPDATE agent_queue_messages
+          SET status = 'settled',
+              completed_at = NOW(),
+              updated_at = NOW(),
+              result = ?::jsonb
+          WHERE status = 'pending'
+            AND source NOT IN (${externalSources.map(() => '?').join(', ')})
+        `,
+        [
+          JSON.stringify({ flushed_on_wake: true, recovery_session_id: recoverySessionId }),
+          ...externalSources
+        ]
+      );
+      return { flushedCount: Number(flushedCount) || 0 };
+    } finally {
+      if (shouldClose) {
+        await sql.close();
+      }
+    }
+  }
+
   return {
     enqueueAgentQueueMessage,
+    flushNonExternalPendingAgentQueueMessages,
     listRecentAgentQueueDedupeKeys,
     getLastAgentQueueEnqueuedAt,
     claimNextAgentQueueMessage,
@@ -679,5 +753,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 }
 
 module.exports = {
+  EXTERNAL_QUEUE_SOURCES,
+  isExternalQueueSource,
   createAgentQueuePersistence
 };

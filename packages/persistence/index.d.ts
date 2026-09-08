@@ -2169,6 +2169,12 @@ export function settleAgentQueueMessages(input: {
   result?: Record<string, unknown>;
   sqlAdapter?: SqlAdapter;
 }, config?: DatabaseUrlConfig): Promise<void>;
+// 醒来那一帧:把所有还 pending 的内部通知(非 phone_notification)冲成 settled + result.flushed_on_wake。
+export function flushNonExternalPendingAgentQueueMessages(input: {
+  recoverySessionId?: number | null;
+  sqlAdapter?: SqlAdapter;
+}, config?: DatabaseUrlConfig): Promise<{ flushedCount: number }>;
+
 export function supersedePendingClockPings(input: {
   sessionKey?: string;
   session_key?: string;
