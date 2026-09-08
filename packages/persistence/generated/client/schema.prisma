@@ -392,7 +392,7 @@ model LlmRequestSlice {
   @@map("llm_request_slices")
 }
 
-model CodexProviderUsageEvent {
+model ProviderUsageEvent {
   id                     BigInt    @id @default(autoincrement()) @db.BigInt
   event_id               String    @unique @db.VarChar(191)
   source_kind            String    @default("codex_provider") @db.VarChar(32)
@@ -419,11 +419,11 @@ model CodexProviderUsageEvent {
   completed_at           DateTime? @db.Timestamptz(3)
   updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
-  @@index([identity_key, created_at, id], map: "idx_codex_provider_usage_identity_time")
-  @@index([source_kind, created_at, id], map: "idx_codex_provider_usage_source_time")
-  @@index([trace_id, id], map: "idx_codex_provider_usage_trace")
-  @@index([llm_call_id], map: "idx_codex_provider_usage_llm_call")
-  @@map("codex_provider_usage_events")
+  @@index([identity_key, created_at, id], map: "idx_provider_usage_identity_time")
+  @@index([source_kind, created_at, id], map: "idx_provider_usage_source_time")
+  @@index([trace_id, id], map: "idx_provider_usage_trace")
+  @@index([llm_call_id], map: "idx_provider_usage_llm_call")
+  @@map("provider_usage_events")
 }
 
 model LlmUsageRollupSource {

@@ -1602,7 +1602,7 @@ function summarizePsychAssessmentForkRun(row, events) {
   };
 }
 
-function tokenSummaryFromCodexProviderUsageEvent(row) {
+function tokenSummaryFromProviderUsageEvent(row) {
   const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
   const inputTokens = Number(
     tokenUsage.input_tokens
@@ -1632,7 +1632,7 @@ function tokenSummaryFromCodexProviderUsageEvent(row) {
 }
 
 function summarizeCacheHeartbeatEvent(row, occurredSeq = null) {
-  const tokenSummary = tokenSummaryFromCodexProviderUsageEvent(row);
+  const tokenSummary = tokenSummaryFromProviderUsageEvent(row);
   const eventId = tokenSummary.eventId || firstString(row.id) || `cache-heartbeat:${Date.now()}`;
   const traceId = firstString(row.traceId, row.trace_id);
   const runId = firstString(row.runId, row.run_id);
@@ -1693,7 +1693,7 @@ function summarizeCacheHeartbeatEvent(row, occurredSeq = null) {
       cachedInputTokens: tokenSummary.cachedInputTokens,
       outputTokens: tokenSummary.outputTokens,
       eventId,
-      wirePayloadSource: 'codex_provider_usage_events'
+      wirePayloadSource: 'provider_usage_events'
     })
   };
 }
@@ -1785,20 +1785,20 @@ async function loadCacheHeartbeatTimeline({
   identityKey,
   timeWindow,
   limit
-}, config, listCodexProviderUsageEvents, sql) {
-  if (typeof listCodexProviderUsageEvents !== 'function') {
+}, config, listProviderUsageEvents, sql) {
+  if (typeof listProviderUsageEvents !== 'function') {
     return { runs: [] };
   }
   const forkLimit = clampLimit(limit, 30, 120);
   try {
-    const rows = await listCodexProviderUsageEvents({
+    const rows = await listProviderUsageEvents({
       identityKey,
       sourceKind: 'cache_heartbeat',
       startTime: timeWindow?.startTime || null,
       endTime: timeWindow?.endTime || null,
       chronological: false,
       // The feed only renders token/model/status for heartbeat rows; skip the multi-MB
-      // provider wire payloads (see listCodexProviderUsageEvents summaryOnly).
+      // provider wire payloads (see listProviderUsageEvents summaryOnly).
       summaryOnly: true,
       limit: forkLimit
     }, config);
@@ -1836,7 +1836,7 @@ async function loadCacheHeartbeatTimeline({
 // **单事件的伪 fork run** —— 和 cache_heartbeat 同一套路(它同样不在栈上、同样只有一次请求),
 // 这样它们进左栏 fork 列,而不是混在右栏主 agent 事件里。
 //
-// token / model / 原始 wire 报文不在 shadow 行里,而在 codex_provider_usage_events
+// token / model / 原始 wire 报文不在 shadow 行里,而在 provider_usage_events
 // (provider-service 对 no-persist 请求记的轻量账)。llm_work.llmCallId 是**唯一**的连接键;
 // 老行没有它 → 退回「只有语义、没有计量」,不假装有。
 const RECALL_LLM_LEG_KINDS = ['judge', 'expansion'];
@@ -1867,7 +1867,7 @@ const RECALL_LLM_SHADOW_SELECT = `
   query_text,
   llm_work
 `;
-// codex_provider_usage_events 的行里 wire_request / wire_response 可能是几 MB。事件流只渲染
+// provider_usage_events 的行里 wire_request / wire_response 可能是几 MB。事件流只渲染
 // token / model,和一个「有没有 raw trace 可点」的布尔 —— 所以这里一列都不取原文,只取存在性。
 // (同 FORK_SLICE_ACTION_STREAM_SELECT 的理由:整表捞原文是把 feed 堆爆 heap 的老账。)
 const RECALL_LLM_USAGE_SELECT = `
@@ -1974,11 +1974,11 @@ function summarizeRecallLlmEvent(row, leg, usage) {
     ? recallRerankBodyParts(work)
     : recallExpandBodyParts(work);
   const anchor = String(firstString(work.anchor, row.query_text, row.queryText) || '').trim();
-  const tokenSummary = usage ? tokenSummaryFromCodexProviderUsageEvent(usage) : null;
+  const tokenSummary = usage ? tokenSummaryFromProviderUsageEvent(usage) : null;
   const modelName = usage ? firstString(usage.model_name, usage.modelName) : null;
 
   // 事件 id:能接回 provider usage 行时**就用那行的 event_id**(形如 `codex-provider:llm_…`)。
-  // 管理端的 raw-trace 路由按 id 前缀分派(parseActionEventId → resolveCodexProviderUsageTraceTarget,
+  // 管理端的 raw-trace 路由按 id 前缀分派(parseActionEventId → resolveProviderUsageTraceTarget,
   // buildStackRawProviderTrace 见 `codex-provider:` 前缀走 usage 表),所以对齐 id 就等于
   // 白拿一条已经在线的原始报文通道,一行路由都不用改。接不回来才退回 shadow 行自己的 id。
   const usageEventId = usage ? firstString(usage.event_id, usage.eventId) : null;
@@ -2095,7 +2095,7 @@ async function loadRecallLlmUsageByCallId(sql, callIds) {
   try {
     const rows = await sql.query(`
       SELECT ${RECALL_LLM_USAGE_SELECT}
-      FROM codex_provider_usage_events
+      FROM provider_usage_events
       WHERE llm_call_id IN (${ids.map(() => '?').join(', ')})
     `, ids);
     const byCallId = new Map();
@@ -2167,7 +2167,7 @@ async function loadRecallLlmTimelines(sql, {
 // 这里把每行读成一条伪 fork run(与召回精排同套路),最多两个事件:分类请求、改写请求(判为空转才有)。
 // 它有 (run_id, agent_turn) —— 用心理评估 fork 那套锚点(主 slice output_start_index → 栈 occurred_seq)
 // 把它插在被判的那条 assistant 输出旁边;锚不到再由 stampRecallLlmStreamOrderSeq 按墙钟插回。
-// token / model / 原始报文在 codex_provider_usage_events,llm_call_id 是唯一连接键。
+// token / model / 原始报文在 provider_usage_events,llm_call_id 是唯一连接键。
 const XIAONI_OS_REWRITE_LEG = {
   forkKind: 'xiaoni_os_rewrite',
   runSource: 'xiaoni_os_rewrite',
@@ -2224,7 +2224,7 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
   const llmCallId = isClassify
     ? firstString(row.classify_llm_call_id, row.classifyLlmCallId)
     : firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId);
-  const tokenSummary = usage ? tokenSummaryFromCodexProviderUsageEvent(usage) : null;
+  const tokenSummary = usage ? tokenSummaryFromProviderUsageEvent(usage) : null;
   const modelName = (usage ? firstString(usage.model_name, usage.modelName) : null)
     || (isClassify ? firstString(row.classify_model, row.classifyModel) : firstString(row.rewrite_model, row.rewriteModel));
   const usageEventId = usage ? firstString(usage.event_id, usage.eventId) : null;
@@ -4503,7 +4503,7 @@ function createXiaoniActivityPersistence({
   createSqlAdapter,
   listAgentStackItems,
   listLlmRequestSlices,
-  listCodexProviderUsageEvents,
+  listProviderUsageEvents,
   listToolExecutions,
   findAgentStackItemByEventId
 }) {
@@ -4808,17 +4808,17 @@ function createXiaoniActivityPersistence({
     }
   }
 
-  async function resolveCodexProviderUsageTraceTarget(eventId, key, config = {}) {
-    if (typeof listCodexProviderUsageEvents !== 'function') {
+  async function resolveProviderUsageTraceTarget(eventId, key, config = {}) {
+    if (typeof listProviderUsageEvents !== 'function') {
       return null;
     }
-    let rows = await listCodexProviderUsageEvents({
+    let rows = await listProviderUsageEvents({
       identityKey: 'xiaoni',
       eventId,
       limit: 1
     }, config).catch(() => []);
     if (!rows[0]) {
-      rows = await listCodexProviderUsageEvents({
+      rows = await listProviderUsageEvents({
         identityKey: 'xiaoni',
         llmCallId: key,
         limit: 1
@@ -4833,7 +4833,7 @@ function createXiaoniActivityPersistence({
       ...event.traceTarget,
       sourceKind: row.sourceKind || 'codex_provider',
       // 没有 source_id 就是**没有** fork run —— 别拿 event_id 顶上。顶上去的后果:
-      // buildCodexProviderUsageRawTrace 把 forkRunId 当 sourceId 下推成查询条件,
+      // buildProviderUsageRawTrace 把 forkRunId 当 sourceId 下推成查询条件,
       // 而库里那列是 NULL,于是一行都查不到、原始报文页签打不开。cache_heartbeat 一直
       // 靠一句 `sourceKind === 'cache_heartbeat' ? null : ...` 的特例绕开这件事;召回
       // 那两条腿(同样没有 source_id)就直接撞上了。这里改成不编造,特例也就不必再加。
@@ -5173,7 +5173,7 @@ function createXiaoniActivityPersistence({
     }
 
     if (parsed.prefix === 'codex-provider') {
-      return enrichTraceTarget(await resolveCodexProviderUsageTraceTarget(eventId, parsed.key, config), config);
+      return enrichTraceTarget(await resolveProviderUsageTraceTarget(eventId, parsed.key, config), config);
     }
 
     if (parsed.prefix === 'compression-fork-item') {
@@ -5407,7 +5407,7 @@ function createXiaoniActivityPersistence({
           identityKey,
           timeWindow,
           limit: perSourceLimit
-        }, config, listCodexProviderUsageEvents, sql),
+        }, config, listProviderUsageEvents, sql),
         loadRecallLlmTimelines(sql, {
           identityKey,
           timeWindow,

@@ -481,7 +481,7 @@ function createMockSql() {
         rows.slice.push(row);
         return [row];
       }
-      if (sql.includes('INSERT INTO codex_provider_usage_events')) {
+      if (sql.includes('INSERT INTO provider_usage_events')) {
         const row = {
           id: 120,
           event_id: params[0],
@@ -513,7 +513,7 @@ function createMockSql() {
         rows.providerEvent.push(row);
         return [row];
       }
-      if (/SELECT\s+\*\s+FROM\s+codex_provider_usage_events/i.test(sql)) {
+      if (/SELECT\s+\*\s+FROM\s+provider_usage_events/i.test(sql)) {
         return rows.providerEvent.filter((row) => {
           let index = 0;
           if (sql.includes('identity_key = ?') && row.identity_key !== params[index++]) {
@@ -540,7 +540,7 @@ function createMockSql() {
           return true;
         });
       }
-      if (sql.includes("date_trunc('hour', created_at)") && sql.includes('FROM codex_provider_usage_events') && sql.includes('WHERE slice_id = ?')) {
+      if (sql.includes("date_trunc('hour', created_at)") && sql.includes('FROM provider_usage_events') && sql.includes('WHERE slice_id = ?')) {
         const eventId = params[0];
         const row = rows.providerEvent.find((entry) => entry.event_id === eventId);
         if (!row) {
@@ -739,7 +739,7 @@ test('ensureXiaoniAgentStackSchema creates main and fork ledger tables', async (
   const ddl = sql.calls.filter((call) => call.kind === 'execute').map((call) => call.sql).join('\n');
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS agent_stack_items/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS llm_request_slices/);
-  assert.match(ddl, /CREATE TABLE IF NOT EXISTS codex_provider_usage_events/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS provider_usage_events/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS tool_executions/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS stack_compactions/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_runs/);
@@ -760,12 +760,12 @@ test('ensureXiaoniAgentStackSchema creates main and fork ledger tables', async (
   // can pin an exclusive request at the head of the FIFO lock queue and freeze
   // the table (the 49-connection convoy). The guard makes the steady-state cost
   // a plain AccessShare SELECT.
-  assert.doesNotMatch(ddl, /ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS/);
+  assert.doesNotMatch(ddl, /ALTER TABLE provider_usage_events ADD COLUMN IF NOT EXISTS/);
   assert.doesNotMatch(ddl, /ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS/);
   assert.doesNotMatch(ddl, /ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS/);
   assert.match(ddl, /information_schema\.columns/);
   assert.match(ddl, /column_name = 'source_kind'/);
-  assert.match(ddl, /EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_kind/);
+  assert.match(ddl, /EXECUTE 'ALTER TABLE provider_usage_events ADD COLUMN source_kind/);
   assert.match(ddl, /EXECUTE 'ALTER TABLE llm_usage_rollups ADD COLUMN top_source_kind/);
 });
 
@@ -910,11 +910,11 @@ test('recordLlmRequestSlice stores canonical request and output item range', asy
   assert.ok(sql.rows.rollupSource.some((row) => row.slice_id === 'llm-1' && row.source_kind === 'main'));
 });
 
-test('recordCodexProviderUsageEvent stores no-stack Codex Provider calls in usage rollups', async () => {
+test('recordProviderUsageEvent stores no-stack Codex Provider calls in usage rollups', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
-  const event = await persistence.recordCodexProviderUsageEvent({
+  const event = await persistence.recordProviderUsageEvent({
     eventId: 'codex-provider:vision-1',
     sourceKind: 'image_vision_fork',
     sourceId: 'media-observation-1',
@@ -941,11 +941,11 @@ test('recordCodexProviderUsageEvent stores no-stack Codex Provider calls in usag
   ));
 });
 
-test('listCodexProviderUsageEvents returns cache heartbeat provider events', async () => {
+test('listProviderUsageEvents returns cache heartbeat provider events', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
-  await persistence.recordCodexProviderUsageEvent({
+  await persistence.recordProviderUsageEvent({
     eventId: 'codex-provider:llm-heartbeat',
     sourceKind: 'cache_heartbeat',
     llmCallId: 'llm-heartbeat',
@@ -960,7 +960,7 @@ test('listCodexProviderUsageEvents returns cache heartbeat provider events', asy
     modelProvider: 'codex-local'
   });
 
-  const rows = await persistence.listCodexProviderUsageEvents({
+  const rows = await persistence.listProviderUsageEvents({
     identityKey: 'xiaoni',
     sourceKind: 'cache_heartbeat',
     limit: 10
@@ -973,7 +973,7 @@ test('listCodexProviderUsageEvents returns cache heartbeat provider events', asy
   assert.equal(rows[0].tokenUsage.cached_input_tokens, 90);
 });
 
-test('recordCodexProviderUsageEvent skips rollup when compression fork slice owns the same llm call', async () => {
+test('recordProviderUsageEvent skips rollup when compression fork slice owns the same llm call', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -991,7 +991,7 @@ test('recordCodexProviderUsageEvent skips rollup when compression fork slice own
     modelName: 'gpt-test'
   });
 
-  await persistence.recordCodexProviderUsageEvent({
+  await persistence.recordProviderUsageEvent({
     eventId: 'codex-provider:llm-compress-owned',
     sourceKind: 'core_memory_compression_fork',
     llmCallId: 'llm-compress-owned',
@@ -1015,7 +1015,7 @@ test('recordCodexProviderUsageEvent skips rollup when compression fork slice own
   ), false);
 });
 
-test('recordCodexProviderUsageEvent skips rollup when image vision fork slice owns the same llm call', async () => {
+test('recordProviderUsageEvent skips rollup when image vision fork slice owns the same llm call', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -1032,7 +1032,7 @@ test('recordCodexProviderUsageEvent skips rollup when image vision fork slice ow
     modelName: 'gpt-test'
   });
 
-  await persistence.recordCodexProviderUsageEvent({
+  await persistence.recordProviderUsageEvent({
     eventId: 'codex-provider:llm-image-owned',
     sourceKind: 'image_vision_fork',
     llmCallId: 'llm-image-owned',
@@ -1900,7 +1900,7 @@ test('getXiaoniLlmUsageTimeline search overlay is scoped to the stack ledger, no
   // NOT grep the cumulative sources:
   //   * llm_request_slices — re-snapshots the whole growing context every turn
   //     (~10MB x2/row, 91GB) → the 3-minute lock-convoy query this replaces;
-  //   * codex_provider_usage_events — codex sub-agent payloads, not the stack;
+  //   * provider_usage_events — codex sub-agent payloads, not the stack;
   //   * *_fork_{items,slices} — each fork input is a ~16MB clone of the whole
   //     main context, so a match reappears in every fork, not "first" appearance.
   const sql = createUsageTimelineSqlMock({
@@ -1963,7 +1963,7 @@ test('getXiaoniLlmUsageTimeline search overlay is scoped to the stack ledger, no
   assert.match(executable, /FROM agent_stack_items/);
   assert.match(executable, /content::text ILIKE/);
   assert.doesNotMatch(executable, /FROM\s+llm_request_slices/);
-  assert.doesNotMatch(executable, /FROM\s+codex_provider_usage_events/);
+  assert.doesNotMatch(executable, /FROM\s+provider_usage_events/);
   assert.doesNotMatch(executable, /FROM\s+\w*fork_items/);
   assert.doesNotMatch(executable, /FROM\s+\w*fork_slices/);
   assert.doesNotMatch(executable, /canonical_request/);
@@ -2028,7 +2028,7 @@ test('getXiaoniLlmUsageTimeline deep search scope opts into the raw payload snap
   assert.ok(searchCall, 'a search overlay query must be issued');
   const executable = searchCall.sql.replace(/--.*$/gm, '');
   assert.match(executable, /FROM llm_request_slices/);
-  assert.match(executable, /FROM codex_provider_usage_events/);
+  assert.match(executable, /FROM provider_usage_events/);
   assert.match(executable, /FROM subconscious_agent_fork_slices/);
   assert.match(executable, /canonical_request::text ILIKE/);
   assert.doesNotMatch(executable, /FROM agent_stack_items/);

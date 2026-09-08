@@ -62,7 +62,7 @@ async function readIfExists(absolutePath: string): Promise<string | null> {
 const readContextMenus = () => readContextMenuTexts(RUNTIME_ROOT);
 
 // 返回 { text, llmCallId }:ingest 把 llmCallId 记进 shadow 行的 llmWork,事件流才接得回
-// codex_provider_usage_events(token / model / 原始 wire 报文)。只要正文的老契约(裸字符串)
+// provider_usage_events(token / model / 原始 wire 报文)。只要正文的老契约(裸字符串)
 // 那边仍然收 —— 见 createRecallIngest 的 expandQueries 说明。
 const expandQueries = (prompt: RecallPrompt) => callRecallLlmDetailed(prompt, {
   model: EXPANSION_MODEL,

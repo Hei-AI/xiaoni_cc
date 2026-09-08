@@ -90,7 +90,7 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM xiaoni_os_rewrites')) {
           return overrides.xiaoniOsRewriteRows || [];
         }
-        if (statement.includes('FROM codex_provider_usage_events')) {
+        if (statement.includes('FROM provider_usage_events')) {
           return overrides.recallLlmUsageRows || [];
         }
         return [];
@@ -118,12 +118,12 @@ function createPersistence(overrides = {}) {
         .filter((row) => !llmCallId || row.llmCallId === llmCallId || row.llm_call_id === llmCallId)
         .slice(0, input.limit || 100);
     },
-    listCodexProviderUsageEvents: async (input = {}) => {
-      if (typeof overrides.onListCodexProviderUsageEvents === 'function') {
-        overrides.onListCodexProviderUsageEvents(input);
+    listProviderUsageEvents: async (input = {}) => {
+      if (typeof overrides.onListProviderUsageEvents === 'function') {
+        overrides.onListProviderUsageEvents(input);
       }
       const sourceKind = input.sourceKind || input.source_kind || null;
-      return (overrides.codexProviderUsageRows || [])
+      return (overrides.providerUsageRows || [])
         .filter((row) => !sourceKind || row.sourceKind === sourceKind || row.source_kind === sourceKind)
         .slice(0, input.limit || 100);
     },
@@ -1038,7 +1038,7 @@ test('Xiaoni action stream filters tags before applying display limit', async ()
 
 test('Xiaoni action stream lets the LLM source tag select cache heartbeat provider calls', async () => {
   const persistence = createPersistence({
-    codexProviderUsageRows: [{
+    providerUsageRows: [{
       id: 'heartbeat-row-1',
       eventId: 'codex-provider:heartbeat-1',
       event_id: 'codex-provider:heartbeat-1',
@@ -1073,7 +1073,7 @@ test('Xiaoni action stream lets the LLM source tag select cache heartbeat provid
 
 test('Xiaoni cache heartbeat carries the global occurred_seq from its fork ledger', async () => {
   const persistence = createPersistence({
-    codexProviderUsageRows: [{
+    providerUsageRows: [{
       id: 'heartbeat-row-seq',
       eventId: 'codex-provider:heartbeat-seq',
       event_id: 'codex-provider:heartbeat-seq',
@@ -1111,7 +1111,7 @@ test('Xiaoni cache heartbeat carries the global occurred_seq from its fork ledge
 
 test('Xiaoni cache heartbeat without a ledger row keeps orderSeq null (historical fallback)', async () => {
   const persistence = createPersistence({
-    codexProviderUsageRows: [{
+    providerUsageRows: [{
       id: 'heartbeat-row-noseq',
       eventId: 'codex-provider:heartbeat-noseq',
       event_id: 'codex-provider:heartbeat-noseq',
@@ -2143,10 +2143,10 @@ test('Xiaoni recall expansion that produced no usable query reads as a wasted ca
 
 test('codex-provider trace target does not fabricate a forkRunId when the row has no source_id', async () => {
   // source_id 为空的 provider usage 行(cache_heartbeat、召回精排/展开都是这种)。
-  // 以前这里拿 event_id 顶 forkRunId,下游 buildCodexProviderUsageRawTrace 会把它当
+  // 以前这里拿 event_id 顶 forkRunId,下游 buildProviderUsageRawTrace 会把它当
   // source_id 下推成查询条件 → 库里那列是 NULL → 一行查不到 → 原始报文页签打不开。
   const persistence = createPersistence({
-    codexProviderUsageRows: [{
+    providerUsageRows: [{
       id: 'usage-row-1',
       eventId: 'codex-provider:llm_recall_1',
       event_id: 'codex-provider:llm_recall_1',

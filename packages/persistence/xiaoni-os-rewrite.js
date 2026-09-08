@@ -10,7 +10,7 @@
 // 这张表存两件事:
 //   ① 可观测:每一 turn 的 原文 / 判定 / 改写 / 最终去向(kept / polished / rewritten / evicted / failed_open;
 //      polished = 判有事但夹着填充句,润色后准入;rewrite_stage 记第二腿是润色还是改写,rewrite_retries 记为去残留填充句多发的纠正次数),
-//      以及两次小模型请求的 llm_call_id —— 那是把这行和 codex_provider_usage_events 里的
+//      以及两次小模型请求的 llm_call_id —— 那是把这行和 provider_usage_events 里的
 //      wire request/response、token 接起来的唯一键。
 //   ② 训练集:原文 + 判定 就是将来分类器的标注对;原文 + 改写 是改写器的标注对。
 //      v1 两条腿都是 Haiku 顶着,数据攒够再训。

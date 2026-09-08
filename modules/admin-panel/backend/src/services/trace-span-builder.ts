@@ -8,7 +8,7 @@ import {
   listTraceTrafficLogs,
   listAgentStackItems,
   listLlmRequestSlices,
-  listCodexProviderUsageEvents,
+  listProviderUsageEvents,
   listToolExecutions,
   getAgentTaskById,
   parseInstantValue,
@@ -2165,7 +2165,7 @@ function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): {
   return null;
 }
 
-function normalizeCodexProviderUsageEventAsSlice(row: any) {
+function normalizeProviderUsageEventAsSlice(row: any) {
   const eventId = row.eventId ?? row.event_id ?? row.sliceId ?? row.slice_id ?? row.id;
   return {
     ...row,
@@ -2216,7 +2216,7 @@ function normalizeCodexProviderUsageEventAsSlice(row: any) {
   };
 }
 
-async function buildCodexProviderUsageRawTrace(
+async function buildProviderUsageRawTrace(
   logger: winston.Logger,
   target: StackTraceTarget,
   spanId: string
@@ -2230,7 +2230,7 @@ async function buildCodexProviderUsageRawTrace(
   const eventId = targetEventId?.startsWith('codex-provider:') ? targetEventId : lookup?.sliceId;
   const sourceId = sourceKind === 'cache_heartbeat' ? null : forkRunId;
   try {
-    const rows = await listCodexProviderUsageEvents({
+    const rows = await listProviderUsageEvents({
       identityKey: 'xiaoni',
       ...(sourceKind ? { sourceKind } : {}),
       ...(sourceId ? { sourceId } : {}),
@@ -2245,7 +2245,7 @@ async function buildCodexProviderUsageRawTrace(
     if (!row) {
       return null;
     }
-    const slice = normalizeStackLlmSlice(normalizeCodexProviderUsageEventAsSlice(row), { includeRawWireText: true });
+    const slice = normalizeStackLlmSlice(normalizeProviderUsageEventAsSlice(row), { includeRawWireText: true });
     const providerCall = normalizeStackSliceProviderCall(slice);
     if (!hasProviderWirePayload(providerCall)) {
       return null;
@@ -2253,7 +2253,7 @@ async function buildCodexProviderUsageRawTrace(
     return buildRawProviderTraceFromProviderCall(
       providerCall,
       spanId || target.spanId || null,
-      'codex_provider_usage_events.provider_exchange'
+      'provider_usage_events.provider_exchange'
     );
   } catch (error) {
     logger.warn('Codex provider usage raw trace query failed', {
@@ -2281,7 +2281,7 @@ export async function buildStackRawProviderTrace(
     firstNonEmptyString(target.sourceKind) === 'cache_heartbeat'
     || (target.llmRequestSliceId || '').startsWith('codex-provider:')
   ) {
-    return buildCodexProviderUsageRawTrace(logger, target, spanId);
+    return buildProviderUsageRawTrace(logger, target, spanId);
   }
 
   const lookup = resolveStackRawTraceLookup(target, spanId);

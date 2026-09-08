@@ -14,7 +14,7 @@ import {
   buildUnifiedConfig,
   identityKeyForProviderUsage,
   resolveProviderContextSessionId,
-  shouldRecordCodexProviderUsageEvent
+  shouldRecordProviderUsageEvent
 } from '../provider-debug-service';
 import { buildTraceHeaders } from '../../utils/trace-headers';
 
@@ -167,37 +167,37 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
 });
 
 test('provider debug skips duplicate usage rows for core memory compression forks', () => {
-  assert.equal(shouldRecordCodexProviderUsageEvent({
+  assert.equal(shouldRecordProviderUsageEvent({
     persistLlmCall: false,
     provider: 'codex-local',
     executionMode: 'core_memory_compression_fork_no_persist'
   }), false);
 
-  assert.equal(shouldRecordCodexProviderUsageEvent({
+  assert.equal(shouldRecordProviderUsageEvent({
     persistLlmCall: false,
     provider: 'codex',
     executionMode: 'core_memory_compression_fork'
   }), false);
 
-  assert.equal(shouldRecordCodexProviderUsageEvent({
+  assert.equal(shouldRecordProviderUsageEvent({
     persistLlmCall: false,
     provider: 'codex-local',
     executionMode: 'image_vision_fork'
   }), false);
 
-  assert.equal(shouldRecordCodexProviderUsageEvent({
+  assert.equal(shouldRecordProviderUsageEvent({
     persistLlmCall: false,
     provider: 'codex-local',
     executionMode: 'prompt_debug'
   }), true);
 
-  assert.equal(shouldRecordCodexProviderUsageEvent({
+  assert.equal(shouldRecordProviderUsageEvent({
     persistLlmCall: false,
     provider: 'codex-local',
     executionMode: 'cache_heartbeat_no_persist'
   }), true);
 
-  assert.equal(shouldRecordCodexProviderUsageEvent({
+  assert.equal(shouldRecordProviderUsageEvent({
     persistLlmCall: true,
     provider: 'codex-local',
     executionMode: 'agent_loop'

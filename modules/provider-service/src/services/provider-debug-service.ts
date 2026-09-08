@@ -126,7 +126,7 @@ export function identityKeyForProviderUsage(sourceKind: string, replayIdentityKe
   return replayIdentityKey || 'xiaoni-internal';
 }
 
-export function shouldRecordCodexProviderUsageEvent(params: {
+export function shouldRecordProviderUsageEvent(params: {
   persistLlmCall: boolean;
   provider: string;
   executionMode: string;
@@ -362,13 +362,13 @@ async function executeProviderRequest(
       wireProviderFormat: result.wireProviderFormat
     });
 	  }
-  if (shouldRecordCodexProviderUsageEvent({
+  if (shouldRecordProviderUsageEvent({
     persistLlmCall,
     provider: result.provider,
     executionMode
   })) {
     const sourceKind = normalizeUsageSourceKindFromExecutionMode(executionMode);
-    await runtimeStoreService.recordCodexProviderUsageEvent({
+    await runtimeStoreService.recordProviderUsageEvent({
       sourceKind,
       identityKey: identityKeyForProviderUsage(sourceKind, providerContext.replayIdentityKey),
       traceId: payload.trace_id,

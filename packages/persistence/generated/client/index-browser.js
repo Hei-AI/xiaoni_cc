@@ -433,7 +433,7 @@ exports.Prisma.LlmRequestSliceScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
-exports.Prisma.CodexProviderUsageEventScalarFieldEnum = {
+exports.Prisma.ProviderUsageEventScalarFieldEnum = {
   id: 'id',
   event_id: 'event_id',
   source_kind: 'source_kind',
@@ -1737,7 +1737,7 @@ exports.Prisma.ModelName = {
   AgentLifeEvent: 'AgentLifeEvent',
   AgentStackItem: 'AgentStackItem',
   LlmRequestSlice: 'LlmRequestSlice',
-  CodexProviderUsageEvent: 'CodexProviderUsageEvent',
+  ProviderUsageEvent: 'ProviderUsageEvent',
   LlmUsageRollupSource: 'LlmUsageRollupSource',
   LlmUsageRollup: 'LlmUsageRollup',
   LlmUsageRollupState: 'LlmUsageRollupState',

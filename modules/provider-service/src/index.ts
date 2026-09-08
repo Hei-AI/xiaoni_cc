@@ -314,7 +314,7 @@ async function recordCodexImageProviderUsage(operation: 'generate' | 'edit', bod
       bytes_estimate: image?.bytes_estimate || null
     }))
     : [];
-  await runtimeStoreService.recordCodexProviderUsageEvent({
+  await runtimeStoreService.recordProviderUsageEvent({
     eventId: `codex-provider:image-${operation}:${Date.now()}:${randomUUID().slice(0, 8)}`,
     sourceKind: operation === 'edit' ? 'image_edit' : 'image_generation',
     sourceId: typeof body?.run_id === 'string' ? body.run_id : null,
@@ -343,7 +343,7 @@ async function recordCodexImagePromptAssistantUsage(body: any, data: any) {
   if (data?.provider !== 'codex') {
     return;
   }
-  await runtimeStoreService.recordCodexProviderUsageEvent({
+  await runtimeStoreService.recordProviderUsageEvent({
     eventId: data?.llmCallId ? `codex-provider:${data.llmCallId}` : undefined,
     sourceKind: 'image_prompt_assistant',
     identityKey: 'xiaoni',
