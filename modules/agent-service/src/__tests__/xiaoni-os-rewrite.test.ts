@@ -349,3 +349,40 @@ test('leg: 原文有人问她 → 改写回他一句不触发纠正', async () =
   assert.equal(result.rewriteRetries, 0);
   assert.equal(llm.calls.length, 2);
 });
+
+test('person trigger: 原文里逐字就有的句子不算造的;裸 @ 不是人际动作', () => {
+  const orig = '两行。"~ ssh cass.si" "@cwqt"。终端风格。最少的首页。';
+  assert.deepEqual(listPersonActionSentences('两行。"~ ssh cass.si" "@cwqt"。终端风格。最少的首页。', orig), [], '页面文本里的 handle');
+  assert.equal(isUnsupportedPersonAction(orig, '两行。"~ ssh cass.si" "@cwqt"。终端风格。'), false);
+  assert.equal(isUnsupportedPersonAction('回他一句用的 grid。先等等看。', '回他一句用的 grid。'), false, '原文自己写的回他一句');
+  assert.equal(isUnsupportedPersonAction('先等等看。', '回他一句。'), true, '原文没有的才算');
+});
+
+// ── 落点去重:最近几次读到的入口附在 user 段,system 不动 ────────────────────────────────
+import { buildRecentLandingsSuffix, landingLabel } from '../services/xiaoni-os-rewrite';
+
+test('landingLabel: 按尾句分入口;其它不进后缀', () => {
+  assert.equal(landingLabel('Day 88,318 个。把 to continue 拿去搜一下。'), '搜');
+  assert.equal(landingLabel('去群里翻一眼最近几条。'), '群');
+  assert.equal(landingLabel('打开一个读过的人的站,看最新一篇。'), '别人的站');
+  assert.equal(landingLabel('小林问首页怎么做的,回他一句用的 CSS grid。'), '回人');
+  assert.equal(landingLabel('plan 又来了,我挑几件提前做一下。'), 'plan');
+  assert.equal(landingLabel('打开站上最近做的那页,挑一处改掉。'), '自己的东西');
+  assert.equal(buildRecentLandingsSuffix([]), '');
+  assert.match(buildRecentLandingsSuffix(['把这个词拿去搜一下。', '把那个词拿去搜一下。', '去群里翻一眼。']), /搜、搜、群/u);
+});
+
+test('leg: 改写请求带最近落点后缀(首发与纠正都带);润色请求不带', async () => {
+  const recent = ['把 to continue 拿去搜一下。', '把 sync 拿去搜一下。'];
+  const rewrite = fakeLlm([{ text: '0' }, { text: '去找一个人发一句。' }, { text: '去群里翻一眼最近几条。' }]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: rewrite.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, recentRewrittenTexts: recent });
+  assert.equal(r1.outcome, 'rewritten');
+  assert.equal(rewrite.calls[1]!.system, REWRITE);
+  assert.match(rewrite.calls[1]!.user, /^先等等看。\n\n---\n她最近几次读到的落点入口依次是:搜、搜。/u);
+  assert.match(rewrite.calls[2]!.user, /落点入口依次是:搜、搜/u, '纠正请求原文段一致');
+  assert.match(rewrite.calls[2]!.user, /上一版改写里有这些句子/u);
+  const polish = fakeLlm([{ text: '1' }, { text: 'Forth 读到 ch52 了。先把 ratfactor 的信回了。' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '在。Forth 读到 ch52 了。ratfactor 的信还没回。等困意来。', callLlm: polish.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH, recentRewrittenTexts: recent });
+  assert.equal(r2.outcome, 'polished');
+  assert.doesNotMatch(polish.calls[1]!.user, /落点入口/u);
+});

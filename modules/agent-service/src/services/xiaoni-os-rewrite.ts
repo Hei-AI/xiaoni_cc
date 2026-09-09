@@ -116,14 +116,16 @@ export function needsPolish(text: string): boolean {
 // 触发 → 带着违规句子发一次纠正请求(不带上一版全文,免得虚构的人名被当成来源再用一次)→ 仍触发 → 整段不要
 // (改写 evicted / 润色 failed_open 原文准入)。不机械剔句:剔掉「发给小王」剩「这事他最懂」关系幻觉还在,
 // 剔掉唯一的动作又只剩空转。
-const PERSON_ACTION_RE = /发给|发一句|发一条|发条|发过去|贴给|问问|问一下|问一句|问他|问她|问谁|回他|回她|回一句|找(?:一)?个?人|找谁|谁在线|最近没聊|最可能有反应|私聊|戳一下|艾特|@|接一句|接上/u;
+const PERSON_ACTION_RE = /发给|发一句|发一条|发条|发过去|贴给|问问|问一下|问一句|问他|问她|问谁|回他|回她|回一句|找(?:一)?个?人|找谁|谁在线|最近没聊|最可能有反应|私聊|戳一下|艾特|接一句|接上/u;
 // 原文里她跟人互动的依据:有人在群里 / 私聊里跟她说了话、问了她、她欠着回复。「X 说过一句话」这种引用不算——
 // 引的可能是文章、署名、比喻。
 const PERSON_BASIS_RE = /群里|群聊|私聊|QQ|问我|找我|@我|跟我说|给我发|回我|等我回|没回|还没回|要回|回他|回她|发给/u;
 
-// 改写 / 润色输出里带人际动作的句子。
-export function listPersonActionSentences(text: string): string[] {
-  return splitFragments(text).filter((fragment) => PERSON_ACTION_RE.test(fragment));
+// 改写 / 润色输出里带人际动作的句子。原文里逐字就有的句子不算——润色会整句保留原文,原文自己写的
+// 「回他一句」「@cwqt」不是模型造的。
+export function listPersonActionSentences(text: string, originalText = ''): string[] {
+  const originalFragments = new Set(splitFragments(originalText));
+  return splitFragments(text).filter((fragment) => PERSON_ACTION_RE.test(fragment) && !originalFragments.has(fragment));
 }
 
 // 原文里有没有她跟人互动的依据。
@@ -133,7 +135,33 @@ export function hasPersonBasis(originalText: string): boolean {
 
 // 输出里有人际动作、原文里没有互动依据 → 大概率是替她造的。
 export function isUnsupportedPersonAction(originalText: string, rewrittenText: string): boolean {
-  return !hasPersonBasis(originalText) && listPersonActionSentences(rewrittenText).length > 0;
+  return !hasPersonBasis(originalText) && listPersonActionSentences(rewrittenText, originalText).length > 0;
+}
+
+// ── 落点入口标签 + 去重 ─────────────────────────────────────────────────────────────
+// 留出集 50 条(她 Day 88 连续的空转 turn)改写后 35/49 落在「把 to continue 拿去搜一下」:落点是对的,
+// 但连着几十个 turn 搜同一个词就是另一种空转。改写请求看不到历史,所以把她最近几次读到的落点入口
+// 附在 user 段(system 不动,前缀缓存不受影响),让它换一个入口。标签只用来去重,粗一点没关系。
+export type XiaoniOsLandingLabel = '搜' | '群' | '别人的站' | '回人' | 'plan' | '自己的东西' | '其它';
+
+export function landingLabel(text: string): XiaoniOsLandingLabel {
+  const tail = (text || '').split('\n').map((line) => line.trim()).filter(Boolean).slice(-1)[0] || '';
+  if (/搜/u.test(tail)) return '搜';
+  if (/群/u.test(tail)) return '群';
+  if (/读过的人|最新一篇|链接|博客|他的站|她的站/u.test(tail)) return '别人的站';
+  if (/回他|回她|回一句|发给/u.test(tail)) return '回人';
+  if (/plan/iu.test(tail)) return 'plan';
+  if (/站|页|HTML|文件|写|改/u.test(tail)) return '自己的东西';
+  return '其它';
+}
+
+// 最近几次的落点入口(最新在前)→ user 段后缀。没有历史 → 空串。
+export function buildRecentLandingsSuffix(recentRewrittenTexts: string[]): string {
+  const labels = recentRewrittenTexts.map(landingLabel).filter((label) => label !== '其它');
+  if (labels.length === 0) {
+    return '';
+  }
+  return `\n\n---\n她最近几次读到的落点入口依次是:${labels.join('、')}。这次换一个不在这里面的入口,原文里有别人的东西时仍然优先顺着它走。`;
 }
 
 // 出口兜底:逐句剔掉填充句,保留其余原样(含原来的换行结构)。全剔光 → null。
@@ -226,22 +254,23 @@ export type XiaoniOsRewriteFeedback =
 export function buildXiaoniOsRewritePrompt(
   text: string,
   systemPrompt: string,
-  feedback?: XiaoniOsRewriteFeedback
+  feedback?: XiaoniOsRewriteFeedback,
+  recentSuffix = ''
 ): XiaoniOsLlmPrompt {
   if (!feedback) {
-    return { system: systemPrompt, user: text };
+    return { system: systemPrompt, user: `${text}${recentSuffix}` };
   }
   if (feedback.kind === 'person') {
     const sentences = feedback.sentences.map((sentence) => `「${sentence}」`).join('');
     return {
       system: systemPrompt,
-      user: `${text}\n\n---\n上一版改写里有这些句子:${sentences}。原文里没有她要联系谁的依据,找人、发消息、问人、接话这类动作不能出现。只从原文重新改写一版,动手的话只指向 plan 里的事、站上自己的作品、正在读的东西、去群里翻一眼。只输出正文。`
+      user: `${text}${recentSuffix}\n\n---\n上一版改写里有这些句子:${sentences}。原文里没有她要联系谁的依据,找人、发消息、问人、接话这类动作不能出现。只从原文重新改写一版,动手的话只指向 plan 里的事、站上自己的作品、正在读的东西、去群里翻一眼。只输出正文。`
     };
   }
   const leftover = feedback.leftover.map((sentence) => `「${sentence}」`).join('');
   return {
     system: systemPrompt,
-    user: `${text}\n\n---\n上一版改写是:\n${feedback.previous}\n\n里面还有这些句子:${leftover}。这类单字、拟声、报时报数、什么都不做的句子不能出现。重写一版,把它们换成完整的人话或直接去掉,其余照旧。只输出正文。`
+    user: `${text}${recentSuffix}\n\n---\n上一版改写是:\n${feedback.previous}\n\n里面还有这些句子:${leftover}。这类单字、拟声、报时报数、什么都不做的句子不能出现。重写一版,把它们换成完整的人话或直接去掉,其余照旧。只输出正文。`
   };
 }
 
@@ -280,6 +309,8 @@ export async function runXiaoniOsRewriteLeg(params: {
   rewriteSystemPrompt: string;
   // 润色腿的 system。不传 = 不润色(有事一律原样准入;老测试路径)。
   polishSystemPrompt?: string;
+  // 她最近几次读到的改写 / 润色正文(最新在前),只用来给改写腿的落点去重;润色腿不用(润色只从段内已有的事里选)。
+  recentRewrittenTexts?: string[];
   model?: string;
   now?: () => number;
 }): Promise<XiaoniOsRewriteLegResult> {
@@ -346,12 +377,13 @@ export async function runXiaoniOsRewriteLeg(params: {
     const label = stage === 'polish' ? 'xiaoni-os-polish' : 'xiaoni-os-rewrite';
     let feedback: XiaoniOsRewriteFeedback | undefined;
     let normalized: string | null = null;
+    const recentSuffix = stage === 'rewrite' ? buildRecentLandingsSuffix(params.recentRewrittenTexts || []) : '';
     // 上一版是人际违规:这次仍违规 → 整段不要;这次干净但有填充句 → 已用掉唯一一次纠正,走机械兜底。
     let personViolation = false;
     for (let attempt = 0; attempt <= 1; attempt += 1) {
       let response: XiaoniOsLlmCallResult;
       try {
-        response = await params.callLlm(buildXiaoniOsRewritePrompt(params.text, systemPrompt, feedback), {
+        response = await params.callLlm(buildXiaoniOsRewritePrompt(params.text, systemPrompt, feedback, recentSuffix), {
           model,
           maxTokens: 1024,
           timeoutMs: XIAONI_OS_LLM_TIMEOUT_MS,
@@ -381,7 +413,7 @@ export async function runXiaoniOsRewriteLeg(params: {
       normalized = cleaned;
       const leftover = listFillerSentences(normalized);
       const personSentences = isUnsupportedPersonAction(params.text, normalized)
-        ? listPersonActionSentences(normalized)
+        ? listPersonActionSentences(normalized, params.text)
         : [];
       if (leftover.length === 0 && personSentences.length === 0) {
         return normalized;

@@ -45,6 +45,7 @@ import {
   recordPsychAssessmentForkSlice as recordPsychAssessmentForkSlicePersistence,
   ensureXiaoniOsRewriteSchema,
   recordXiaoniOsRewrite as recordXiaoniOsRewritePersistence,
+  listXiaoniOsRewrites as listXiaoniOsRewritesPersistence,
   recordSubconsciousAgentForkToolExecution as recordSubconsciousAgentForkToolExecutionPersistence,
   completeSubconsciousAgentForkToolExecution as completeSubconsciousAgentForkToolExecutionPersistence,
   recordImageVisionForkRun as recordImageVisionForkRunPersistence,
@@ -2622,6 +2623,19 @@ export class RuntimeStore {
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);
+  }
+
+  // 她最近几次读到的改写 / 润色正文(最新在前),给改写腿的落点去重用。
+  async listRecentXiaoniOsRewrittenTexts(limit = 3): Promise<string[]> {
+    const rows = await listXiaoniOsRewritesPersistence({
+      identityKey: 'xiaoni',
+      limit: Math.max(1, limit * 4),
+      sqlAdapter: this.sql
+    }, databaseConfig) as Array<{ outcome?: string; rewritten_text?: string | null }>;
+    return (Array.isArray(rows) ? rows : [])
+      .filter((row) => (row.outcome === 'rewritten' || row.outcome === 'polished') && typeof row.rewritten_text === 'string' && row.rewritten_text.trim())
+      .slice(0, limit)
+      .map((row) => row.rewritten_text as string);
   }
 
   async recordSubconsciousAgentForkToolExecution(params: {

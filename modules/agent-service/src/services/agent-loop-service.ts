@@ -14262,12 +14262,25 @@ export class AgentLoopService {
     if (!text.trim()) {
       return;
     }
+    // 落点去重用的历史;读不到就不带(fail-open,不影响改写)。
+    let recentRewrittenTexts: string[] = [];
+    const lister = (this.store as RuntimeStore & {
+      listRecentXiaoniOsRewrittenTexts?: RuntimeStore['listRecentXiaoniOsRewrittenTexts'];
+    }).listRecentXiaoniOsRewrittenTexts;
+    if (typeof lister === 'function') {
+      try {
+        recentRewrittenTexts = await lister.call(this.store, 3);
+      } catch {
+        recentRewrittenTexts = [];
+      }
+    }
     const result = await runXiaoniOsRewriteLeg({
       text,
       callLlm: callRecallLlmDetailed,
       classifySystemPrompt: readXiaoniOsClassifySystemPrompt(),
       rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt(),
-      polishSystemPrompt: readXiaoniOsPolishSystemPrompt()
+      polishSystemPrompt: readXiaoniOsPolishSystemPrompt(),
+      recentRewrittenTexts
     });
     if ((result.outcome === 'rewritten' || result.outcome === 'polished') && result.rewrittenText) {
       applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);
