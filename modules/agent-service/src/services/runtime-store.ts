@@ -116,7 +116,7 @@ import {
   foldPendingNotifyMessagesIntoRun,
   settleAgentQueueMessages,
   supersedePendingClockPings,
-  flushNonExternalPendingAgentQueueMessages,
+  flushPendingRecallSurfaceQueueMessages,
   failAgentQueueMessage,
   retryAgentQueueMessage,
   ensureAgentRuntimeSchema,
@@ -2095,9 +2095,9 @@ export class RuntimeStore {
     return enqueueAgentQueueMessage(input, databaseConfig);
   }
 
-  // 醒来那一帧:冲掉所有还 pending 的内部通知(非 phone_notification)。外部消息一条不动。
-  async flushInternalPendingQueueMessagesOnWake(params: { recoverySessionId: number | null }) {
-    return flushNonExternalPendingAgentQueueMessages({
+  // 醒来那一帧:冲掉所有还 pending 的被动召回投递(recall-surface:*)。其它通知一条不动。
+  async flushPendingRecallSurfaceOnWake(params: { recoverySessionId: number | null }) {
+    return flushPendingRecallSurfaceQueueMessages({
       recoverySessionId: params.recoverySessionId,
       sqlAdapter: this.sql
     }, databaseConfig) as Promise<{ flushedCount: number }>;

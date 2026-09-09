@@ -8425,22 +8425,22 @@ export class AgentLoopService {
       });
     }
 
-    // 睡觉期间只放行外部消息:睡着时内部通知已在入队口被丢(agent-queue.js);这里再把睡前残留的
-    // 内部 pending(召回投递 / 潜意识 plan / 报时 / attention lease …)一并冲掉,醒来那一帧只剩
-    // 外部消息 + 醒来结算。冲不掉不挡醒来(warn,fail-open)。
-    const flushInternalPending = (this.store as RuntimeStore & {
-      flushInternalPendingQueueMessagesOnWake?: RuntimeStore['flushInternalPendingQueueMessagesOnWake'];
-    }).flushInternalPendingQueueMessagesOnWake;
-    if (typeof flushInternalPending === 'function') {
-      const flushed = await flushInternalPending.call(this.store, { recoverySessionId: session.id }).catch((error) => {
-        moduleLogger.warn('Failed to flush internal pending notifies on wake', {
+    // 睡觉期间不消费被动召回投递:睡着时召回钩子已在入队口被丢(agent-queue.js);这里再把睡前残留的
+    // 召回 pending 冲掉。其它通知(QQ / web-chat 外部 notify / attention lease / plan / 报时 …)照常留给
+    // 醒来那一帧消费。冲不掉不挡醒来(warn,fail-open)。
+    const flushRecallPending = (this.store as RuntimeStore & {
+      flushPendingRecallSurfaceOnWake?: RuntimeStore['flushPendingRecallSurfaceOnWake'];
+    }).flushPendingRecallSurfaceOnWake;
+    if (typeof flushRecallPending === 'function') {
+      const flushed = await flushRecallPending.call(this.store, { recoverySessionId: session.id }).catch((error) => {
+        moduleLogger.warn('Failed to flush pending recall-surface notifies on wake', {
           recoverySessionId: session.id,
           error: error instanceof Error ? error.message : String(error)
         });
         return null;
       });
       if (flushed && flushed.flushedCount > 0) {
-        moduleLogger.info('Flushed internal pending notifies on wake', {
+        moduleLogger.info('Flushed pending recall-surface notifies on wake', {
           recoverySessionId: session.id,
           wakeCause: projection.wakeCause,
           flushedCount: flushed.flushedCount

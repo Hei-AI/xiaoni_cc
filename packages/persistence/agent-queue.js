@@ -155,16 +155,17 @@ function mapClaimedRun(input) {
   };
 }
 
-// 睡觉期间只放行外部消息。外部 = QQ 入站(source=phone_notification,含群聚合);其它一切通知
-// (被动召回投递 / 潜意识 plan / 报时 / attention lease / 图片任务 …)在她睡着时**不入队**:
-// 行照写(dedupe_key 唯一索引就是投递账本,「同一段记忆永远只投一次」照旧成立),但直接落成
+// 睡觉期间不消费被动召回投递。她睡着时,召回钩子(dedupe_key `recall-surface:*`)**不入队**:行照写
+// (dedupe_key 唯一索引就是投递账本,「同一段记忆永远只投一次」照旧成立),但直接落成
 // settled + result.dropped_while_asleep,永远不会被 claim。醒来那一帧再由
-// flushNonExternalPendingAgentQueueMessages 把睡前残留的内部 pending 一并冲掉 —— 醒来只看
-// 外部消息,不看睡觉期间/睡前攒下的内部念头(2026-09-08 user 拍板)。
-const EXTERNAL_QUEUE_SOURCES = new Set(['phone_notification']);
+// flushPendingRecallSurfaceQueueMessages 把睡前残留的召回 pending 一并冲掉。
+// 只针对召回:其它通知(QQ 入站 / web-chat 等外部 notify / attention lease / 潜意识 plan / 报时 /
+// 压缩完成 / 图片任务)睡觉期间照常入队、醒来照常消费(2026-09-09 user 收窄:只有召回不需要)。
+// 2026-09-08 曾按「非 phone_notification 一律丢」实现,一夜丢掉 4 条 web-chat 真人消息 —— 别再放宽。
+const RECALL_SURFACE_DEDUPE_PREFIX = 'recall-surface:';
 
-function isExternalQueueSource(source) {
-  return EXTERNAL_QUEUE_SOURCES.has(String(source || ''));
+function isRecallSurfaceDedupeKey(dedupeKey) {
+  return typeof dedupeKey === 'string' && dedupeKey.startsWith(RECALL_SURFACE_DEDUPE_PREFIX);
 }
 
 function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
@@ -218,9 +219,9 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     // createTraceId); this guards simulator / internal / replay callers that don't.
     const resolvedTraceId = normalizeOptionalString(message.traceId || message.trace_id)
       || `runtrace_${Date.now()}_${randomUUID().slice(0, 8)}`;
-    const asleepSessionId = isExternalQueueSource(message.source)
-      ? null
-      : await findActiveRecoverySessionId(prisma);
+    const asleepSessionId = isRecallSurfaceDedupeKey(dedupeKey)
+      ? await findActiveRecoverySessionId(prisma)
+      : null;
 
     try {
       const created = await prisma.agentQueueMessage.create({
@@ -705,14 +706,12 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
-  // 醒来那一帧调用:把所有还 pending 的**内部**通知(非 phone_notification)冲掉。它们是睡前 /
-  // 睡觉期间攒下的念头,对醒来的她已经是旧的;外部消息一条不动(它们本来就是叫醒她的理由)。
-  // 已被 claim(processing)的行绝不回改。
-  async function flushNonExternalPendingAgentQueueMessages(input = {}, config = {}) {
+  // 醒来那一帧调用:把所有还 pending 的被动召回投递(dedupe_key `recall-surface:*`)冲掉。它们是睡前 /
+  // 睡觉期间攒下的联想,对醒来的她已经是旧的;其它通知一条不动。已被 claim(processing)的行绝不回改。
+  async function flushPendingRecallSurfaceQueueMessages(input = {}, config = {}) {
     const recoverySessionId = Number.isFinite(Number(input.recoverySessionId ?? input.recovery_session_id))
       ? Number(input.recoverySessionId ?? input.recovery_session_id)
       : null;
-    const externalSources = Array.from(EXTERNAL_QUEUE_SOURCES);
     const { sql, shouldClose } = createSql(input, config);
     try {
       const flushedCount = await sql.execute(
@@ -723,11 +722,11 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
               updated_at = NOW(),
               result = ?::jsonb
           WHERE status = 'pending'
-            AND source NOT IN (${externalSources.map(() => '?').join(', ')})
+            AND dedupe_key LIKE ?
         `,
         [
           JSON.stringify({ flushed_on_wake: true, recovery_session_id: recoverySessionId }),
-          ...externalSources
+          `${RECALL_SURFACE_DEDUPE_PREFIX}%`
         ]
       );
       return { flushedCount: Number(flushedCount) || 0 };
@@ -740,7 +739,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 
   return {
     enqueueAgentQueueMessage,
-    flushNonExternalPendingAgentQueueMessages,
+    flushPendingRecallSurfaceQueueMessages,
     listRecentAgentQueueDedupeKeys,
     getLastAgentQueueEnqueuedAt,
     claimNextAgentQueueMessage,
@@ -753,7 +752,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 }
 
 module.exports = {
-  EXTERNAL_QUEUE_SOURCES,
-  isExternalQueueSource,
+  RECALL_SURFACE_DEDUPE_PREFIX,
+  isRecallSurfaceDedupeKey,
   createAgentQueuePersistence
 };

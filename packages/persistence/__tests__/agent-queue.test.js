@@ -321,7 +321,7 @@ test('retryAgentQueueMessage returns a consumed run to pending without resetting
   assert.equal(result.error_message, 'fetch failed');
 });
 
-// 睡觉期间只放行外部消息(2026-09-08):内部通知在她睡着时不入队;醒来冲掉残留的内部 pending。
+// 睡觉期间不消费被动召回投递(2026-09-09 收窄:只有召回;其它通知照常):召回钩子在她睡着时不入队;醒来冲掉残留的召回 pending。
 function createAsleepAwarePrisma({ activeSessionId, creates }) {
   return {
     agentRecoverySession: {
@@ -337,24 +337,20 @@ function createAsleepAwarePrisma({ activeSessionId, creates }) {
   };
 }
 
-test('enqueueAgentQueueMessage drops internal notifies while a recovery session is active', async () => {
+function internalMessage(overrides) {
+  return {
+    traceId: 'runtrace_test', source: 'system_reminder', chatType: 'direct', sessionKey: 'xiaoni:global',
+    peerId: 'xiaoni', senderId: '1', accountId: '1', bodyForAgent: 'b', ...overrides
+  };
+}
+
+test('enqueueAgentQueueMessage drops recall-surface notifies while a recovery session is active', async () => {
   const creates = [];
   const persistence = createAgentQueuePersistence({
     getPrismaClient: () => createAsleepAwarePrisma({ activeSessionId: 435, creates })
   });
   const result = await persistence.enqueueAgentQueueMessage({
-    message: {
-      traceId: 'runtrace_test_1',
-      source: 'system_reminder',
-      messageSid: 'recall-surface:association:abc',
-      dedupeKey: 'recall-surface:association:abc',
-      chatType: 'direct',
-      sessionKey: 'xiaoni:global',
-      peerId: 'xiaoni',
-      senderId: '1',
-      accountId: '1',
-      bodyForAgent: '一段旧记忆'
-    },
+    message: internalMessage({ messageSid: 'recall-surface:association:abc', dedupeKey: 'recall-surface:association:abc', bodyForAgent: '一段旧记忆' }),
     payload: { messageId: 'recall-surface:association:abc' }
   });
   assert.equal(creates.length, 1, 'row is still written (dedupe ledger)');
@@ -366,40 +362,36 @@ test('enqueueAgentQueueMessage drops internal notifies while a recovery session 
   assert.equal(result.droppedWhileAsleep, true);
 });
 
-test('enqueueAgentQueueMessage lets external phone notifications through while asleep and never consults the session', async () => {
+test('enqueueAgentQueueMessage lets every non-recall notify through while asleep without consulting the session', async () => {
   const creates = [];
   const prisma = createAsleepAwarePrisma({ activeSessionId: 435, creates });
   prisma.agentRecoverySession.findFirst = async () => {
-    throw new Error('external messages must not look at recovery sessions');
+    throw new Error('non-recall messages must not look at recovery sessions');
   };
   const persistence = createAgentQueuePersistence({ getPrismaClient: () => prisma });
-  const result = await persistence.enqueueAgentQueueMessage({
-    message: {
-      traceId: 'runtrace_test_2',
-      source: 'phone_notification',
-      messageSid: 'napcat:1',
-      dedupeKey: 'phone_notification:napcat:1',
-      chatType: 'direct',
-      sessionKey: 'qq:direct:2',
-      peerId: '2',
-      senderId: '2',
-      accountId: '1',
-      bodyForAgent: '在吗'
-    },
-    payload: { messageId: 1 }
-  });
-  assert.equal(creates[0].status, 'pending');
-  assert.equal(creates[0].result, undefined);
-  assert.equal(result.droppedWhileAsleep, false);
+  const cases = [
+    { source: 'phone_notification', messageSid: 'napcat:1', dedupeKey: 'phone_notification:napcat:1' },
+    { messageSid: 'external-notify:web-chat:u1', dedupeKey: 'external-notify:web-chat:u1' },
+    { messageSid: 'attention_lease:1', dedupeKey: 'attention_lease:1' },
+    { messageSid: 'subconscious-agent:1', dedupeKey: 'subconscious-agent:plan:1' },
+    { messageSid: 'clock-ping:1', dedupeKey: 'clock-ping:xiaoni:1' },
+    { messageSid: 'core-memory-compression-done:1', dedupeKey: 'core-memory-compression-done:1' }
+  ];
+  for (const c of cases) {
+    const result = await persistence.enqueueAgentQueueMessage({ message: internalMessage(c), payload: {} });
+    assert.equal(result.droppedWhileAsleep, false, c.dedupeKey);
+  }
+  assert.equal(creates.length, cases.length);
+  assert.ok(creates.every((row) => row.status === 'pending' && row.result === undefined));
 });
 
-test('enqueueAgentQueueMessage enqueues internal notifies normally when awake or when the session lookup fails', async () => {
+test('enqueueAgentQueueMessage enqueues recall-surface normally when awake or when the session lookup fails', async () => {
   const creates = [];
   const persistence = createAgentQueuePersistence({
     getPrismaClient: () => createAsleepAwarePrisma({ activeSessionId: null, creates })
   });
   const awake = await persistence.enqueueAgentQueueMessage({
-    message: { traceId: 't3', source: 'system_reminder', messageSid: 's3', dedupeKey: 'clock-ping:s3', chatType: 'direct', sessionKey: 'k', peerId: 'p', senderId: 's', accountId: 'a', bodyForAgent: 'b' },
+    message: internalMessage({ messageSid: 'r1', dedupeKey: 'recall-surface:landing:r1' }),
     payload: {}
   });
   assert.equal(creates[0].status, 'pending');
@@ -409,14 +401,14 @@ test('enqueueAgentQueueMessage enqueues internal notifies normally when awake or
   failing.agentRecoverySession.findFirst = async () => { throw new Error('db down'); };
   const failOpen = createAgentQueuePersistence({ getPrismaClient: () => failing });
   const result = await failOpen.enqueueAgentQueueMessage({
-    message: { traceId: 't4', source: 'system_reminder', messageSid: 's4', dedupeKey: 'clock-ping:s4', chatType: 'direct', sessionKey: 'k', peerId: 'p', senderId: 's', accountId: 'a', bodyForAgent: 'b' },
+    message: internalMessage({ messageSid: 'r2', dedupeKey: 'recall-surface:landing:r2' }),
     payload: {}
   });
   assert.equal(creates[1].status, 'pending', 'lookup failure fails open to a normal enqueue');
   assert.equal(result.droppedWhileAsleep, false);
 });
 
-test('flushNonExternalPendingAgentQueueMessages settles pending internal rows only, never phone notifications', async () => {
+test('flushPendingRecallSurfaceQueueMessages settles pending recall-surface rows only', async () => {
   const executes = [];
   const persistence = createAgentQueuePersistence({
     getPrismaClient: () => {
@@ -430,13 +422,13 @@ test('flushNonExternalPendingAgentQueueMessages settles pending internal rows on
       close: async () => undefined
     })
   });
-  const flushed = await persistence.flushNonExternalPendingAgentQueueMessages({ recoverySessionId: 435 });
+  const flushed = await persistence.flushPendingRecallSurfaceQueueMessages({ recoverySessionId: 435 });
   assert.deepEqual(flushed, { flushedCount: 3 });
   assert.equal(executes.length, 1);
   assert.match(executes[0].sql, /SET status = 'settled'/);
   assert.match(executes[0].sql, /WHERE status = 'pending'/);
-  assert.match(executes[0].sql, /source NOT IN \(\?\)/);
-  assert.equal(executes[0].params[1], 'phone_notification');
+  assert.match(executes[0].sql, /dedupe_key LIKE \?/);
+  assert.equal(executes[0].params[1], 'recall-surface:%');
   const result = JSON.parse(executes[0].params[0]);
   assert.equal(result.flushed_on_wake, true);
   assert.equal(result.recovery_session_id, 435);

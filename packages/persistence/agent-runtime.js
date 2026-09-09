@@ -604,13 +604,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
 
   async function enqueueSelfContinuationQueueMessage(input = {}, config = {}) {
     return withSql(input, config, async (sql) => {
-      // 睡觉期间只放行外部消息(见 agent-queue.js EXTERNAL_QUEUE_SOURCES):自驱动 notify 在她睡着时不入队。
-      const asleep = await sql.query(
-        `SELECT id FROM agent_recovery_sessions WHERE status = 'active' LIMIT 1`
-      ).catch(() => []);
-      if (Array.isArray(asleep) && asleep.length > 0) {
-        return false;
-      }
       const rows = await sql.query(
         `
           INSERT INTO agent_queue_messages (
