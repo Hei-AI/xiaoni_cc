@@ -163,7 +163,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./:/workspace/qq_bot
+      # 仓库只读:她不能直接改服务代码(agent-service/provider/admin/persistence/compose/Dockerfile…)。
+      # 要改这些只能提远程 PR、由人评审后落。下面两个 rw 子挂载是她被允许直接改的:
+      #   - docs/xiaoni_prompt:她自己的 prompt
+      #   - modules/agent-service/skills:她的技能(skill-creator 建新技能也在这里)
+      # docker 按目标路径深度让更具体的子挂载覆盖 ro 父挂载,得到路径级写权限。
+      - ./:/workspace/qq_bot:ro
+      - ./docs/xiaoni_prompt:/workspace/qq_bot/docs/xiaoni_prompt
+      - ./modules/agent-service/skills:/workspace/qq_bot/modules/agent-service/skills
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
       # docker.sock 已移除(2026-09-09 沙箱加固):它是执行容器偷各服务 key / 容器逃逸的唯一路。
       # 她历史上从没用它重启过主栈,零成本。需要重启主栈的能力由 host 侧另行提供。
