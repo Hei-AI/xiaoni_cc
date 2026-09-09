@@ -127,6 +127,27 @@ app.post('/api/internal/runtime/notify', async (req, res) => {
   }
 });
 
+// register-local relay(2026-09-09 沙箱加固):执行容器移出 provider 所在网后,她的
+// local-image-visibility 无法直连 provider register-local 去把「自己本地造的图」登记成可检视的
+// image_id。这里在她可达的 agent-service 上开一条 relay,转发到 provider,保住「看自己的图」能力。
+// 不消耗任何模型;只是把本地文件登记成 media asset。请求体原样透传。
+app.post('/api/internal/runtime/register-local-image', async (req, res) => {
+  try {
+    const upstream = `${agentConfig.providerServiceUrl}/api/internal/media-assets/register-local`;
+    const resp = await fetch(upstream, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body ?? {})
+    });
+    const text = await resp.text();
+    res.status(resp.status).type('application/json').send(text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('register-local relay failed', { error: message });
+    res.status(502).json({ success: false, error: message });
+  }
+});
+
 app.post('/api/internal/runtime/core-memory-compression/trigger', async (_req, res) => {
   try {
     const result = await loopService.triggerManualCoreMemoryCompression();

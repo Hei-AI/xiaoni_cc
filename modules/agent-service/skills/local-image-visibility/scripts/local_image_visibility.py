@@ -78,10 +78,14 @@ def default_thumb_path(src,w,h):
 def provider_registration_urls():
     explicit=os.environ.get('XIAONI_MEDIA_REGISTER_URL','').strip()
     if explicit: return [explicit]
+    urls=[]
+    # 2026-09-09 沙箱加固:执行容器移出 provider 所在网,直连 provider 已不可达。
+    # 走 agent-service 的 register-local relay(执行容器可达);保留 provider 直连作兼容兜底。
+    relay=os.environ.get('QQ_USAGE_ENDPOINT','').replace('/api/internal/qq-usage','') or 'http://qqbot-agent-service:8092'
+    urls.append(relay.rstrip('/')+'/api/internal/runtime/register-local-image')
     bases=[]
     if PROVIDER_SERVICE_URL: bases.append(PROVIDER_SERVICE_URL)
     bases.extend(['http://qqbot-provider-service:8090','http://127.0.0.1:8091'])
-    urls=[]
     for base in bases:
         url=base.rstrip('/')+'/api/internal/media-assets/register-local'
         if url not in urls: urls.append(url)
