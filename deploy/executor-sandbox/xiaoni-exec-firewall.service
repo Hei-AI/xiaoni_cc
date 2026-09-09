@@ -1,0 +1,11 @@
+[Unit]
+Description=Xiaoni executor sandbox firewall (br-xexec host-port gate)
+After=docker.service
+Requires=docker.service
+# Docker 不会 flush INPUT / 自建链;规则一次装好持续有效。开机在 docker 起来后重装一遍。
+[Service]
+Type=oneshot
+ExecStart=/home/liahua/IdeaProject/qq_bot/deploy/executor-sandbox/xiaoni-exec-firewall.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

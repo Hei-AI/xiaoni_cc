@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-apply Xiaoni executor sandbox firewall every minute (belt-and-suspenders vs restart window)
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=xiaoni-exec-firewall.service
+[Install]
+WantedBy=timers.target
