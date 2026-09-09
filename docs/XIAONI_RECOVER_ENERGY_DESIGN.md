@@ -250,14 +250,15 @@ do not fake function_call_output
 do not fake tool_executions
 ```
 
-## Sleep-Time Consumption Rule (2026-09-09)
+## Sleep-Time Rule: No Recall Scenario While Asleep (2026-09-09)
 
-睡觉期间不消费被动召回投递;其它通知照常。
+入队和消费是两个概念。睡觉期间:
 
-- 被动召回投递(`agent_queue_messages.dedupe_key` 前缀 `recall-surface:`)在 `agent_recovery_sessions` 有 `active` 行时**不入队**:`enqueueAgentQueueMessage` 仍写行(dedupe_key 唯一索引是投递账本,「同一段记忆永远只投一次」不变),但直接落成 `status='settled'` + `result.dropped_while_asleep=true`,返回 `droppedWhileAsleep:true`;投递闸按「没投出去」处理。
-- 醒来那一帧(`settleRecoverySession` finalize 之后)调用 `flushPendingRecallSurfaceQueueMessages`:把所有还 `pending` 的 `recall-surface:*` 行冲成 `settled` + `result.flushed_on_wake=true`。已被 claim 的行不回改。
-- 其它一切通知(QQ 入站 `phone_notification`、web-chat 等 `external-notify:*`、`attention_lease:*`、潜意识 plan `subconscious-agent:*`、`clock-ping:*`、压缩完成、图片任务、`self_continuation`)睡觉期间照常入队,醒来那一帧照常消费。
-- 2026-09-08 曾按「非 phone_notification 一律不消费」实现,一夜丢了 4 条 web-chat 真人消息(已回填 pending),09-09 收窄为只针对召回。
+- 唤醒计数只认 QQ 的 @ / 私聊(`listAgentRecoveryWakeNotifications` 只读 `source='phone_notification'`)。其它入队内容一律不计,醒来那一帧才消费。这是原有行为,不变。
+- 被动召回这个场景在她睡着时**不触发**:`fireActionStreamRecall` / `fireConsumedNotifyRecall` 在点火前查 `isXiaoniAsleep()`(`agent_recovery_sessions` 有 active 行,5 秒缓存),睡着就不 ingest、不 recall;`deliverForEvent` 同样先判,睡着返回 `'asleep'`,不跑精排、不入队、不写留痕。她入睡那一刻自己的落地(recover_energy 的 reason / xiaoni_os)也被拦住:会话先建、栈行后落。
+- 醒来那一帧(`settleRecoverySession` finalize 之后)`flushPendingRecallSurfaceQueueMessages` 把睡前残留的 `recall-surface:*` pending 冲成 `settled` + `result.flushed_on_wake=true`(只针对召回;user 拍板「只有召回的这些不需要醒来消费」)。
+- 入队口(`enqueueAgentQueueMessage`)不做任何睡眠判断。2026-09-08 曾在入队口按来源丢消息,一夜丢了 4 条 web-chat 真人消息,已回填并撤掉。
+- 联想腿的 30 分钟扫描(`association_scan`)在 admin-backend 里跑,只写 shadow 行不投递,不受影响。
 
 ## Notify Bucket Semantics
 

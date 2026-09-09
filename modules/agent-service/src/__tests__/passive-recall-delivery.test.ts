@@ -238,3 +238,35 @@ test('投递正文在入队时刻冻结进 payload.systemReminder(下一 run rep
   assert.equal(payload.systemReminder?.reason, 'passive_recall_surface');
   assert.equal(payload.systemReminder?.reminder, String(calls[0]!.payload.rawBody));
 });
+
+// ── 睡觉期间没有召回这个场景 ────────────────────────────────────────────────
+test('她睡着 → asleep:不跑精排、不入队、不写留痕;醒来后同一事件照常投', async () => {
+  const { deps, calls } = fakeDeps();
+  let asleep = true;
+  let judgeCalls = 0;
+  const delivery = createPassiveRecallDelivery(deps, {
+    readGate: async () => ({ enabled: true }),
+    isAsleep: async () => asleep,
+    judge: async () => { judgeCalls += 1; return '{"picks":[{"id":1,"hook":"一件旧事"}]}'; },
+    now: () => NOW
+  });
+  const before = shadowWrites.length;
+  assert.equal(await delivery.deliverForEvent(event([landingItem('/n/asleep.md#1', '一件旧事')])), 'asleep');
+  assert.equal(calls.length, 0);
+  assert.equal(judgeCalls, 0);
+  assert.equal(shadowWrites.length, before);
+  asleep = false;
+  assert.equal(await delivery.deliverForEvent(event([landingItem('/n/asleep.md#1', '一件旧事')])), 'delivered');
+  assert.equal(calls.length, 1);
+});
+
+test('睡眠判断查挂 → 按醒着处理(不因为一次查库失败把召回整段关掉)', async () => {
+  const { deps, calls } = fakeDeps();
+  const delivery = createPassiveRecallDelivery(deps, {
+    readGate: async () => ({ enabled: true }),
+    isAsleep: async () => { throw new Error('db down'); },
+    now: () => NOW
+  });
+  assert.equal(await delivery.deliverForEvent(event([landingItem('/n/c.md#1', '一件旧事')])), 'delivered');
+  assert.equal(calls.length, 1);
+});

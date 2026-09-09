@@ -155,13 +155,9 @@ function mapClaimedRun(input) {
   };
 }
 
-// 睡觉期间不消费被动召回投递。她睡着时,召回钩子(dedupe_key `recall-surface:*`)**不入队**:行照写
-// (dedupe_key 唯一索引就是投递账本,「同一段记忆永远只投一次」照旧成立),但直接落成
-// settled + result.dropped_while_asleep,永远不会被 claim。醒来那一帧再由
-// flushPendingRecallSurfaceQueueMessages 把睡前残留的召回 pending 一并冲掉。
-// 只针对召回:其它通知(QQ 入站 / web-chat 等外部 notify / attention lease / 潜意识 plan / 报时 /
-// 压缩完成 / 图片任务)睡觉期间照常入队、醒来照常消费(2026-09-09 user 收窄:只有召回不需要)。
-// 2026-09-08 曾按「非 phone_notification 一律丢」实现,一夜丢掉 4 条 web-chat 真人消息 —— 别再放宽。
+// 被动召回投递的 dedupe_key 前缀。睡觉期间召回这个场景不触发(agent-service xiaoni-recall-hook /
+// xiaoni-recall-delivery 在触发点上按 active 睡眠会话拦);这里只留醒来那一帧的 flush:把睡前残留的
+// 召回 pending 冲掉。入队口不做睡眠判断 —— 入队和消费是两个概念,其它通知睡觉期间照常入队、醒来消费。
 const RECALL_SURFACE_DEDUPE_PREFIX = 'recall-surface:';
 
 function isRecallSurfaceDedupeKey(dedupeKey) {
@@ -171,20 +167,6 @@ function isRecallSurfaceDedupeKey(dedupeKey) {
 function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   function getClient(config) {
     return getPrismaClient(config);
-  }
-
-  // 她此刻睡着吗(agent_recovery_sessions 有 active 行)。查不到 / 查挂 → null(fail-open:照常入队)。
-  async function findActiveRecoverySessionId(prisma) {
-    try {
-      const row = await prisma.agentRecoverySession.findFirst({
-        where: { status: 'active' },
-        select: { id: true },
-        orderBy: { started_at: 'asc' }
-      });
-      return row && row.id !== null && typeof row.id !== 'undefined' ? Number(row.id) : null;
-    } catch {
-      return null;
-    }
   }
 
   function createSql(input, config) {
@@ -219,9 +201,6 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     // createTraceId); this guards simulator / internal / replay callers that don't.
     const resolvedTraceId = normalizeOptionalString(message.traceId || message.trace_id)
       || `runtrace_${Date.now()}_${randomUUID().slice(0, 8)}`;
-    const asleepSessionId = isRecallSurfaceDedupeKey(dedupeKey)
-      ? await findActiveRecoverySessionId(prisma)
-      : null;
 
     try {
       const created = await prisma.agentQueueMessage.create({
@@ -241,25 +220,14 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           raw_payload: normalizeJsonObject(message.rawPayload || message.raw_payload),
           inbound_context: normalizeJsonObject(message.inboundContext || message.inbound_context),
           payload,
-          status: asleepSessionId === null ? 'pending' : 'settled',
-          available_at: availableAt,
-          ...(asleepSessionId === null
-            ? {}
-            : {
-                completed_at: new Date(),
-                result: { dropped_while_asleep: true, recovery_session_id: asleepSessionId }
-              })
+          status: 'pending',
+          available_at: availableAt
         }
       });
       // created:true 只在真的新插了一行时为真。撞唯一索引返回既有行时是 false ——
       // 调用方(如被动浮现投递闸)靠它区分「这次投出去了」和「早就投过了」,
       // 光看 status 区分不了(既有行没被消费时同样是 pending)。
-      // droppedWhileAsleep:true = 行写了但她睡着,永远不会被 claim;调用方按「没投出去」处理。
-      return {
-        ...normalizeQueueRow(created, payload),
-        created: true,
-        droppedWhileAsleep: asleepSessionId !== null
-      };
+      return { ...normalizeQueueRow(created, payload), created: true };
     } catch (error) {
       if (error?.code !== 'P2002') {
         throw error;

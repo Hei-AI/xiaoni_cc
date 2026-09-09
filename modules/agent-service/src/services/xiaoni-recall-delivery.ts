@@ -156,6 +156,8 @@ export interface RecallDeliveryOptions {
   judge?: RecallDeliveryJudge;
   // 不传 = 每拍从 agent_runtime_control 现读(生产路径)。
   readGate?: () => Promise<RecallDeliveryGate>;
+  // 不传 = 现读 agent_recovery_sessions 有没有 active 行(isXiaoniAsleep)。她睡着时召回这个场景不触发。
+  isAsleep?: () => Promise<boolean>;
   lookback?: number;
   now?: () => Date;
 }
@@ -316,15 +318,11 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
   }, databaseConfig);
   // created=false ⇔ 撞了 dedupe_key ⇔ 这段记忆早就投过 → 当作没投,继续看下一条。
   // 不能用 status 判:既有行没被消费时同样是 'pending'。
-  // droppedWhileAsleep=true ⇔ 她睡着,入队口把这条落成了永不 claim 的行 → 也当作没投(账本上它已经用掉了)。
-  if ((result as { droppedWhileAsleep?: boolean } | null)?.droppedWhileAsleep === true) {
-    return false;
-  }
   return result?.created === true;
 }
 
 // 东八区当前小时(含小数)。startOfEast8Day 已经在用同一个偏移量,这里沿用同一套算术。
-export type RecallDeliveryOutcome = 'disabled' | 'none' | 'delivered';
+export type RecallDeliveryOutcome = 'disabled' | 'asleep' | 'none' | 'delivered';
 
 // 触发投递的事件:她消费的 QQ 消息 / 她自己的一次落地。row = 这次召回刚写的 shadow 行(带 surfaced)。
 export interface RecallDeliveryEvent {
@@ -337,6 +335,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   const lookback = Math.max(1, options.lookback ?? SHADOW_LOOKBACK);
   const clock = options.now ?? (() => new Date());
   const readGate = options.readGate ?? defaultReadGate;
+  const isAsleep = options.isAsleep ?? isXiaoniAsleep;
   const judge = options.judge ?? null;
 
   // 判官的工作内容留痕。它走 /api/internal/llm/debug,那条路径**不落 llm_request_slices**
@@ -453,6 +452,11 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     if (gate.enabled !== true) {
       return 'disabled';
     }
+    // 睡觉期间没有召回这个场景:不判、不投。唤醒只认 QQ 的 @ / 私聊(见 listAgentRecoveryWakeNotifications),
+    // 其它入队内容醒来才消费 —— 所以这里连精排都不跑,而不是投进桶里等她醒。
+    if (await isAsleep().catch(() => false)) {
+      return 'asleep';
+    }
     const now = clock();
     // 今天已投的 dedupe_key:只用来**跳过已投**和记账,不做任何拦截。
     const todaysKeys = await deps.listRecentAgentQueueDedupeKeys({
@@ -555,6 +559,25 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   }
 
   return { deliverForEvent };
+}
+
+// 她此刻睡着吗:agent_recovery_sessions 有 active 行。5 秒缓存 —— 一次落地会点火 ingest + 投递两处,
+// 不必每次都查库。查挂 → false(按醒着处理;DB 不通时召回链本身也跑不动,不在这里再加一层判断)。
+const ASLEEP_CACHE_TTL_MS = 5_000;
+let asleepCache: { at: number; value: boolean } | null = null;
+export async function isXiaoniAsleep(now: number = Date.now()): Promise<boolean> {
+  if (asleepCache && now - asleepCache.at < ASLEEP_CACHE_TTL_MS) {
+    return asleepCache.value;
+  }
+  let value = false;
+  try {
+    const session = await persistence.getActiveAgentRecoverySession({ identityKey: IDENTITY_KEY }, databaseConfig);
+    value = Boolean(session);
+  } catch {
+    value = false;
+  }
+  asleepCache = { at: now, value };
+  return value;
 }
 
 async function defaultReadGate(): Promise<RecallDeliveryGate> {

@@ -8,7 +8,7 @@
 
 import fs from 'node:fs/promises';
 import { logger } from '../utils/logger';
-import { deliverPassiveRecallForEvent } from './xiaoni-recall-delivery';
+import { deliverPassiveRecallForEvent, isXiaoniAsleep } from './xiaoni-recall-delivery';
 import path from 'node:path';
 
 import * as persistence from '@qq-bot/persistence';
@@ -209,15 +209,22 @@ export function fireConsumedNotifyRecall(payload: Record<string, unknown> | null
   const occurredAt = (typeof payload.messageTimestamp === 'string' && payload.messageTimestamp)
     || (typeof payload.receivedAt === 'string' && payload.receivedAt) || undefined;
   Promise.resolve()
-    .then(() => getIngest().runShadowRecall({
-      landedText,
-      landedRef,
-      contextRefs: [],
-      taskLocked: false,
-      occurredAt
-    }))
-    // 别人刚说的话勾起她一段回忆 → 同一次就交精排 Agent 投递,锚点就是这条消息。
-    .then((result) => fireDeliveryForRecall(landedText, result))
+    // 睡觉期间没有召回这个场景(醒来那一帧消费的 QQ 消息不算睡觉:会话已在 claim 之前结算)。
+    .then(() => isXiaoniAsleep())
+    .then(async (asleep) => {
+      if (asleep) {
+        return;
+      }
+      const result = await getIngest().runShadowRecall({
+        landedText,
+        landedRef,
+        contextRefs: [],
+        taskLocked: false,
+        occurredAt
+      });
+      // 别人刚说的话勾起她一段回忆 → 同一次就交精排 Agent 投递,锚点就是这条消息。
+      fireDeliveryForRecall(landedText, result);
+    })
     .catch(() => {});
 }
 
@@ -233,7 +240,10 @@ export function fireActionStreamRecall(): void {
   lastFiredAt = now;
   inFlight = true;
   Promise.resolve()
-    .then(() => projectAndIngest())
+    // 睡觉期间没有召回这个场景。她入睡那一刻自己的落地(recover_energy 的 reason / xiaoni_os)也在这里
+    // 被拦:会话先建、栈行后落,点火时 active 行已经在了。索引不急,醒来第一次落地会把头部 50 条补上。
+    .then(() => isXiaoniAsleep())
+    .then((asleep) => (asleep ? undefined : projectAndIngest()))
     .catch(() => {})
     .finally(() => { inFlight = false; });
 }
