@@ -109,6 +109,33 @@ export function needsPolish(text: string): boolean {
   return listFillerSentences(text).length > 0 || IDLE_REST_RE.test(text);
 }
 
+// ── 人际动作风险触发器 ─────────────────────────────────────────────────────────────
+// 现网 2176 条改写里 74.4% 是原文没提到任何人、改写却替她造出一个人去联系(「发给最可能有反应的那个人」,
+// 曾把她读的文章名 blowup 当成可以发消息的人)。这段字会以她的第一人称进上下文,造出来的人 / 关系 / 事实
+// 下一轮就是她的记忆。正则只做**触发器**,不做「有依据」的证明(原文里的文章名 / 署名 / 引语会被当成人):
+// 触发 → 带着违规句子发一次纠正请求(不带上一版全文,免得虚构的人名被当成来源再用一次)→ 仍触发 → 整段不要
+// (改写 evicted / 润色 failed_open 原文准入)。不机械剔句:剔掉「发给小王」剩「这事他最懂」关系幻觉还在,
+// 剔掉唯一的动作又只剩空转。
+const PERSON_ACTION_RE = /发给|发一句|发一条|发条|发过去|贴给|问问|问一下|问一句|问他|问她|问谁|回他|回她|回一句|找(?:一)?个?人|找谁|谁在线|最近没聊|最可能有反应|私聊|戳一下|艾特|@|接一句|接上/u;
+// 原文里她跟人互动的依据:有人在群里 / 私聊里跟她说了话、问了她、她欠着回复。「X 说过一句话」这种引用不算——
+// 引的可能是文章、署名、比喻。
+const PERSON_BASIS_RE = /群里|群聊|私聊|QQ|问我|找我|@我|跟我说|给我发|回我|等我回|没回|还没回|要回|回他|回她|发给/u;
+
+// 改写 / 润色输出里带人际动作的句子。
+export function listPersonActionSentences(text: string): string[] {
+  return splitFragments(text).filter((fragment) => PERSON_ACTION_RE.test(fragment));
+}
+
+// 原文里有没有她跟人互动的依据。
+export function hasPersonBasis(originalText: string): boolean {
+  return PERSON_BASIS_RE.test(originalText);
+}
+
+// 输出里有人际动作、原文里没有互动依据 → 大概率是替她造的。
+export function isUnsupportedPersonAction(originalText: string, rewrittenText: string): boolean {
+  return !hasPersonBasis(originalText) && listPersonActionSentences(rewrittenText).length > 0;
+}
+
 // 出口兜底:逐句剔掉填充句,保留其余原样(含原来的换行结构)。全剔光 → null。
 // 只在 LLM 纠正一次之后还有残留时才走到这里 —— 主路径是让模型自己改。
 export function stripFillerSentences(text: string): string | null {
@@ -189,14 +216,27 @@ export function buildXiaoniOsClassifyPrompt(text: string, systemPrompt: string):
   return { system: systemPrompt, user: text };
 }
 
-// 纠正请求:system 不动(前缀缓存),只在 user 段追加上一版和残留的句子。
+// 纠正请求的反馈:填充句残留(带上一版 + 残留句)/ 人际动作没依据(只带违规句,不带上一版——上一版里虚构的
+// 人名一旦附进 user 段,会被当成来源再用一次)。
+export type XiaoniOsRewriteFeedback =
+  | { kind: 'filler'; previous: string; leftover: string[] }
+  | { kind: 'person'; sentences: string[] };
+
+// 纠正请求:system 不动(前缀缓存),只在 user 段追加反馈。
 export function buildXiaoniOsRewritePrompt(
   text: string,
   systemPrompt: string,
-  feedback?: { previous: string; leftover: string[] }
+  feedback?: XiaoniOsRewriteFeedback
 ): XiaoniOsLlmPrompt {
   if (!feedback) {
     return { system: systemPrompt, user: text };
+  }
+  if (feedback.kind === 'person') {
+    const sentences = feedback.sentences.map((sentence) => `「${sentence}」`).join('');
+    return {
+      system: systemPrompt,
+      user: `${text}\n\n---\n上一版改写里有这些句子:${sentences}。原文里没有她要联系谁的依据,找人、发消息、问人、接话这类动作不能出现。只从原文重新改写一版,动手的话只指向 plan 里的事、站上自己的作品、正在读的东西、去群里翻一眼。只输出正文。`
+    };
   }
   const leftover = feedback.leftover.map((sentence) => `「${sentence}」`).join('');
   return {
@@ -304,8 +344,10 @@ export async function runXiaoniOsRewriteLeg(params: {
     result.rewriteStage = stage;
     const executionMode = stage === 'polish' ? 'xiaoni_os_polish' : 'xiaoni_os_rewrite';
     const label = stage === 'polish' ? 'xiaoni-os-polish' : 'xiaoni-os-rewrite';
-    let feedback: { previous: string; leftover: string[] } | undefined;
+    let feedback: XiaoniOsRewriteFeedback | undefined;
     let normalized: string | null = null;
+    // 上一版是人际违规:这次仍违规 → 整段不要;这次干净但有填充句 → 已用掉唯一一次纠正,走机械兜底。
+    let personViolation = false;
     for (let attempt = 0; attempt <= 1; attempt += 1) {
       let response: XiaoniOsLlmCallResult;
       try {
@@ -319,7 +361,11 @@ export async function runXiaoniOsRewriteLeg(params: {
         });
       } catch (error) {
         result.errorMessage = `${stage}: ${error instanceof Error ? error.message : String(error)}`;
-        return normalized === null ? null : stripFillerSentences(normalized);
+        // 纠正请求挂了:填充句那版退回剔句兜底;人际违规那版不能退回(退回就是把造的人放进去)。
+        if (normalized === null || personViolation) {
+          return null;
+        }
+        return stripFillerSentences(normalized);
       }
       result.rewriteLlmCallId = response.llmCallId;
       result.rewriteModel = response.model;
@@ -334,18 +380,37 @@ export async function runXiaoniOsRewriteLeg(params: {
       }
       normalized = cleaned;
       const leftover = listFillerSentences(normalized);
-      if (leftover.length === 0) {
+      const personSentences = isUnsupportedPersonAction(params.text, normalized)
+        ? listPersonActionSentences(normalized)
+        : [];
+      if (leftover.length === 0 && personSentences.length === 0) {
         return normalized;
+      }
+      if (personSentences.length > 0) {
+        if (attempt > 0) {
+          // 纠正过一次还在造人 → 整段不要。
+          result.errorMessage = `${stage}: unsupported person action after correction`;
+          return null;
+        }
+        personViolation = true;
+        result.rewriteRetries = 1;
+        feedback = { kind: 'person', sentences: personSentences };
+        continue;
       }
       if (attempt === 0) {
         result.rewriteRetries = 1;
-        feedback = { previous: normalized, leftover };
+        feedback = { kind: 'filler', previous: normalized, leftover };
       }
     }
-    // 纠正过一次还有残留 → 机械剔掉兜底。
+    // 纠正过一次还有填充句残留 → 机械剔掉兜底。剔完再查一遍人际:剔句可能把唯一的动作剔掉,剩下的不能是造的人。
     const guarded = normalized === null ? null : stripFillerSentences(normalized);
     if (guarded === null) {
       result.errorMessage = `${stage}: only filler sentences left`;
+      return null;
+    }
+    if (isUnsupportedPersonAction(params.text, guarded)) {
+      result.errorMessage = `${stage}: unsupported person action${personViolation ? ' after correction' : ''}`;
+      return null;
     }
     return guarded;
   };

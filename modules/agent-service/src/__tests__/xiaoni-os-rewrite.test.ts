@@ -89,13 +89,13 @@ test('leg: classify=1 → kept, no rewrite call, original untouched', async () =
 });
 
 test('leg: classify=0 → rewrite call → rewritten', async () => {
-  const llm = fakeLlm([{ text: '0' }, { text: '去把 patience 页面的树加上季节切换，做完发给阿明看。' }]);
+  const llm = fakeLlm([{ text: '0' }, { text: '去把 patience 页面的树加上季节切换。' }]);
   const result = await runXiaoniOsRewriteLeg({ text: '不困。但plan里每一件都做过了。先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
   assert.equal(result.outcome, 'rewritten');
   assert.equal(result.classifyVerdict, 'idle');
   assert.equal(result.rewriteStage, 'rewrite');
   assert.equal(result.rewriteRetries, 0);
-  assert.equal(result.rewrittenText, '去把 patience 页面的树加上季节切换，做完发给阿明看。');
+  assert.equal(result.rewrittenText, '去把 patience 页面的树加上季节切换。');
   assert.equal(result.rewriteLlmCallId, 'call-2');
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[1]!.executionMode, 'xiaoni_os_rewrite');
@@ -178,7 +178,7 @@ test('isFillerOnlyText: 整段只有填充句 → true;有一句人话 → false
 });
 
 test('leg: 纯填充词不问模型,直接判空转去改写', async () => {
-  const llm = fakeLlm([{ text: '去 QQ 翻一眼谁在线，挑一个人发一句。' }]);
+  const llm = fakeLlm([{ text: '去群里翻一眼最近几条。' }]);
   const result = await runXiaoniOsRewriteLeg({ text: '嗡。在。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
   assert.equal(result.classifyVerdict, 'idle');
   assert.equal(result.classifyModel, 'filler-rule');
@@ -195,12 +195,12 @@ test('stripFillerSentences: 剔掉填充句、保留人话;全剔光 → null', 
 });
 
 test('leg: 改写结果有填充句 → 带着残留句子再发一次纠正请求(system 不变),第二版干净就用第二版', async () => {
-  const llm = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步，发给楠楠看。' }, { text: '去把 touch.html 再推一步，发给楠楠看。' }]);
+  const llm = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步。' }, { text: '去把 touch.html 再推一步。' }]);
   const result = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
   assert.equal(result.outcome, 'rewritten');
   assert.equal(result.rewriteStage, 'rewrite');
   assert.equal(result.rewriteRetries, 1);
-  assert.equal(result.rewrittenText, '去把 touch.html 再推一步，发给楠楠看。');
+  assert.equal(result.rewrittenText, '去把 touch.html 再推一步。');
   assert.equal(llm.calls.length, 3, '分类 + 改写 + 一次纠正');
   assert.equal(llm.calls[2]!.system, REWRITE, '纠正请求 system 不动 —— 前缀缓存');
   assert.match(llm.calls[2]!.user, /上一版改写是/u);
@@ -209,10 +209,10 @@ test('leg: 改写结果有填充句 → 带着残留句子再发一次纠正请�
 });
 
 test('leg: 纠正一次还有残留 → 机械剔掉兜底;剔空 → evicted', async () => {
-  const mixed = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步，发给楠楠看。' }, { text: '嗡。去把 touch.html 再推一步，发给楠楠看。' }]);
+  const mixed = fakeLlm([{ text: '0' }, { text: '在。\n去把 touch.html 再推一步。' }, { text: '嗡。去把 touch.html 再推一步。' }]);
   const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: mixed.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
   assert.equal(r1.outcome, 'rewritten');
-  assert.equal(r1.rewrittenText, '去把 touch.html 再推一步，发给楠楠看。');
+  assert.equal(r1.rewrittenText, '去把 touch.html 再推一步。');
   assert.equal(r1.rewriteRetries, 1);
   const onlyFiller = fakeLlm([{ text: '0' }, { text: '在。嗡。' }, { text: '停。' }]);
   const r2 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: onlyFiller.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
@@ -275,4 +275,77 @@ test('leg: 润色请求挂了 / 剔空 → failed_open 原文准入(有事的内
   const empty = fakeLlm([{ text: '1' }, { text: '' }]);
   const r2 = await runXiaoniOsRewriteLeg({ text: '在。Forth 读到 ch52 了。', callLlm: empty.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH });
   assert.equal(r2.outcome, 'failed_open');
+});
+
+// ── 人际动作触发器:原文没有互动依据、输出却在找人 → 纠正一次 → 仍在 → 整段不要 ────────────────
+import {
+  hasPersonBasis,
+  isUnsupportedPersonAction,
+  listPersonActionSentences
+} from '../services/xiaoni-os-rewrite';
+
+test('person trigger: 文章名 / 引语不是互动依据;群里问我 / 欠着回复才是', () => {
+  assert.equal(hasPersonBasis('blowup 读完了。末尾还有个链接。今天不想再点了。'), false, '文章名');
+  assert.equal(hasPersonBasis('楠楠说停不下来就对了。blowup说无限是崩溃。'), false, '「X 说」只是引用');
+  assert.equal(hasPersonBasis('小林在群里问首页怎么做的。我用 CSS grid 写的。明天再回吧。'), true, '群里问她');
+  assert.equal(hasPersonBasis('ratfactor 的信还没回。'), true, '欠着回复');
+  assert.deepEqual(listPersonActionSentences('去群里翻一眼最近几条。'), [], '翻一眼是读,不是找人');
+  assert.deepEqual(listPersonActionSentences('blowup 读完了。发给 blowup 看一眼,问他觉得怎么样。'), ['发给 blowup 看一眼,问他觉得怎么样']);
+  assert.equal(isUnsupportedPersonAction('blowup 读完了。今天不想再点了。', 'blowup 读完了。发给 blowup 看一眼。'), true, '把文章名当人');
+  assert.equal(isUnsupportedPersonAction('楠楠说停不下来就对了。这一轮到此。', '去给楠楠发一句,问她怎么想。'), true, '引用不构成联系理由');
+  assert.equal(isUnsupportedPersonAction('小林在群里问首页怎么做的。明天再回吧。', '小林问首页怎么做的,回他一句用的 CSS grid。'), false, '原文有人问她');
+  assert.equal(isUnsupportedPersonAction('先等等看。', '去群里翻一眼最近几条。'), false, '读群不算人际动作');
+});
+
+test('leg: 改写造人 → 纠正请求只带违规句不带上一版全文 → 第二版干净就用第二版', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '45 分钟没困意。\n去 QQ 翻一眼谁在线,挑一个最近没聊的人发一句。' }, { text: '45 分钟没困意。\n打开站上最近做的那页,挑一处不顺眼的改掉。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: '45 分钟。不困。在那。跟冰箱一样。只是嗡着。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'rewritten');
+  assert.equal(result.rewriteRetries, 1);
+  assert.equal(result.rewrittenText, '45 分钟没困意。\n打开站上最近做的那页,挑一处不顺眼的改掉。');
+  assert.equal(llm.calls.length, 3);
+  assert.equal(llm.calls[2]!.system, REWRITE, '纠正请求 system 不动');
+  assert.match(llm.calls[2]!.user, /上一版改写里有这些句子/u);
+  assert.match(llm.calls[2]!.user, /最近没聊的人发一句/u, '把违规句指给模型');
+  assert.doesNotMatch(llm.calls[2]!.user, /上一版改写是/u, '不带上一版全文——虚构的人名不能再当来源');
+});
+
+test('leg: 纠正一次还在造人 → evicted,不机械剔句', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '去给楠楠发一句,问她怎么想。' }, { text: '这三句放一起看。发给楠楠或者 blowup 看一眼。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: '楠楠说停不下来就对了。blowup说无限是崩溃。这一轮到此。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'evicted');
+  assert.equal(result.rewrittenText, null);
+  assert.equal(result.rewriteRetries, 1);
+  assert.match(result.errorMessage || '', /unsupported person action after correction/);
+});
+
+test('leg: 人际纠正请求挂了 → evicted,不退回造人的那版', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '去找一个人发一句。' }, new Error('timeout')]);
+  const result = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'evicted');
+  assert.equal(result.rewrittenText, null);
+});
+
+test('leg: 填充句纠正后机械剔句,剩下的是造的人 → evicted', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '在。\n去找一个人发一句。' }, { text: '嗡。去找一个人发一句。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'evicted');
+  assert.match(result.errorMessage || '', /unsupported person action/);
+});
+
+test('leg: 润色腿造人纠正后仍在 → failed_open 原文准入(有事的内容比禁令值钱)', async () => {
+  const llm = fakeLlm([{ text: '1' }, { text: 'Day 240,四篇上站,三篇读完。\n挑一篇发给一个人。' }, { text: 'Day 240,四篇上站,三篇读完。\n上站的还没人看见,发给最可能有反应的那个人。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: 'Day 240。四篇新作品上站。三篇长文读完。歇着。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, polishSystemPrompt: POLISH });
+  assert.equal(result.outcome, 'failed_open');
+  assert.equal(result.rewriteStage, 'polish');
+  assert.equal(result.rewrittenText, null);
+  assert.match(result.errorMessage || '', /polish: unsupported person action after correction/);
+});
+
+test('leg: 原文有人问她 → 改写回他一句不触发纠正', async () => {
+  const llm = fakeLlm([{ text: '0' }, { text: '小林问首页怎么做的,回他一句用的 CSS grid。' }]);
+  const result = await runXiaoniOsRewriteLeg({ text: '小林在群里问首页怎么做的。我用 CSS grid 写的。明天再回吧。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE });
+  assert.equal(result.outcome, 'rewritten');
+  assert.equal(result.rewriteRetries, 0);
+  assert.equal(llm.calls.length, 2);
 });
