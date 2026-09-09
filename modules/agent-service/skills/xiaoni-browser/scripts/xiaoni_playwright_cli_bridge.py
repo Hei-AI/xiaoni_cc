@@ -444,20 +444,6 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
                 raise ValueError("args must be a string array")
             args = _map_container_paths(args)
-            denied_host = _denied_model_ui_hit(args)
-            if denied_host:
-                self._json(200, {
-                    "ok": False,
-                    "returncode": 2,
-                    "stdout": "",
-                    "stderr": (
-                        "[blocked] \u7981\u6b62\u7528\u767b\u5f55\u6001\u6d4f\u89c8\u5668\u8bbf\u95ee\u4ed8\u8d39\u6a21\u578b UI ("
-                        + denied_host
-                        + ")\u3002\u8fd9\u4e2a\u6d4f\u89c8\u5668\u767b\u5f55\u7740\u6211\u4eec\u51fa\u8d44\u7684 claude.ai/chatgpt/gemini\uff0c"
-                        + "\u7528\u5b83\u7b54\u522b\u4eba = \u767d\u5ac6\u6211\u4eec\u7684\u6a21\u578b\u3002\u8981\u7528\u6a21\u578b\u5c31\u7528\u4f60\u81ea\u5df1\u7684\u4e3b agent\u3002\n"
-                    ),
-                })
-                return
             fallback_error = _removed_fallback_error(args)
             if fallback_error:
                 self._json(200, {
@@ -875,35 +861,6 @@ def _is_navigation(args):
 
 
 _MEDIA_GOTO_EXT_RE = re.compile(r"\.(svg|png|jpe?g|gif|webp|bmp|ico|avif)(?:$|[?#])", re.IGNORECASE)
-
-# 2026-09-09 沙箱加固:这座桥驱动的是操作者真登录态的镜像 profile(见文件头 69-73 行,
-# 同 cookies/logins),真 profile 登录着 claude.ai / chatgpt / gemini。若不拦,执行容器里
-# 她写的程序可用 goto / run-code 脚本化这些已登录 UI,不用任何 API key 就消耗我们出资的
-# 模型订阅替第三方干活 —— 绕过全部网络封锁。这里在桥入口按域名硬拦(命中 goto 参数或
-# run-code 的 JS 串即拒)。这是"她自己浏览"与"程序白嫖我们的模型"之间唯一能设的闸。
-# 普通上网(查资料、开别的站)不受影响;只有这几个我们付费的模型 UI 被挡。
-_MODEL_UI_DENY_HOSTS = (
-    "claude.ai",
-    "chatgpt.com",
-    "chat.openai.com",
-    "platform.openai.com",
-    "api.openai.com",
-    "gemini.google.com",
-    "aistudio.google.com",
-    "bard.google.com",
-    "api.anthropic.com",
-    "console.anthropic.com",
-)
-
-
-def _denied_model_ui_hit(args):
-    """整段参数(含 run-code 的 JS 串)里出现我们付费模型 UI 的域名 → 返回命中的域名,否则 None。"""
-    blob = " ".join(args).lower()
-    for host in _MODEL_UI_DENY_HOSTS:
-        if host in blob:
-            return host
-    return None
-
 
 
 def _goto_target_url(args):

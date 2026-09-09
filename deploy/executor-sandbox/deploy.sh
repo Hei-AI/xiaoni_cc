@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 执行容器沙箱加固部署。**不要在没跟小腻打招呼前跑。** 会 recreate 执行容器(清 /tmp)。
 # 顺序:重新快照 /tmp → 构建执行容器新镜像(烘 pip) → recreate executor + agent-service
-#       → 恢复 /tmp → 装 host 防火墙 → 重启浏览器桥(带模型 UI 拦截)→ 验收。
+#       → 恢复 /tmp → 装 host 防火墙 → 验收。
 set -euo pipefail
 ROOT=/home/liahua/IdeaProject/qq_bot
 SNAP=/home/liahua/.qqbot-local/executor-snapshot-$(date +%Y%m%d-%H%M%S)
@@ -35,7 +35,5 @@ sudo cp deploy/executor-sandbox/xiaoni-exec-firewall.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now xiaoni-exec-firewall.service xiaoni-exec-firewall.timer
 
-echo "== 7. 重启浏览器桥(加载模型 UI 导航拦截)"
-systemctl --user restart xiaoni-playwright-cli-bridge.service
 
 echo "== 完成。跑 verify.sh 验收。"

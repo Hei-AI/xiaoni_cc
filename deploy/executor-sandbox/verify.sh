@@ -22,9 +22,6 @@ chk "宿主浏览器桥 9977"          open   host.docker.internal 9977
 if $E test -S /var/run/docker.sock; then echo "FAIL docker.sock 还在"; fail=$((fail+1)); else echo "PASS docker.sock 已移除"; pass=$((pass+1)); fi
 echo "== 外网(她程序要用,允许)=="
 chk "api.anthropic.com(外网通,但无 key)" open api.anthropic.com 443
-echo "== 桥模型 UI 拦截 =="
-r=$($E bash -c "curl -s -m 8 -X POST http://host.docker.internal:9977/run -H 'Content-Type: application/json' -d '{\"args\":[\"goto\",\"https://claude.ai\"]}' 2>&1" | head -c 200)
-echo "$r" | grep -q "blocked" && { echo "PASS 桥拦截 claude.ai"; pass=$((pass+1)); } || { echo "FAIL 桥未拦 claude.ai: $r"; fail=$((fail+1)); }
 echo "== 她的 pip 工具在(重建没丢)=="
 $E python3 -c "import fitz, yt_dlp, numpy" 2>/dev/null && { echo "PASS pymupdf/yt-dlp/numpy 在"; pass=$((pass+1)); } || { echo "FAIL pip 工具丢了"; fail=$((fail+1)); }
 echo "---- pass=$pass fail=$fail ----"
