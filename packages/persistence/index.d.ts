@@ -1800,7 +1800,7 @@ export function ensureXiaoniDeepDiveSchema(config?: DatabaseUrlConfig): Promise<
 
 // xiaoni_os 改写腿留痕(docs/specs/xiaoni-os-rewrite.md)
 export type XiaoniOsRewriteOutcome = 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
-export type XiaoniOsRewriteStage = 'polish' | 'rewrite';
+export type XiaoniOsRewriteStage = 'polish' | 'rewrite' | 'fill';
 export type XiaoniOsRewriteClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed';
 export interface XiaoniOsRewriteRecord {
   id: number;
@@ -1822,6 +1822,7 @@ export interface XiaoniOsRewriteRecord {
   outcome: XiaoniOsRewriteOutcome;
   errorMessage: string | null;
   processingTimeMs: number | null;
+  fillForkRunId: string | null;
   createdAt: string | Date | null;
 }
 export function ensureXiaoniOsRewriteSchema(config?: DatabaseUrlConfig): Promise<void>;
@@ -1845,6 +1846,7 @@ export function recordXiaoniOsRewrite(
     outcome: XiaoniOsRewriteOutcome;
     errorMessage?: string | null;
     processingTimeMs?: number | null;
+    fillForkRunId?: string | null;
     sqlAdapter?: unknown;
   },
   config?: DatabaseUrlConfig

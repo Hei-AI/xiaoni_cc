@@ -2242,7 +2242,7 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
     ? (verdict === 'failed' || verdict === 'unparsed')
     : (outcome === 'evicted' || outcome === 'failed_open');
   const secondLegDone = outcome === 'rewritten' || outcome === 'polished';
-  const stageWord = isPolish ? '润色' : '改写';
+  const stageWord = isPolish ? '润色' : stage === 'fill' ? '潜意识填充' : '改写';
   const summary = isClassify
     ? `判定 ${XIAONI_OS_REWRITE_VERDICT_LABELS[verdict] || verdict || '—'}`
     : (secondLegDone ? `${stageWord}完成${retrySuffix}` : `${stageWord}失败${retrySuffix}${errorMessage ? ` · ${recallLlmOneLine(errorMessage, 120)}` : ''}`);
@@ -2315,7 +2315,7 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
   // rewrite_stage 为准,老行没有这列就按去向推)。
   const stage = firstString(row.rewrite_stage, row.rewriteStage)
     || (outcome === 'rewritten' || outcome === 'evicted' ? 'rewrite' : outcome === 'polished' ? 'polish' : null);
-  if (stage === 'rewrite' || stage === 'polish') {
+  if (stage === 'rewrite' || stage === 'polish' || stage === 'fill') {
     events.push(summarizeXiaoniOsRewriteLlmEvent(row, stage, rewriteCallId ? usageByCallId.get(rewriteCallId) || null : null, anchorSeq));
   }
   const original = String(row.original_text ?? row.originalText ?? '');

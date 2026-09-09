@@ -20,7 +20,7 @@
 
 const IDENTITY_KEY = 'xiaoni';
 const OUTCOMES = new Set(['kept', 'polished', 'rewritten', 'evicted', 'failed_open']);
-const REWRITE_STAGES = new Set(['polish', 'rewrite']);
+const REWRITE_STAGES = new Set(['polish', 'rewrite', 'fill']);
 const VERDICTS = new Set(['action', 'idle', 'unparsed', 'failed']);
 
 function normalizeText(value) {
@@ -93,6 +93,8 @@ function createXiaoniOsRewritePersistence({ createSqlAdapter }) {
           created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      // 潜意识填充 fork(rewrite_stage = fill)的 fork run id,接 subconscious_agent_fork_runs。老行为 NULL。
+      await sql.execute('ALTER TABLE xiaoni_os_rewrites ADD COLUMN IF NOT EXISTS fill_fork_run_id VARCHAR(191) NULL');
       // 2026-08-28:润色腿。老表加列(幂等)。
       await sql.execute('ALTER TABLE xiaoni_os_rewrites ADD COLUMN IF NOT EXISTS rewrite_stage VARCHAR(16) NULL');
       await sql.execute('ALTER TABLE xiaoni_os_rewrites ADD COLUMN IF NOT EXISTS rewrite_retries INTEGER NOT NULL DEFAULT 0');
@@ -147,8 +149,9 @@ function createXiaoniOsRewritePersistence({ createSqlAdapter }) {
             rewrite_retries,
             outcome,
             error_message,
-            processing_time_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            processing_time_ms,
+            fill_fork_run_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING *
         `,
         [
@@ -171,7 +174,8 @@ function createXiaoniOsRewritePersistence({ createSqlAdapter }) {
           normalizeInteger(input.rewriteRetries ?? input.rewrite_retries) ?? 0,
           outcome,
           firstString(input.errorMessage, input.error_message),
-          normalizeInteger(input.processingTimeMs ?? input.processing_time_ms)
+          normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+          firstString(input.fillForkRunId, input.fill_fork_run_id)
         ]
       );
       return rows[0] || null;
