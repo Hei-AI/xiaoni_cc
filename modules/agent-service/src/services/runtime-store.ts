@@ -2612,11 +2612,12 @@ export class RuntimeStore {
     rewrittenText?: string | null;
     rewriteLlmCallId?: string | null;
     rewriteModel?: string | null;
-    rewriteStage?: 'polish' | 'rewrite' | null;
+    rewriteStage?: 'polish' | 'rewrite' | 'fill' | null;
     rewriteRetries?: number | null;
     outcome: 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
     errorMessage?: string | null;
     processingTimeMs?: number | null;
+    fillForkRunId?: string | null;
   }) {
     return recordXiaoniOsRewritePersistence({
       identityKey: 'xiaoni',

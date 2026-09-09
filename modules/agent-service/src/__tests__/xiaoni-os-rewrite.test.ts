@@ -386,3 +386,60 @@ test('leg: 改写请求带最近落点后缀(首发与纠正都带);润色请求
   assert.equal(r2.outcome, 'polished');
   assert.doesNotMatch(polish.calls[1]!.user, /落点入口/u);
 });
+
+// ── 潜意识填充 fork:空转 → fetchFill(克隆主请求的 fork)给 <xiaoni_os> 块 → 拆壳 → 准入;没产出 → evicted ────
+import { normalizeXiaoniOsFillText, type XiaoniOsFetchFill } from '../services/xiaoni-os-rewrite';
+
+test('normalizeXiaoniOsFillText: 只认 <xiaoni_os> 块;块外解释丢掉;无块 / 空 / 超长 → null', () => {
+  assert.equal(normalizeXiaoniOsFillText('先数一下。\n<xiaoni_os>\nDay 240 四篇上站、三篇读完。\n接下来先把 ratfactor 那封信回了。\n</xiaoni_os>\n(以上)'), 'Day 240 四篇上站、三篇读完。\n接下来先把 ratfactor 那封信回了。');
+  assert.equal(normalizeXiaoniOsFillText('<xiaoni_os>「去群里翻一眼。」</xiaoni_os>'), '去群里翻一眼。');
+  assert.equal(normalizeXiaoniOsFillText('我觉得她应该去做 X。'), null, '没有块');
+  assert.equal(normalizeXiaoniOsFillText('<xiaoni_os>   </xiaoni_os>'), null);
+  assert.equal(normalizeXiaoniOsFillText(`<xiaoni_os>${'长'.repeat(401)}</xiaoni_os>`), null, '超硬顶');
+});
+
+test('leg: 空转 + fetchFill 有产出 → rewritten(stage=fill),不发改写腿小请求,留 fork 的 call id / run id', async () => {
+  const llm = fakeLlm([{ text: '0' }]);
+  const fetchFill: XiaoniOsFetchFill = async () => ({ text: '<xiaoni_os>\nplan 又来了，我挑几件提前做一下。\n</xiaoni_os>', llmCallId: 'fork-call-1', model: 'claude-opus-4-8', forkRunId: 'xiaoni-os-fill-fork:run:abcd1234' });
+  const result = await runXiaoniOsRewriteLeg({ text: 'plan 又来了。但 plan 里说的都是明天的事。今天做完了。不做了。等。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill });
+  assert.equal(result.outcome, 'rewritten');
+  assert.equal(result.rewriteStage, 'fill');
+  assert.equal(result.rewrittenText, 'plan 又来了，我挑几件提前做一下。');
+  assert.equal(result.rewriteLlmCallId, 'fork-call-1');
+  assert.equal(result.rewriteModel, 'claude-opus-4-8');
+  assert.equal(result.fillForkRunId, 'xiaoni-os-fill-fork:run:abcd1234');
+  assert.equal(llm.calls.length, 1, '只有分类那一次小请求');
+});
+
+test('leg: 空转 + fetchFill 无产出 / 抛错 / 没有块 → evicted,不退回改写腿小请求', async () => {
+  const none = fakeLlm([{ text: '0' }]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: none.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => null });
+  assert.equal(r1.outcome, 'evicted');
+  assert.equal(r1.rewriteStage, 'fill');
+  assert.equal(none.calls.length, 1);
+  const thrown = fakeLlm([{ text: '0' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: thrown.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => { throw new Error('provider 500'); } });
+  assert.equal(r2.outcome, 'evicted');
+  assert.match(r2.errorMessage || '', /fill: provider 500/);
+  const noBlock = fakeLlm([{ text: '0' }]);
+  const r3 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: noBlock.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => ({ text: '她应该去做点什么。', llmCallId: null, model: null, forkRunId: null }) });
+  assert.equal(r3.outcome, 'evicted');
+});
+
+test('leg: 填充产物里的填充句机械剔掉;剔空 → evicted;有事的段落不走 fetchFill', async () => {
+  const llm = fakeLlm([{ text: '0' }]);
+  const r1 = await runXiaoniOsRewriteLeg({ text: '在。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => ({ text: '<xiaoni_os>在。\n去把 touch.html 再推一步。</xiaoni_os>', llmCallId: null, model: null, forkRunId: null }) });
+  assert.equal(r1.rewrittenText, '去把 touch.html 再推一步。');
+  const only = fakeLlm([{ text: '0' }]);
+  const r2 = await runXiaoniOsRewriteLeg({ text: '在。', callLlm: only.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => ({ text: '<xiaoni_os>嗡。停。</xiaoni_os>', llmCallId: null, model: null, forkRunId: null }) });
+  assert.equal(r2.outcome, 'evicted');
+  let fillCalls = 0;
+  const action = fakeLlm([{ text: '1' }]);
+  const r3 = await runXiaoniOsRewriteLeg({ text: '小伊最后说了嗯，两小时前的，不用回。', callLlm: action.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => { fillCalls += 1; return null; } });
+  assert.equal(r3.outcome, 'kept');
+  assert.equal(fillCalls, 0);
+});
+
+test('normalizeXiaoniOsFillText: 转义过的 &lt;xiaoni_os&gt; 块也认', () => {
+  assert.equal(normalizeXiaoniOsFillText('&lt;xiaoni_os&gt;\n去群里翻一眼。\n&lt;/xiaoni_os&gt;'), '去群里翻一眼。');
+});

@@ -84,6 +84,7 @@ import {
   readXiaoniOsClassifySystemPrompt,
   readXiaoniOsPolishSystemPrompt,
   readXiaoniOsRewriteSystemPrompt,
+  type XiaoniOsFillResult,
   runXiaoniOsRewriteLeg
 } from './xiaoni-os-rewrite';
 // 专题物化的三个归一化函数**只从这里拿**,不在本文件另写第四个:
@@ -197,6 +198,10 @@ function buildXiaoniHeadAvatarInputItem(): OpenResponseInputItem | null {
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
+// xiaoni_os 判空转 → 潜意识填充 fork(克隆主请求 + 尾部 xiaoni_os_fill_reminder.md,一次调用,不放行工具,不投 notify)
+// 替她把那段话改成「留事实 + 接一件它数出来还没做的事」。OFF = 退回改写腿自己的小请求改写(xiaoni_os_rewrite.md)。
+const XIAONI_OS_FILL_FORK_ENABLED = process.env.XIAONI_OS_FILL_FORK_ENABLED !== 'false';
+const XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS = 600;
 // 同一份 seed 最多重试这么多次。到顶就丢弃,退回「等下一个主 run 或 clock_ping(≤2h)」。
 // 5 次 × 60s ≈ 5 分钟的自愈窗口,再往后大概率不是瞬时故障,不值得每分钟烧一个 ~490K 的 fork 请求。
 const SUBCONSCIOUS_AGENT_FORK_MAX_CONSECUTIVE_FAILURES = 5;
@@ -4688,6 +4693,33 @@ function renderSelfContinuationReminder() {
 //  - 工具契约段(IDLE_PLAN_SKILL_SUBMISSION_ENABLED)：同样只进 fork 尾部。开关 ON 时才渲染，因为
 //    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的；两者共用一个开关就是为了让
 //    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙，就是因为正文里根本没写规则)。
+// 潜意识填充 fork 的尾部指令。固定文本(文件读,mtime 缓存),追加在克隆请求尾部 cache_volatile 之后 → 不进可缓存前缀。
+export function renderXiaoniOsFillReminder(): string {
+  return formatSystemReminderBlock(readPromptSnippet('xiaoni_os_fill_reminder.md'));
+}
+
+// 填充 fork 输出里的 <xiaoni_os> 块原文(含壳,交给 normalizeXiaoniOsFillText 拆)。只看最后一条 assistant 文本。
+export function extractXiaoniOsFillBlock(outputItems: Array<Record<string, unknown>>): string | null {
+  for (let index = outputItems.length - 1; index >= 0; index -= 1) {
+    const item = outputItems[index]!;
+    if (item.type !== 'message' || item.role !== 'assistant') {
+      continue;
+    }
+    const content = item.content;
+    const text = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? flattenMessageContent(content as OpenResponseInputContentPart[])
+        : typeof item.text === 'string'
+          ? item.text
+          : '';
+    if (/(?:<|&lt;)xiaoni_os(?:>|&gt;)[\s\S]*?(?:<|&lt;)\/xiaoni_os(?:>|&gt;)/u.test(text)) {
+      return text;
+    }
+  }
+  return null;
+}
+
 function renderSubconsciousForkReminder(params: {
   idleRounds: number;
   lastPlanText: string | null;
@@ -6919,6 +6951,10 @@ export class AgentLoopService {
   // 而入队那一层的永久唯一索引仍然挡得住重复投递。
   private readonly sherlockConsultsStarted = new Set<string>();
 
+  // 本 turn 改写腿动手【之前】的 assistant 文本快照。xiaoni_os 改写是就地替换共享 ref,而 settle seed 的
+  // narration 与填充 fork 的尾部都得看她【原话】——自驱动 fork 的 C 路靠「她自己说了做完了 / 不开新线」判定,
+  // 看改写后的话就丢了这个信号(2026-09-09 发现)。每 turn 重置。
+  private currentTurnOriginalNarrationItems: OpenResponseInputItem[] = [];
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
     recentNarrationItems: OpenResponseInputItem[];
@@ -8966,6 +9002,10 @@ export class AgentLoopService {
         // 落 stack ledger + appendLoopInputItems 落 live requestInput，同 refs)。这条 text 在此之前没进过任何
         // 请求，所以这里改正文不违背「已消费上下文不可变」，live 与下一 run replay 拿到同一份字节。
         // 两次小模型调用是独立小请求，不克隆主请求 → 不动共享热前缀。见 docs/specs/xiaoni-os-rewrite.md。
+        // 改写前先把她的原话快照下来(深拷贝,后面就地替换碰不到它):settle seed 的 narration 与填充 fork 的尾部用。
+        this.currentTurnOriginalNarrationItems = (outputItems as OpenResponseInputItem[])
+          .filter(isAssistantTextOutputReplayItem)
+          .map((item) => structuredClone(item));
         if (PSYCH_ASSESSMENT_GATE_ENABLED) {
           const assistantTextItems = (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem);
           for (const assistantTextItem of assistantTextItems) {
@@ -8974,7 +9014,10 @@ export class AgentLoopService {
               traceId: payload.traceId,
               runId: String(queueMessage.id),
               agentTurn: turn,
-              sliceId
+              sliceId,
+              fillFork: XIAONI_OS_FILL_FORK_ENABLED
+                ? { baseRequest: currentCanonicalRequest, queueMessage: payload, runtimePrompt }
+                : null
             });
           }
         }
@@ -9474,7 +9517,10 @@ export class AgentLoopService {
         // tools the run used before settling. "她一 settle 在 final_answer 上就给方向。"
         this.lastMainAgentForkSeed = {
           canonicalRequest: cloneCanonicalAgentTurnRequest(currentCanonicalRequest),
-          recentNarrationItems: (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
+          // 她的【原话】,不是改写腿替换后的(见 currentTurnOriginalNarrationItems)。
+          recentNarrationItems: this.currentTurnOriginalNarrationItems.length > 0
+            ? this.currentTurnOriginalNarrationItems
+            : (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
           settledOnFinalAnswer: actionPlan.hasFinalAnswer
         };
         // 连续空转记账。归零【只有一种场景】(user 拍板 2026-07-27):这个 run 存在有效产出——
@@ -14247,6 +14293,160 @@ export class AgentLoopService {
     return payload;
   }
 
+  // 潜意识填充 fork:xiaoni_os 判空转时,克隆主请求(同一热前缀)+ 尾部她的原话 + xiaoni_os_fill_reminder.md,
+  // 一次调用拿 <xiaoni_os> 块。与自驱动 fork 同一克隆、同一执行出口、同一 ledger(subconscious_agent_fork_*,
+  // metadata.trigger = xiaoni_os_idle_fill),区别只在尾部模板与「不放行工具、不投 notify、不动限频 / 升级 / 空转计数」。
+  // 双缓存:克隆 + 尾部追加 cache_volatile,前缀逐字节不变;fork 请求 no_persist,不进下一次主 run replay。
+  private async runXiaoniOsFillFork(params: {
+    baseRequest: CanonicalAgentTurnRequest;
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    narrationItems: OpenResponseInputItem[];
+  }): Promise<XiaoniOsFillResult | null> {
+    const forkRunId = `xiaoni-os-fill-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+    const contextSessionKey = getGlobalPromptContextSessionKey();
+    const baseForkMetadata = {
+      trigger: 'xiaoni_os_idle_fill',
+      context_session_key: contextSessionKey,
+      no_main_stack_persist: true,
+      no_traffic_persist: true,
+      no_notify: true
+    };
+    await this.recordSubconsciousAgentForkRunSafe({
+      forkRunId,
+      contextSessionKey,
+      status: 'running',
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      metadata: baseForkMetadata
+    });
+    try {
+      const forkRequest = buildSubconsciousAgentForkRequest(
+        params.baseRequest,
+        1,
+        params.narrationItems,
+        renderXiaoniOsFillReminder()
+      );
+      // 输出保险丝(与自驱动 fork 同理,顶层采样参数不在前缀里):一到三句 + 块壳,600 够;超长本来就 evict。
+      forkRequest.max_output_tokens = XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS;
+      const modelResult = await this.executeSubconsciousAgentForkTurn(
+        forkRequest,
+        params.queueMessage,
+        params.runtimePrompt,
+        1
+      );
+      const forkSliceId = modelResult.llm_request_slice_id
+        || modelResult.llm_call_id
+        || `xiaoni-os-fill-fork-slice:${forkRunId}`;
+      const inputRows = await this.appendSubconsciousAgentForkItemsSafe({
+        forkRunId,
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        sourceType: 'subconscious_agent_fork_slices',
+        sourceId: forkSliceId,
+        llmRequestSliceId: forkSliceId,
+        items: [buildForkInputStackItem({
+          forkRunId,
+          sliceId: forkSliceId,
+          forkTurn: 1,
+          source: 'subconscious_agent_fork_input',
+          inputItems: forkRequest.input
+        }) as Record<string, unknown>]
+      });
+      const outputItems = extractCanonicalResponseOutputItems(modelResult);
+      const outputRows = await this.appendSubconsciousAgentForkItemsSafe({
+        forkRunId,
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        sourceType: 'subconscious_agent_fork_slices',
+        sourceId: forkSliceId,
+        llmRequestSliceId: forkSliceId,
+        items: buildModelOutputStackItems(outputItems, forkSliceId) as Array<Record<string, unknown>>
+      });
+      const indexesOf = (rows: unknown[]) => rows
+        .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+        .filter((value) => Number.isFinite(value));
+      const inputItemIndexes = indexesOf(inputRows);
+      const outputItemIndexes = indexesOf(outputRows);
+      await this.recordSubconsciousAgentForkSliceSafe({
+        forkRunId,
+        sliceId: forkSliceId,
+        llmCallId: modelResult.llm_call_id || null,
+        inputStartIndex: inputItemIndexes.length > 0 ? Math.min(...inputItemIndexes) : null,
+        inputEndIndex: inputItemIndexes.length > 0 ? Math.max(...inputItemIndexes) : null,
+        inputStackItemIds: inputRows
+          .map((row) => (row as { id?: unknown }).id)
+          .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number'),
+        outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
+        outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
+        canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
+        wireRequest: modelResult.wire_request || null,
+        canonicalResponse: modelResult.canonical_response || null,
+        wireResponse: modelResult.wire_response || null,
+        rawResponse: modelResult.raw_response || null,
+        outputItems,
+        status: modelResult.success ? 'completed' : 'failed',
+        tokenUsage: buildProviderTokenUsage(modelResult),
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        agentTurn: 1,
+        modelName: modelResult.model || params.runtimePrompt.modelName,
+        modelProvider: modelResult.provider || null,
+        requestFormatVersion: modelResult.request_format_version || null,
+        wireProviderFormat: modelResult.wire_provider_format || null,
+        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+        metadata: {
+          ...baseForkMetadata,
+          ...buildProviderWireMetadata(modelResult),
+          fork_run_id: forkRunId,
+          fork_turn: 1,
+          execution_mode: 'subconscious_agent_fork'
+        }
+      });
+      const fillText = extractXiaoniOsFillBlock(outputItems);
+      await this.completeSubconsciousAgentForkRunSafe({
+        forkRunId,
+        status: fillText ? 'completed' : 'failed',
+        notifyQueueMessageId: null,
+        summaryText: fillText,
+        errorMessage: fillText ? null : 'no <xiaoni_os> block in fork output',
+        artifact: {
+          llm_request_slice_id: forkSliceId,
+          llm_call_id: modelResult.llm_call_id || null,
+          text_length: fillText ? fillText.length : 0,
+          fork_turn_count: 1,
+          fork_tool_call_count: 0
+        },
+        metadata: baseForkMetadata
+      });
+      if (!fillText) {
+        return null;
+      }
+      return {
+        text: fillText,
+        llmCallId: modelResult.llm_call_id || null,
+        model: modelResult.model || params.runtimePrompt.modelName || null,
+        forkRunId
+      };
+    } catch (error) {
+      await this.completeSubconsciousAgentForkRunSafe({
+        forkRunId,
+        status: 'failed',
+        notifyQueueMessageId: null,
+        summaryText: null,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        artifact: {},
+        metadata: baseForkMetadata
+      });
+      moduleLogger.warn('xiaoni_os fill fork failed', {
+        forkRunId,
+        traceId: params.queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   // xiaoni_os 改写腿的单条编排:取正文 → runXiaoniOsRewriteLeg(分类 → 空转才改写) → 按结果就地冻结:
   //   kept / failed_open → 原文准入(text_admit);rewritten → 正文替换为改写版 + 准入;evicted → 不打 stamp(默认剥)。
   // 每次结果落 xiaoni_os_rewrites(原文 / 判定 / 改写 / 去向 / 两次 llm_call_id),既是观测面也是分类器训练集。
@@ -14257,11 +14457,26 @@ export class AgentLoopService {
     runId: string;
     agentTurn: number;
     sliceId: string;
+    // 空转时起潜意识填充 fork 所需的三样(克隆哪份请求 / 哪个 run / 哪份 runtime prompt);null = 走改写腿小请求。
+    fillFork?: {
+      baseRequest: CanonicalAgentTurnRequest;
+      queueMessage: QueueMessageRecord['payload'];
+      runtimePrompt: ResolvedAgentRuntimePrompt;
+    } | null;
   }): Promise<void> {
     const text = extractAssistantItemText(params.item);
     if (!text.trim()) {
       return;
     }
+    const fillFork = params.fillFork;
+    const fetchFill = fillFork
+      ? () => this.runXiaoniOsFillFork({
+        baseRequest: fillFork.baseRequest,
+        queueMessage: fillFork.queueMessage,
+        runtimePrompt: fillFork.runtimePrompt,
+        narrationItems: this.currentTurnOriginalNarrationItems
+      })
+      : undefined;
     // 落点去重用的历史;读不到就不带(fail-open,不影响改写)。
     let recentRewrittenTexts: string[] = [];
     const lister = (this.store as RuntimeStore & {
@@ -14280,7 +14495,8 @@ export class AgentLoopService {
       classifySystemPrompt: readXiaoniOsClassifySystemPrompt(),
       rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt(),
       polishSystemPrompt: readXiaoniOsPolishSystemPrompt(),
-      recentRewrittenTexts
+      recentRewrittenTexts,
+      fetchFill
     });
     if ((result.outcome === 'rewritten' || result.outcome === 'polished') && result.rewrittenText) {
       applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);
@@ -14294,6 +14510,7 @@ export class AgentLoopService {
       outcome: result.outcome,
       classifyVerdict: result.classifyVerdict,
       rewriteStage: result.rewriteStage,
+      fillForkRunId: result.fillForkRunId,
       rewriteRetries: result.rewriteRetries,
       originalChars: text.length,
       rewrittenChars: result.rewrittenText ? result.rewrittenText.length : null,
@@ -14324,7 +14541,8 @@ export class AgentLoopService {
         rewriteRetries: result.rewriteRetries,
         outcome: result.outcome,
         errorMessage: result.errorMessage,
-        processingTimeMs: result.processingTimeMs
+        processingTimeMs: result.processingTimeMs,
+        fillForkRunId: result.fillForkRunId
       });
     } catch (error) {
       moduleLogger.warn('Failed to record xiaoni_os rewrite', {
