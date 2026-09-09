@@ -29,11 +29,11 @@ if [ -d "$SNAP/tmp" ]; then
   docker cp "$SNAP/tmp/." qqbot-xiaoni-executor:/tmp/ || true
 fi
 
-echo "== 6. 装 host 防火墙 unit + timer"
-sudo cp deploy/executor-sandbox/xiaoni-exec-firewall.service /etc/systemd/system/
-sudo cp deploy/executor-sandbox/xiaoni-exec-firewall.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now xiaoni-exec-firewall.service xiaoni-exec-firewall.timer
+echo "== 6. (可选,默认跳过)host 防火墙纵深"
+# Docker 网络隔离 + 删 docker.sock 已封死到我们模型的全部路(宿主模型口都要鉴权,她无 key)。
+# 这层 iptables 只多挡"以后宿主跑了无鉴权模型服务/key 另路泄露",当前冗余,默认不装。
+# 要装:sudo cp deploy/executor-sandbox/xiaoni-exec-firewall.{service,timer} /etc/systemd/system/ \
+#       && sudo systemctl daemon-reload && sudo systemctl enable --now xiaoni-exec-firewall.service xiaoni-exec-firewall.timer
 
 
 echo "== 完成。跑 verify.sh 验收。"
