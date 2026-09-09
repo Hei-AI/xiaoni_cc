@@ -165,10 +165,13 @@ services:
     volumes:
       - ./:/workspace/qq_bot
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
-      - /var/run/docker.sock:/var/run/docker.sock
+      # docker.sock 已移除(2026-09-09 沙箱加固):它是执行容器偷各服务 key / 容器逃逸的唯一路。
+      # 她历史上从没用它重启过主栈,零成本。需要重启主栈的能力由 host 侧另行提供。
     restart: unless-stopped
     networks:
-      - qq_bot_network
+      # 执行容器只在隔离网上,与 provider/admin/postgres 天然二层隔离(连不到模型口)。
+      # agent-service 也接这张网,故她的 exec(8093)、notify/qq-usage/qq-send-image 照常。
+      - xiaoni_exec_net
 
   # Agent Service
   agent-service:
@@ -232,6 +235,7 @@ services:
     restart: unless-stopped
     networks:
       - qq_bot_network
+      - xiaoni_exec_net
     volumes:
       - ./logs/agent-service:/app/logs
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
@@ -353,3 +357,11 @@ networks:
     name: qq_bot_network
     driver: bridge
     attachable: true
+  # 执行容器专用隔离网。固定桥名,便于 host 侧 iptables 针对性放行/拦截宿主端口。
+  # 只有 agent-service 额外接入(受信),provider/admin/postgres 不在此网 → 执行容器无路由。
+  xiaoni_exec_net:
+    name: xiaoni_exec_net
+    driver: bridge
+    attachable: true
+    driver_opts:
+      com.docker.network.bridge.name: br-xexec

@@ -27,12 +27,18 @@ RUN apt-get update \
     jq \
     procps \
     python3 \
+    python3-pip \
     ripgrep \
     tini \
   && mkdir -p /usr/local/lib/docker/cli-plugins \
   && curl -fsSL "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" -o /usr/local/lib/docker/cli-plugins/docker-compose \
   && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
   && rm -rf /var/lib/apt/lists/*
+# 小腻运行时手动装的 pip 工具集烘进镜像(见 runtime-requirements.txt);删 docker.sock 后
+# 容器会被 recreate,不烘就每次丢。--break-system-packages 因 bookworm 是 PEP668 external-managed。
+COPY modules/xiaoni-executor/runtime-requirements.txt /tmp/runtime-requirements.txt
+RUN pip install --no-cache-dir --break-system-packages -r /tmp/runtime-requirements.txt \
+  && rm -f /tmp/runtime-requirements.txt
 WORKDIR /opt/xiaoni-executor
 ENV NODE_ENV=production
 ENV HTTP_PORT=8093
