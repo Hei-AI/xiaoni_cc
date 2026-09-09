@@ -700,6 +700,9 @@ function summarizeAgentStackItem(row) {
       stackEventId: row.eventId || row.event_id || null,
       stackIndex: Number(row.stackIndex || row.stack_index || 0) || null,
       stackSource: 'agent_stack_items',
+      // assistant 文本的准入决定(xiaoni_os 改写腿 turn 末写在 item 上):true = 进了她的上下文;
+      // 没有 = 被 text 门剥掉(evicted / 老行)。召回链用它跳过没进过上下文的文本,不当她的落地。
+      textAdmit: isAssistantOutput ? content.text_admit === true : null,
       itemKind,
       occurredSeq: streamNumberOrNull(row.occurredSeq ?? row.occurred_seq),
       llmRequestSliceId: llmSliceId,
