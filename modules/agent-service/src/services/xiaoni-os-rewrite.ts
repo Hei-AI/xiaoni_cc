@@ -18,6 +18,19 @@ import { readXiaoniPromptFile } from '../prompts/xiaoni-prompt-files';
 export type XiaoniOsClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed';
 export type XiaoniOsRewriteOutcome = 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
 
+// 潜意识填充 fork 的产物(docs/xiaoni_prompt/xiaoni_os_fill_reminder.md):她那段空转的话由看得到她全部上下文的
+// fork 改写——剔掉懒惰句、留事实、接上一件它数出来【还没做】的事写成她的打算。改写腿看不到她的上下文,
+// 挑哪件 / 有没有做过只有 fork 知道(用户 2026-09-09 拍板)。这个 fork 只为填充,不投 notify、不动限频、不动空转计数。
+export interface XiaoniOsFillResult {
+  text: string;
+  llmCallId: string | null;
+  model: string | null;
+  forkRunId: string | null;
+}
+export type XiaoniOsFetchFill = () => Promise<XiaoniOsFillResult | null>;
+// 填充正文的硬顶:提醒要求一到三句,超过说明 fork 没照规矩(整段解释 / 把 plan 全抄进来),宁可 evict。
+export const XIAONI_OS_FILL_MAX_CHARS = 400;
+
 export interface XiaoniOsLlmPrompt {
   system: string;
   user: string;
@@ -49,8 +62,11 @@ export interface XiaoniOsRewriteLegResult {
   rewrittenText: string | null;
   rewriteLlmCallId: string | null;
   rewriteModel: string | null;
-  // 第二腿是哪种:polish(有事但夹填充句 → 润色,内容一个不丢)/ rewrite(空转 → 改写成朝外走)/ null(没发第二腿)。
-  rewriteStage: 'polish' | 'rewrite' | null;
+  // 第二腿是哪种:polish(有事但夹填充句 → 润色,内容一个不丢)/ rewrite(空转 → 改写腿小请求改写)/
+  // fill(空转 → 潜意识填充 fork 改写)/ null(没发第二腿)。
+  rewriteStage: 'polish' | 'rewrite' | 'fill' | null;
+  // fill 那条的 fork run id(接 subconscious_agent_fork_runs 看 wire / 产物)。
+  fillForkRunId: string | null;
   // 第二腿为了去掉残留填充句多发的纠正请求次数(0 / 1)。
   rewriteRetries: number;
   errorMessage: string | null;
@@ -295,6 +311,26 @@ export function normalizeRewrittenText(raw: string, originalText: string): strin
   return text;
 }
 
+// 填充 fork 的输出清洗:只认 <xiaoni_os>…</xiaoni_os> 块(块外的字一律不要——那是它的解释 / 数数);
+// 去围栏、去成对引号;空 / 超硬顶 → null(evict)。
+export function normalizeXiaoniOsFillText(raw: string): string | null {
+  const source = (raw || '').trim();
+  // 尾部提醒经 formatSystemReminderBlock 转义成 &lt;xiaoni_os&gt;;模型照 <xiaoni_plan> 的先例一般输出裸标签,两种都认。
+  const match = source.match(/(?:<|&lt;)xiaoni_os(?:>|&gt;)\s*([\s\S]*?)\s*(?:<|&lt;)\/xiaoni_os(?:>|&gt;)/u);
+  if (!match) {
+    return null;
+  }
+  let text = match[1]!.trim();
+  text = text.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  if ((text.startsWith('「') && text.endsWith('」')) || (text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”'))) {
+    text = text.slice(1, -1).trim();
+  }
+  if (!text || text.length > XIAONI_OS_FILL_MAX_CHARS) {
+    return null;
+  }
+  return text;
+}
+
 // 就地改写 + 准入:替换正文、打 text_admit 冻结。调用方保证在这条 text 进入任何请求之前调用
 // (turn 末、buildModelOutputStackItems / appendLoopInputItems 之前),所以 live 与 replay 看到的是同一份。
 export function applyXiaoniOsRewriteInPlace(item: Record<string, unknown>, rewrittenText: string): void {
@@ -311,6 +347,8 @@ export async function runXiaoniOsRewriteLeg(params: {
   polishSystemPrompt?: string;
   // 她最近几次读到的改写 / 润色正文(最新在前),只用来给改写腿的落点去重;润色腿不用(润色只从段内已有的事里选)。
   recentRewrittenTexts?: string[];
+  // 传了 = 空转走潜意识填充 fork(见 XiaoniOsFetchFill),改写腿自己的小请求改写只在没传时用(开关 OFF 的回退路)。
+  fetchFill?: XiaoniOsFetchFill;
   model?: string;
   now?: () => number;
 }): Promise<XiaoniOsRewriteLegResult> {
@@ -327,6 +365,7 @@ export async function runXiaoniOsRewriteLeg(params: {
     rewriteLlmCallId: null,
     rewriteModel: null,
     rewriteStage: null,
+    fillForkRunId: null,
     rewriteRetries: 0,
     errorMessage: null,
     processingTimeMs: 0
@@ -464,7 +503,37 @@ export async function runXiaoniOsRewriteLeg(params: {
     return finish();
   }
 
-  // ③ 判为空转 → 改写成朝外走的版本。改写失败 / 剔空 → 不进上下文。
+  // ③ 判为空转 → 潜意识填充 fork 改写(有 fetchFill 时);fork 没产出 / 挂了 / 超长 / 剔空 → 不进上下文。
+  if (params.fetchFill) {
+    result.rewriteStage = 'fill';
+    let fill: XiaoniOsFillResult | null = null;
+    try {
+      fill = await params.fetchFill();
+    } catch (error) {
+      result.errorMessage = `fill: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (fill) {
+      result.rewriteLlmCallId = fill.llmCallId;
+      result.rewriteModel = fill.model;
+      result.fillForkRunId = fill.forkRunId;
+    }
+    const filled = fill ? normalizeXiaoniOsFillText(fill.text) : null;
+    if (filled === null) {
+      result.outcome = 'evicted';
+      result.errorMessage = result.errorMessage || 'fill: empty or over-length output';
+      return finish();
+    }
+    // fork 看得到她全部上下文,人际依据在它那边,这里不跑人际触发器;填充句机械兜底照跑。
+    const guarded = stripFillerSentences(filled);
+    if (guarded === null) {
+      result.outcome = 'evicted';
+      result.errorMessage = 'fill: only filler sentences left';
+      return finish();
+    }
+    result.rewrittenText = guarded;
+    result.outcome = 'rewritten';
+    return finish();
+  }
   const rewritten = await runSecondLeg('rewrite', params.rewriteSystemPrompt);
   if (rewritten === null) {
     result.outcome = 'evicted';
