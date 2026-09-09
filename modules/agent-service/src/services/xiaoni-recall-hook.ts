@@ -147,9 +147,17 @@ function fireDeliveryForRecall(anchorText: string, result: unknown): void {
 let lastFiredAt = 0;
 let inFlight = false;
 
+// 没进过她上下文的 assistant 文本(xiaoni_os 改写腿 evicted、老的被 text 门剥掉的行)不是她的落地:
+// 不嵌入、不当 query。否则被判空转剥掉的「歇着」照样从这里进召回 → 精排 → 投递 → 把她叫醒。
+export function isUnadmittedAssistantText(item: Record<string, unknown>): boolean {
+  const metadata = item?.metadata as Record<string, unknown> | undefined;
+  return item?.source === 'llm_stack_item' && metadata?.textAdmit === false;
+}
+
 async function projectAndIngest(): Promise<void> {
   const feed = await persistence.getXiaoniActionStream({ identityKey: IDENTITY_KEY, limit: HEAD_LIMIT });
-  const items: Array<Record<string, unknown>> = Array.isArray((feed as any)?.items) ? (feed as any).items : [];
+  const projected: Array<Record<string, unknown>> = Array.isArray((feed as any)?.items) ? (feed as any).items : [];
+  const items = projected.filter((item) => !isUnadmittedAssistantText(item));
   if (items.length === 0) {
     return;
   }
