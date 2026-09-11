@@ -7171,7 +7171,12 @@ export class AgentLoopService {
       ? recoveryAction.inputItems
       : [];
 
-    const queueMessage = await this.store.claimNextQueueMessage(params.workerId);
+    // 开窗纪律(用户设计):她空闲时,只有 QQ 私聊 / 群 @ / 她自己的驱动能起一个新 run;
+    // 被动召回、群普通消息、外部通知等留在 pending,等下一个窗打开时一次折叠进去消费。
+    // 睡醒续帧(initialLoopContinuation 非空)本身就是一个窗 → windowOpen=true,pending 全部折进来。
+    const queueMessage = await this.store.claimNextQueueMessage(params.workerId, {
+      windowOpen: initialLoopContinuation.length > 0
+    });
     if (!queueMessage) {
       await this.maybeRunSubconsciousAgentFork(params, initialLoopContinuation);
       await wait(params.idleIntervalMs);
@@ -12330,7 +12335,7 @@ export class AgentLoopService {
         traceId: params.traceId,
         source: 'system_reminder',
         messageSid,
-        dedupeKey: messageSid,
+        dedupeKey: `lw:subconscious-agent:${sessionKey}`,
         chatType: 'direct',
         sessionKey,
         peerId: XIAONI_IDENTITY_KEY,
