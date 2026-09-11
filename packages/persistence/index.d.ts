@@ -2087,12 +2087,21 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   payload: Record<string, unknown>;
   /** true 仅当真的新插了一行;撞 dedupe_key 返回既有行时为 false(status 区分不了)。 */
   created: boolean;
+  /** true 仅当 `lw:` latest-wins 槽的既有 pending 行被本次入队就地覆盖。 */
+  superseded?: boolean;
 }>;
+/** 只有 QQ 私聊 / 群 @ / 她自己的驱动(自驱动 plan、报时、注意力租约、深挖轮次)能开窗。 */
+export function isWindowOpeningQueueRow(row: Record<string, unknown> | null | undefined): boolean;
+export const LATEST_WINS_DEDUPE_PREFIX: string;
+export const WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES: string[];
 export function listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date | number; limit?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
 export function getLastAgentQueueEnqueuedAt(params: { prefix: string }, config?: DatabaseUrlConfig): Promise<number | null>;
 export type AgentQueueClaimInput = {
   workerId?: string;
   worker_id?: string;
+  /** true = 调用方已因别的原因开了窗(睡醒续帧等),pending 全部折进来;默认只在含开窗行时才起 run。 */
+  windowOpen?: boolean;
+  window_open?: boolean;
   sqlAdapter?: SqlAdapter;
 };
 export type AgentQueueBatchMessage = {

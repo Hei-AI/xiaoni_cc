@@ -160,6 +160,105 @@ function mapClaimedRun(input) {
 // 召回 pending 冲掉。入队口不做睡眠判断 —— 入队和消费是两个概念,其它通知睡觉期间照常入队、醒来消费。
 const RECALL_SURFACE_DEDUPE_PREFIX = 'recall-surface:';
 
+// ── Latest-wins 槽 & 开窗纪律（docs/NOTIFY_BUCKET_LATEST_WINS_COLLAPSE.md §2/§3/§5）──────────
+//
+// `lw:` 前缀的 dedupe_key 是「latest-wins 槽」：同 key 的新入队在既有行**仍 pending** 时就地覆盖
+// （新覆盖旧，未读增量累加），既有行已被 claim/折叠时先把它的 key 轮换成历史唯一值（消费时做，见
+// claim/fold 的 UPDATE），稳定槽让出来给下一条 pending。非 `lw:` 键（recall-surface 等）保持
+// first-wins：那些调用方靠「撞键 = 早就投过」做投递账本，绝不能覆盖也绝不能轮换。
+const LATEST_WINS_DEDUPE_PREFIX = 'lw:';
+// 能「开窗」（她空闲时起一个新 run）的 doorbell：只有 QQ 私聊、群里 @ 她、以及她自己的驱动
+// （自驱动 plan / 报时 / QQ 注意力租约 / 深挖轮次）。其余（被动召回、群普通消息、外部通知、压缩完成、
+// open-loops 指针…）不开窗：留在 pending，等下一个窗打开时一次折叠进去消费。睡眠侧本来就不 claim，
+// 这里补的是醒着-空闲侧（此前任何 pending 都能起 run，7 天里 42% 的 run 是召回/群普通消息开的）。
+const WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES = [
+  'subconscious-agent:',
+  'rest-available:',
+  'clock-ping:',
+  'attention_lease:',
+  'deep-dive-round:',
+  'sherlock:',
+  'sherlock-due:'
+];
+
+function stripLatestWinsPrefix(dedupeKey) {
+  const key = String(dedupeKey || '');
+  return key.startsWith(LATEST_WINS_DEDUPE_PREFIX) ? key.slice(LATEST_WINS_DEDUPE_PREFIX.length) : key;
+}
+
+function readDirectMentions(row) {
+  const payload = parseJson(row.payload, {});
+  const rawPayload = parseJson(row.raw_payload, {});
+  const notification = payload && typeof payload === 'object' ? payload.phoneNotification : null;
+  const candidates = [
+    notification && notification.directMentions,
+    notification && notification.direct_mentions,
+    rawPayload && rawPayload.direct_mentions,
+    rawPayload && rawPayload.directMentions
+  ];
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+  return 0;
+}
+
+function isWindowOpeningQueueRow(row) {
+  if (!row) {
+    return false;
+  }
+  const source = String(row.source || '');
+  if (source === 'phone_notification') {
+    if (row.chat_type !== 'group') {
+      return true;
+    }
+    return readDirectMentions(row) > 0;
+  }
+  if (source === 'system_reminder') {
+    const bare = stripLatestWinsPrefix(row.dedupe_key);
+    return WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES.some((prefix) => bare.startsWith(prefix));
+  }
+  // 其它来源（provider / simulator / 管理端注入）沿用旧语义：能开窗。
+  return true;
+}
+
+// 消费时把 latest-wins 槽轮换成历史唯一值（dedupe_key 是簿记字段、从不进模型，轮换不违反上下文不可变）。
+const ROTATE_LATEST_WINS_KEY_SQL = `dedupe_key = CASE
+                  WHEN dedupe_key LIKE '${LATEST_WINS_DEDUPE_PREFIX}%' THEN dedupe_key || ':run:' || ?
+                  ELSE dedupe_key
+                END`;
+
+function mergeLatestWinsPayload(existingPayload, incomingPayload) {
+  const existing = parseJson(existingPayload, {}) || {};
+  const incoming = incomingPayload && typeof incomingPayload === 'object' ? incomingPayload : {};
+  const merged = { ...existing, ...incoming };
+  const prev = existing.phoneNotification;
+  const next = incoming.phoneNotification;
+  if (prev && next && typeof prev === 'object' && typeof next === 'object') {
+    merged.phoneNotification = {
+      ...next,
+      unreadDelta: Math.max(1, Number(prev.unreadDelta || 1)) + Math.max(1, Number(next.unreadDelta || 1)),
+      directMentions: Math.max(0, Number(prev.directMentions || 0)) + Math.max(0, Number(next.directMentions || 0))
+    };
+  }
+  return merged;
+}
+
+function mergeLatestWinsRawPayload(existingRaw, incomingRaw) {
+  const existing = parseJson(existingRaw, {}) || {};
+  const incoming = incomingRaw && typeof incomingRaw === 'object' ? incomingRaw : {};
+  const merged = { ...existing, ...incoming };
+  if ('unread_delta' in existing || 'unread_delta' in incoming) {
+    merged.unread_delta = Math.max(1, Number(existing.unread_delta || 1)) + Math.max(1, Number(incoming.unread_delta || 1));
+  }
+  if ('direct_mentions' in existing || 'direct_mentions' in incoming) {
+    merged.direct_mentions = Math.max(0, Number(existing.direct_mentions || 0)) + Math.max(0, Number(incoming.direct_mentions || 0));
+  }
+  return merged;
+}
+
 function isRecallSurfaceDedupeKey(dedupeKey) {
   return typeof dedupeKey === 'string' && dedupeKey.startsWith(RECALL_SURFACE_DEDUPE_PREFIX);
 }
@@ -235,6 +334,46 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
       const existing = await prisma.agentQueueMessage.findUnique({
         where: { dedupe_key: dedupeKey }
       });
+      // latest-wins 槽：既有行还没进过上下文（pending）→ 新内容就地覆盖，未读增量累加。
+      // 已进上下文的行（consumed/settled…）冻结不动：它的 key 在消费时已轮换走，正常情况下
+      // 不会撞到这里；撞到了就是并发窗口，退回 first-wins 返回既有行。
+      if (
+        dedupeKey.startsWith(LATEST_WINS_DEDUPE_PREFIX)
+        && existing
+        && existing.status === 'pending'
+      ) {
+        const mergedPayload = mergeLatestWinsPayload(existing.payload, payload);
+        const mergedRaw = mergeLatestWinsRawPayload(
+          existing.raw_payload,
+          normalizeJsonObject(message.rawPayload || message.raw_payload)
+        );
+        const incomingAvailableAt = normalizeDate(availableAt);
+        const existingAvailableAt = normalizeDate(existing.available_at);
+        const nextAvailableAt = existingAvailableAt && incomingAvailableAt && existingAvailableAt < incomingAvailableAt
+          ? new Date(existingAvailableAt)
+          : new Date(incomingAvailableAt || Date.now());
+        const superseded = await prisma.agentQueueMessage.updateMany({
+          where: { id: existing.id, status: 'pending' },
+          data: {
+            trace_id: resolvedTraceId,
+            message_sid: String(message.messageSid || message.message_sid || dedupeKey),
+            peer_name: normalizeOptionalString(message.peerName || message.peer_name),
+            sender_id: String(message.senderId || message.sender_id || existing.sender_id || ''),
+            sender_name: normalizeOptionalString(message.senderName || message.sender_name),
+            body_for_agent: String(message.bodyForAgent || message.body_for_agent || ''),
+            raw_payload: mergedRaw,
+            inbound_context: normalizeJsonObject(message.inboundContext || message.inbound_context),
+            payload: mergedPayload,
+            attempts: 0,
+            available_at: nextAvailableAt,
+            updated_at: new Date()
+          }
+        });
+        if (superseded && Number(superseded.count) > 0) {
+          const refreshed = await prisma.agentQueueMessage.findUnique({ where: { id: existing.id } });
+          return { ...normalizeQueueRow(refreshed || existing, mergedPayload), created: false, superseded: true };
+        }
+      }
       const normalized = normalizeQueueRow(existing, payload) || {
         queueId: 0,
         traceId: resolvedTraceId,
@@ -286,6 +425,9 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 
   async function claimNextAgentQueueMessage(input = {}, config = {}) {
     const workerId = normalizeOptionalString(input.workerId || input.worker_id) || 'agent-worker';
+    // windowOpen=true：调用方已经因为别的原因开了窗（睡醒续帧等），pending 全部折进来。
+    // 默认 false：只有 pending 里含「开窗」行时才起 run；否则一条都不动、返回 null。
+    const windowOpen = input.windowOpen === true || input.window_open === true;
     const { sql, shouldClose } = createSql(input, config);
     try {
       return await sql.withTransaction(async (tx) => {
@@ -301,6 +443,9 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
         );
 
         if (rows.length === 0) {
+          return null;
+        }
+        if (!windowOpen && !rows.some(isWindowOpeningQueueRow)) {
           return null;
         }
 
@@ -403,6 +548,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
                 run_id = ?,
                 trace_id = ?,
                 result = ?::jsonb,
+                ${ROTATE_LATEST_WINS_KEY_SQL},
                 updated_at = NOW()
             WHERE id IN (${placeholders})
           `,
@@ -416,6 +562,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
               consumed_at: new Date(now).toISOString(),
               worker_id: workerId
             }),
+            runId,
             ...queueIds
           ]
         );
@@ -490,6 +637,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
                 batch_id = ?,
                 run_id = ?,
                 result = ?::jsonb,
+                ${ROTATE_LATEST_WINS_KEY_SQL},
                 updated_at = NOW()
             WHERE id IN (${placeholders})
           `,
@@ -503,6 +651,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
               folded_at: new Date(now).toISOString(),
               worker_id: workerId
             }),
+            parentRunId,
             ...queueIds
           ]
         );
@@ -708,6 +857,9 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   return {
     enqueueAgentQueueMessage,
     flushPendingRecallSurfaceQueueMessages,
+    isWindowOpeningQueueRow,
+    LATEST_WINS_DEDUPE_PREFIX,
+    WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES,
     listRecentAgentQueueDedupeKeys,
     getLastAgentQueueEnqueuedAt,
     claimNextAgentQueueMessage,

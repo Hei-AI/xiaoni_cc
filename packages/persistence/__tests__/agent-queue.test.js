@@ -117,7 +117,8 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
 
 test('claimNextAgentQueueMessage drains all currently due pending bucket messages', async () => {
   const rows = [
-    createQueueRow({ id: 10, source: 'phone_notification', message_sid: 'sid-10' }),
+    // 私聊门铃能开窗;窗一开,同批 pending 的 system_reminder 一起折进来。
+    createQueueRow({ id: 10, source: 'phone_notification', message_sid: 'sid-10', chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200' }),
     createQueueRow({
       id: 11,
       source: 'system_reminder',
@@ -346,4 +347,216 @@ test('flushPendingRecallSurfaceQueueMessages settles pending recall-surface rows
   const result = JSON.parse(executes[0].params[0]);
   assert.equal(result.flushed_on_wake, true);
   assert.equal(result.recovery_session_id, 435);
+});
+
+
+// ── 开窗纪律 + latest-wins 槽（docs/NOTIFY_BUCKET_LATEST_WINS_COLLAPSE.md）──────────────────
+
+function createRecallRow(overrides = {}) {
+  return {
+    ...createQueueRow({
+      source: 'system_reminder',
+      body_for_agent: '一句召回',
+      payload: JSON.stringify({
+        messageId: overrides.id || 1,
+        rawBody: '一句召回',
+        commandBody: '',
+        receivedAt: '2026-06-09T00:00:00.000Z',
+        systemReminder: { reminder: '一句召回', reason: 'passive_recall_surface' }
+      }),
+      ...overrides
+    }),
+    dedupe_key: overrides.dedupe_key || 'recall-surface:diary:abc'
+  };
+}
+
+function createClaimHarness(rows) {
+  const executes = [];
+  const inserts = [];
+  const tx = {
+    query: async (sql) => {
+      if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+        return rows;
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    insert: async (sql, params = []) => {
+      inserts.push({ sql, params });
+      return { insertId: 1, affectedRows: 1 };
+    },
+    execute: async (sql, params = []) => {
+      executes.push({ sql, params });
+      return rows.length;
+    }
+  };
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => {
+      throw new Error('Prisma should not be used for claim');
+    },
+    createSqlAdapter: () => ({
+      withTransaction: async (callback) => callback(tx),
+      close: async () => undefined
+    })
+  });
+  return { persistence, executes, inserts };
+}
+
+test('isWindowOpeningQueueRow: only QQ private / group @ / her own drivers open a window', () => {
+  const { isWindowOpeningQueueRow } = createAgentQueuePersistence({ getPrismaClient: () => undefined, createSqlAdapter: () => undefined });
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'direct' })), true);
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 1 })), true);
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 0 })), false);
+  assert.equal(isWindowOpeningQueueRow(createRecallRow()), false);
+  for (const key of ['subconscious-agent:x', 'lw:subconscious-agent:xiaoni:global', 'lw:rest-available:xiaoni:global', 'clock-ping:s:1', 'attention_lease:s:1', 'deep-dive-round:1:2', 'sherlock:1:2', 'sherlock-due:1:2']) {
+    assert.equal(isWindowOpeningQueueRow(createRecallRow({ dedupe_key: key })), true, key);
+  }
+  for (const key of ['external-notify:image:uuid', 'core-memory-compression-done:s:1', 'open-loops-pointer:s:1']) {
+    assert.equal(isWindowOpeningQueueRow(createRecallRow({ dedupe_key: key })), false, key);
+  }
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ source: 'simulator', chat_type: 'group' })), true);
+});
+
+test('claimNextAgentQueueMessage leaves non-window rows pending when nothing opens a window', async () => {
+  const rows = [
+    createRecallRow({ id: 20 }),
+    createQueueRow({ id: 21, chat_type: 'group', directMentions: 0, dedupe_key: 'phone_notification:g-21' }),
+    createRecallRow({ id: 22, dedupe_key: 'external-notify:image:1' })
+  ];
+  const { persistence, executes, inserts } = createClaimHarness(rows);
+  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
+  assert.equal(claimed, null);
+  assert.equal(executes.length, 0, 'no row may be consumed');
+  assert.equal(inserts.length, 0, 'no run/batch may be minted');
+});
+
+test('claimNextAgentQueueMessage folds non-window rows once a window-opening row is present', async () => {
+  const rows = [
+    createRecallRow({ id: 20 }),
+    createQueueRow({ id: 23, chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200', dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200' })
+  ];
+  const { persistence, executes } = createClaimHarness(rows);
+  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
+  assert.ok(claimed);
+  assert.deepEqual(claimed.queueMessageIds, [20, 23]);
+  assert.equal(executes.length, 1);
+  // latest-wins 槽在消费时轮换成历史唯一值,普通键不动
+  assert.ok(executes[0].sql.includes("dedupe_key LIKE 'lw:%'"));
+  assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ?"));
+  assert.equal(executes[0].params[5], claimed.id);
+});
+
+test('claimNextAgentQueueMessage with windowOpen=true drains non-window rows (wake continuation)', async () => {
+  const rows = [createRecallRow({ id: 20 }), createRecallRow({ id: 24, dedupe_key: 'open-loops-pointer:s:1' })];
+  const { persistence, executes } = createClaimHarness(rows);
+  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1', windowOpen: true });
+  assert.ok(claimed);
+  assert.deepEqual(claimed.queueMessageIds, [20, 24]);
+  assert.equal(executes.length, 1);
+});
+
+test('foldPendingNotifyMessagesIntoRun rotates latest-wins keys on consume', async () => {
+  const rows = [createQueueRow({ id: 30, chat_type: 'direct', dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200' })];
+  const executes = [];
+  const tx = {
+    query: async (sql) => (sql.includes('FOR UPDATE SKIP LOCKED') ? rows : []),
+    insert: async () => ({ insertId: 1, affectedRows: 1 }),
+    execute: async (sql, params = []) => {
+      executes.push({ sql, params });
+      return 1;
+    }
+  };
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => undefined,
+    createSqlAdapter: () => ({ withTransaction: async (callback) => callback(tx), close: async () => undefined })
+  });
+  const folded = await persistence.foldPendingNotifyMessagesIntoRun({ workerId: 'w', parentRunId: 'run_parent', parentBatchId: 'batch_parent' });
+  assert.ok(folded);
+  assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ?"));
+  assert.equal(executes[0].params[4], 'run_parent');
+});
+
+function createEnqueuePrisma(existingRow, calls) {
+  return {
+    agentQueueMessage: {
+      create: async () => {
+        const error = new Error('unique');
+        error.code = 'P2002';
+        throw error;
+      },
+      findUnique: async () => existingRow,
+      updateMany: async (args) => {
+        calls.push(args);
+        return { count: 1 };
+      }
+    }
+  };
+}
+
+test('enqueueAgentQueueMessage latest-wins: pending lw: slot is overwritten in place, unread accumulates', async () => {
+  const calls = [];
+  const existing = {
+    id: 40,
+    trace_id: 'trace-old',
+    dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200',
+    status: 'pending',
+    attempts: 1,
+    available_at: new Date('2026-06-09T00:00:05.000Z'),
+    sender_id: 'qq',
+    raw_payload: { unread_delta: 1, direct_mentions: 0, latest_preview: '旧' },
+    payload: { messageId: 1, phoneNotification: { app: 'qq', unreadDelta: 1, directMentions: 0, notificationId: 'old' } }
+  };
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => createEnqueuePrisma(existing, calls),
+    createSqlAdapter: () => undefined
+  });
+  const result = await persistence.enqueueAgentQueueMessage({
+    message: {
+      traceId: 'trace-new',
+      source: 'phone_notification',
+      messageSid: 'phone:new',
+      dedupeKey: 'lw:phone_notification:direct:qq:direct:200:200',
+      chatType: 'direct',
+      sessionKey: 'qq:direct:200',
+      peerId: '200',
+      senderId: 'qq',
+      accountId: '1',
+      bodyForAgent: '新的一条',
+      rawPayload: { unread_delta: 1, direct_mentions: 0, latest_preview: '新' }
+    },
+    payload: { messageId: 2, phoneNotification: { app: 'qq', unreadDelta: 1, directMentions: 0, notificationId: 'new' } },
+    availableAt: new Date('2026-06-09T00:00:09.000Z')
+  });
+  assert.equal(result.created, false);
+  assert.equal(result.superseded, true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].where, { id: 40, status: 'pending' });
+  assert.equal(calls[0].data.body_for_agent, '新的一条');
+  assert.equal(calls[0].data.trace_id, 'trace-new');
+  assert.equal(calls[0].data.attempts, 0);
+  assert.equal(calls[0].data.payload.phoneNotification.unreadDelta, 2);
+  assert.equal(calls[0].data.payload.phoneNotification.notificationId, 'new');
+  assert.equal(calls[0].data.raw_payload.unread_delta, 2);
+  assert.equal(calls[0].data.raw_payload.latest_preview, '新');
+  // 已有行更早可用 → 不往后推
+  assert.equal(calls[0].data.available_at.toISOString(), '2026-06-09T00:00:05.000Z');
+});
+
+test('enqueueAgentQueueMessage keeps first-wins for non-lw keys and for consumed lw rows', async () => {
+  for (const existing of [
+    { id: 41, dedupe_key: 'recall-surface:diary:abc', status: 'pending', payload: {}, raw_payload: {} },
+    { id: 42, dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200', status: 'consumed', payload: {}, raw_payload: {} }
+  ]) {
+    const calls = [];
+    const persistence = createAgentQueuePersistence({
+      getPrismaClient: () => createEnqueuePrisma(existing, calls),
+      createSqlAdapter: () => undefined
+    });
+    const result = await persistence.enqueueAgentQueueMessage({
+      message: { traceId: 't', source: 'system_reminder', messageSid: 'x', dedupeKey: existing.dedupe_key, chatType: 'direct', sessionKey: 's', peerId: 'p', senderId: 'a', accountId: '1', bodyForAgent: 'b' },
+      payload: {}
+    });
+    assert.equal(result.created, false);
+    assert.equal(result.superseded, undefined);
+    assert.equal(calls.length, 0, existing.dedupe_key);
+  }
 });
