@@ -171,6 +171,8 @@ test('enqueues unmentioned group messages as phone notifications without message
   assert.equal(store.enqueuedMessages[0]?.rawPayload.source_preview, '群里真实正文应该只作为短摘要进入通知而不...');
   assert.equal(store.enqueuedMessages[0]?.inboundContext.BodyForCommands, '');
   assert.equal(store.enqueuedMessages[0]?.commandBody, '');
+  // 群普通消息不进 latest-wins 槽,保持每条唯一键(入站层另有聚合)
+  assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'phone_notification:napcat:msg-1');
 });
 
 test('schedules ordinary unmuted group messages when group aggregation delay is enabled', async () => {
@@ -324,6 +326,8 @@ test('enqueues mentioned group messages as phone notifications', async () => {
   assert.equal(store.enqueuedMessages[0]?.phoneNotification?.directMentions, 1);
   assert.equal(store.enqueuedMessages[0]?.bodyForAgent, '@xiaoni hello');
   assert.equal(store.enqueuedMessages[0]?.inboundContext.BodyForCommands, '');
+  // 群 @:按 (session, 群, 发送人) 一人一个 latest-wins 槽
+  assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'lw:phone_notification:group_mention:qq:group:100:100:20001');
 });
 
 test('does not enqueue the claimed unread inbox window when a mention arrives', async () => {
@@ -407,6 +411,8 @@ test('enqueues direct messages as phone notifications until xiaoni actively open
   assert.equal(store.enqueuedMessages[0]?.source, 'phone_notification');
   assert.equal(store.enqueuedMessages[0]?.bodyForAgent, 'hello');
   assert.equal(store.enqueuedMessages[0]?.inboundContext.BodyForCommands, '');
+  // 私聊:按 (session, 对方) 一人一个 latest-wins 槽 —— 同一个人连发几条只挂一个门铃,新覆盖旧
+  assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'lw:phone_notification:direct:qq:direct:1129974489:20001:20001');
 });
 
 test('enqueues private messages from authorized user as a single phone notification', async () => {
@@ -467,6 +473,7 @@ test('enqueues private messages from authorized user as a single phone notificat
   assert.equal(store.enqueuedMessages[0]?.senderId, 'qq');
   assert.equal(store.enqueuedMessages[0]?.bodyForAgent, '现在这句要让小腻看到');
   assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /前面一句/);
+  assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'lw:phone_notification:direct:qq:direct:1129974489:85178516:85178516');
 });
 
 test('forces private authorized user through disabled receive and auto-reply policy', () => {
