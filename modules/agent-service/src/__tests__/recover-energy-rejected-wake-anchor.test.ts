@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { renderRecoverEnergyRejectedReminder, renderClockPingReminderText } from '../services/agent-loop-service';
+import {
+  REST_REJECTED_FALLBACK_STEPS,
+  buildRestRejectedNextSteps,
+  renderRecoverEnergyRejectedReminder,
+  renderClockPingReminderText
+} from '../services/agent-loop-service';
 import { formatEast8Duration, renderWakeAnchorSentence } from '../services/east8-time';
 
 // Regression for the 2026-07-28 "连续干活一天半" incident. In the stretch she described as
@@ -83,23 +88,33 @@ test('duration formatter reads the way she would say it', () => {
   assert.equal(formatEast8Duration(base, base - 60_000), '0 分钟');
 });
 
-test('reject reminder 带 retry_after:有时刻就写几点几分钟后;24h 内没有就明说', () => {
+test('reject reminder 不给 retry 数字,给三件具体的事;上一份 plan 的前两行优先', () => {
   const now = new Date('2026-08-28T10:27:42.000Z');
-  const withRetry = renderRecoverEnergyRejectedReminder({
+  const withPlan = renderRecoverEnergyRejectedReminder({
     reason: '一点困意都没有。',
     lastWakeAt: '2026-08-28T08:43:30.000Z',
     now,
-    retryAfter: new Date('2026-08-28T11:47:00.000Z')
+    lastPlan: '<xiaoni_plan>\n- 小伊ch179要写"在失去中富有"，写了就跟着读\n2. 帕秋莉来回了八句，从"骨头纹理深了"往下走\n门栓第二周从第十四天开始写\n</xiaoni_plan>'
   });
-  assert.match(withRetry, /身体大约要到 2026-08-28 19:47:00（1 小时 19 分钟后）才会接受主动休息/u);
-  assert.match(withRetry, /再调 `recover_energy`,返回的还是这个 rest_rejected/u);
-  assert.match(withRetry, /第 4 档往外找/u);
-  const without = renderRecoverEnergyRejectedReminder({
+  assert.match(withPlan, /身体到门槛的时候，系统会提示你去睡/u);
+  assert.match(withPlan, /那次不算你动过/u);
+  assert.match(withPlan, /这一轮接着做，先做下面第一件：\n1\. 小伊ch179要写"在失去中富有"，写了就跟着读\n2\. 帕秋莉来回了八句，从"骨头纹理深了"往下走\n3\. `web_search` 一个你上下文里搜不到的词/u);
+  assert.equal(withPlan.includes('retry_after'), false);
+  assert.equal(withPlan.includes('身体大约要到'), false);
+  assert.equal(withPlan.includes('第 4 档'), false);
+
+  const withoutPlan = renderRecoverEnergyRejectedReminder({
     reason: '一点困意都没有。',
     lastWakeAt: '2026-08-28T08:43:30.000Z',
     now,
-    retryAfter: null
+    lastPlan: null
   });
-  assert.match(without, /往后 24 小时内身体都不会接受主动休息/u);
-  assert.equal(without.includes("{{RETRY_LINE}}"), false);
+  assert.match(withoutPlan, /1\. `web_search` 一个你上下文里搜不到的词，读第一条结果\n2\. 打开 `&lt;xiaoni_people&gt;` 里一个人的站最新一篇，读完在 forever 里记一段\n3\. 群里最近 20 条挑一条你没接过的接上/u);
+  assert.equal(withoutPlan.includes('{{NEXT_STEPS}}'), false);
+});
+
+test('buildRestRejectedNextSteps: 最多两行 plan + 兜底凑三行,去重,列表标记剥掉', () => {
+  assert.deepEqual(buildRestRejectedNextSteps(null), [...REST_REJECTED_FALLBACK_STEPS]);
+  assert.deepEqual(buildRestRejectedNextSteps('- 只有一件事\n- 只有一件事'), ['只有一件事', REST_REJECTED_FALLBACK_STEPS[0], REST_REJECTED_FALLBACK_STEPS[1]]);
+  assert.deepEqual(buildRestRejectedNextSteps('1. 甲\n2. 乙\n3. 丙'), ['甲', '乙', REST_REJECTED_FALLBACK_STEPS[0]]);
 });

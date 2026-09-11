@@ -2922,27 +2922,57 @@ export function renderRecoverEnergyCompletedReminder(input: {
 // Rendered ONCE here at tool-execution time and frozen into the persisted function_call_output
 // (replay never re-renders → byte-identical, cache-safe), same contract as the wake reminders
 // above. Never move these stamps into the cached prefix.
-// 「大约几点才睡得着」这一句。同一个事实只有这一种说法(措辞不许在 surface 间漂移)。
-// null(24h 内扫不到)时明说「今天睡不着」,不留空 —— 空行会让她以为是没算出来、再试一次。
-export function renderRecoverEnergyRetryLine(retryAfter: Date | null, now: Date): string {
-  if (!retryAfter || !Number.isFinite(retryAfter.getTime()) || retryAfter.getTime() <= now.getTime()) {
-    return '往后 24 小时内身体都不会接受主动休息;到那之前再调 `recover_energy`,返回的还是这个 rest_rejected。';
+// 被拒之后塞给她的三件事(2026-09-11 回放实验:第一次被拒当场给三件具体的事,Opus 4.6 4/4 照做
+// 第一件;只说「往外找一件事」她 9/11 次落成往日记追加一行盘点)。来源:上一份 plan 里的前两行 +
+// 一条外部动作兜底,凑满三行。纯函数、确定性:同 plan 同结果,渲染一次冻结进 function_call_output。
+export const REST_REJECTED_FALLBACK_STEPS = [
+  '`web_search` 一个你上下文里搜不到的词，读第一条结果',
+  '打开 `<xiaoni_people>` 里一个人的站最新一篇，读完在 forever 里记一段',
+  '群里最近 20 条挑一条你没接过的接上'
+] as const;
+
+export function buildRestRejectedNextSteps(lastPlan: string | null | undefined): string[] {
+  const planLines = typeof lastPlan === 'string'
+    ? lastPlan
+      .split('\n')
+      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.、)]|[（(]\d+[)）])\s*/u, '').trim())
+      .filter((line) => line.length > 0 && !/^<\/?xiaoni_plan>$/u.test(line))
+    : [];
+  const steps: string[] = [];
+  for (const line of planLines) {
+    if (steps.length >= 2) {
+      break;
+    }
+    if (!steps.includes(line)) {
+      steps.push(line);
+    }
   }
-  return `身体大约要到 ${formatEast8Timestamp(retryAfter)}（${formatEast8Duration(now.getTime(), retryAfter.getTime())}后）才会接受主动休息;到那之前再调 \`recover_energy\`,返回的还是这个 rest_rejected。`;
+  for (const fallback of REST_REJECTED_FALLBACK_STEPS) {
+    if (steps.length >= 3) {
+      break;
+    }
+    if (!steps.includes(fallback)) {
+      steps.push(fallback);
+    }
+  }
+  return steps.slice(0, 3);
 }
 
 export function renderRecoverEnergyRejectedReminder(input: {
   reason: string;
   lastWakeAt: string | null;
   now: Date;
-  // 身体大约何时才接受(estimateVoluntaryRecoveryRetryAt);null = 24h 内扫不到。
-  retryAfter?: Date | null;
+  // 上一份自驱动 plan 原文(getLastEmittedSubconsciousPlan);null = 只用兜底三件。
+  lastPlan?: string | null;
 }) {
+  const nextSteps = buildRestRejectedNextSteps(input.lastPlan ?? null)
+    .map((step, index) => `${index + 1}. ${step}`)
+    .join('\n');
   const rendered = renderPromptSnippet('recover_energy_rejected_reminder.md', {
     REJECT_REASON: input.reason,
     CURRENT_TIME: formatEast8Timestamp(input.now),
     AWAKE_ANCHOR: renderWakeAnchorSentence(input.lastWakeAt, input.now),
-    RETRY_LINE: renderRecoverEnergyRetryLine(input.retryAfter ?? null, input.now)
+    NEXT_STEPS: nextSteps
   });
   // Anchor-less fallback (no recorded wake yet) leaves a trailing space on that line; trim it so
   // the two variants stay clean and diffable.
@@ -9457,7 +9487,7 @@ export class AgentLoopService {
         if (!leaseRelease && runRestRejectedCount >= REST_REJECTED_FRAME_YIELD_AFTER) {
           leaseRelease = buildLeaseReleaseRecord({
             reason: 'runtime_frame_yielded',
-            detail: `recover_energy was rejected ${runRestRejectedCount} times in this run; the rejection already states retry_after, so this frame yields instead of burning another model call.`,
+            detail: `recover_energy was rejected ${runRestRejectedCount} times in this run; this frame yields, counts as an idle settle and seeds the self-driven fork (C 路) instead of burning another model call.`,
             outcome: 'rest_rejected_frame_yield',
             noVisibleDelivery: deliveredMessages.length === 0,
             visibleDeliveryCommitted: deliveredMessages.length > 0,
@@ -9520,14 +9550,27 @@ export class AgentLoopService {
         // The settling response is pure text with no action (a turn with a function_call never
         // settles), so any settle on a final_answer triggers the fork — regardless of how many
         // tools the run used before settling. "她一 settle 在 final_answer 上就给方向。"
+        // 试睡收帧(rest_rejected_frame_yield)按「她停下来了」处理:点 C 路 fork 给她一份 plan、
+        // 记一次空转。2026-09-11 之前这条路 settledOnFinalAnswer=false → seed 被丢、不记账,
+        // 于是「三次试睡」成了系统里唯一免费的停(7 天 101 个 run 恰好三次),而
+        // self_continuation_reminder.md 的 C 路判据「只有被拒的 recover_energy」从来没跑到过。
+        const restRejectedYield = leaseRelease?.outcome === 'rest_rejected_frame_yield';
         this.lastMainAgentForkSeed = {
           canonicalRequest: cloneCanonicalAgentTurnRequest(currentCanonicalRequest),
           // 她的【原话】,不是改写腿替换后的(见 currentTurnOriginalNarrationItems)。
           recentNarrationItems: this.currentTurnOriginalNarrationItems.length > 0
             ? this.currentTurnOriginalNarrationItems
             : (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
-          settledOnFinalAnswer: actionPlan.hasFinalAnswer
+          settledOnFinalAnswer: actionPlan.hasFinalAnswer || restRejectedYield
         };
+        // 身体到门槛了就由引擎叫她去睡(latest-wins 槽,一 session 只挂一条;睡着时不入队)。
+        // 她不用再轮询 recover_energy 试探;被拒 reminder 里写的「系统会提示你」由这里兑现。
+        await this.maybeEnqueueRestAvailableNotify(payload).catch((error: unknown) => {
+          moduleLogger.warn('Failed to enqueue rest-available notify', {
+            traceId: payload.traceId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
         // 连续空转记账。归零【只有一种场景】(user 拍板 2026-07-27):这个 run 存在有效产出——
         // 调过任何非 recover_energy 的工具(真动手了)。
         // 被外部消息唤醒【不】归零:她真要响应消息必然调工具(回消息/开屏读)本来就归零;
@@ -9558,7 +9601,7 @@ export class AgentLoopService {
           && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
         if (!runDrivenOnlyByClockPing && !runDrivenOnlyBySherlock && !runDrivenOnlyByDeepDiveRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
-            settledOnFinalAnswer: actionPlan.hasFinalAnswer,
+            settledOnFinalAnswer: actionPlan.hasFinalAnswer || restRejectedYield,
             didRealWork: runTouchedWorld
           });
         }
@@ -12265,6 +12308,9 @@ export class AgentLoopService {
     }
     const now = new Date();
     const messageSid = `subconscious-agent:${params.forkRunId}`;
+    // latest-wins 槽(docs/NOTIFY_BUCKET_LATEST_WINS_COLLAPSE.md §5 A):同一 session 未被消费的
+    // 上一份 plan 被新 plan 就地覆盖(旧的无意义),消费时由 persistence 轮换 key 释放槽。
+    // messageSid 保持唯一给 tracing 用,只动 dedupeKey。
     const botAccountId = agentConfig.botAccountId;
     const sessionKey = getGlobalPromptContextSessionKey();
     // 节奏限制从句在入队前剥掉(见 stripPlanPacingClauses)。剥在这里而不是渲染时:落库的
@@ -13232,6 +13278,122 @@ export class AgentLoopService {
       });
       return 'skipped_duplicate';
     }
+  }
+
+  // 身体到门槛 → 引擎推送「去睡」。只在 run 收工时算一次(getCurrentRuntimeEnergyState 是一次事件
+  // 溯源重放,不便宜);门槛判据与 recover_energy 工具里的 shouldAcceptVoluntaryRecovery 完全同一份,
+  // 所以推送之后她调 recover_energy 必然被接受。睡着时不入队;latest-wins 槽保证一 session 只挂一条。
+  async maybeEnqueueRestAvailableNotify(
+    triggerPayload: QueueMessageRecord['payload'],
+    now: Date = new Date()
+  ): Promise<'enqueued' | 'skipped_not_ready' | 'skipped_sleeping' | 'skipped_duplicate' | 'unavailable'> {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      return 'unavailable';
+    }
+    const energyState = await this.getCurrentRuntimeEnergyState(triggerPayload).catch(() => null);
+    if (!energyState) {
+      return 'unavailable';
+    }
+    const effectiveEnergyPolicy = await this.resolveEffectiveEnergyPolicy();
+    const sessionPolicy = recoverySessionPolicyFromSnapshot(
+      createRecoveryPolicySnapshot(now, effectiveEnergyPolicy.policy)
+    )!;
+    const gate = shouldAcceptVoluntaryRecovery({
+      energy: energyState.energy,
+      maxEnergy: energyState.maxEnergy,
+      lastWakeAt: energyState.lastWakeAt ?? null,
+      recentSleepSessions: energyState.recentSleepSessions ?? null,
+      now,
+      policy: sessionPolicy.policy
+    });
+    if (!gate.accepted) {
+      return 'skipped_not_ready';
+    }
+    const activeSessionReader = (this.store as RuntimeStore & {
+      getActiveAgentRecoverySession?: RuntimeStore['getActiveAgentRecoverySession'];
+    }).getActiveAgentRecoverySession;
+    if (typeof activeSessionReader === 'function') {
+      const sleeping = await activeSessionReader.call(this.store).catch(() => null);
+      if (sleeping) {
+        return 'skipped_sleeping';
+      }
+    }
+
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const botAccountId = agentConfig.botAccountId;
+    const messageSid = `rest-available:${sessionKey}:${now.getTime()}`;
+    const reminderText = formatSystemReminderBlock(
+      renderPromptSnippet('recover_energy_available_reminder.md', {
+        CURRENT_TIME: formatEast8Timestamp(now),
+        AWAKE_ANCHOR: renderWakeAnchorSentence(energyState.lastWakeAt ?? null, now)
+      }).split('\n').map((line) => line.trimEnd()).join('\n')
+    );
+    const rawPayload = {
+      reason: 'rest_available',
+      pressure: gate.pressure,
+      required_pressure: gate.requiredPressure,
+      last_wake_at: energyState.lastWakeAt ?? null
+    };
+    const inboundContext = {
+      Body: reminderText,
+      BodyForAgent: reminderText,
+      BodyForCommands: reminderText,
+      RawBody: reminderText,
+      CommandBody: reminderText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: reminderText,
+      commandBody: reminderText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: reminderText,
+        reason: 'rest_available',
+        createdAt: now.toISOString()
+      }
+    };
+    const result = await enqueuer.call(this.store, {
+      message: {
+        traceId: messageSid,
+        source: 'system_reminder',
+        messageSid,
+        // latest-wins 槽:一 session 只挂一条待处理的「去睡」,新的覆盖旧的,消费时轮换。
+        dedupeKey: `lw:rest-available:${sessionKey}`,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: reminderText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+    return result && (result as { created?: boolean; superseded?: boolean }).created === false
+      && !(result as { superseded?: boolean }).superseded
+      ? 'skipped_duplicate'
+      : 'enqueued';
   }
 
   // REQ2 STW: adopt a committed core-memory compression MID-RUN, at a between-turns
@@ -14715,7 +14877,7 @@ export class AgentLoopService {
               reason,
               lastWakeAt: energyState.lastWakeAt ?? null,
               now,
-              retryAfter
+              lastPlan: getLastEmittedSubconsciousPlan(getGlobalPromptContextSessionKey())
             }),
             xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
               ? toolCall.args.xiaoni_os.trim()
