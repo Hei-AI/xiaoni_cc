@@ -336,7 +336,15 @@ function buildPhoneNotificationMessage(
     source: 'phone_notification',
     messageId: message.id,
     messageSid: notificationId,
-    dedupeKey: `phone_notification:${message.dedupeKey || message.messageSid || message.id}`,
+    // latest-wins 槽(docs/NOTIFY_BUCKET_LATEST_WINS_COLLAPSE.md §3):私聊按 (session, 对方) 一人一槽,
+    // 群 @ 按 (session, 群, 发送人) 一人一槽 —— 同一个人连发几条、她还没醒/没消费时,新的覆盖旧的、
+    // 未读增量在 persistence 侧累加,只进来一条门铃;未读真相仍在 agent_inbound_messages。
+    // 群普通消息走原来的每条唯一键(入站层另有 debounce 聚合)。
+    dedupeKey: message.chatType === 'direct'
+      ? `lw:phone_notification:direct:${message.sessionKey}:${message.peerId}`
+      : message.wasMentioned
+        ? `lw:phone_notification:group_mention:${message.sessionKey}:${message.peerId}:${message.senderId}`
+        : `phone_notification:${message.dedupeKey || message.messageSid || message.id}`,
     chatType: message.chatType,
     sessionKey: message.sessionKey,
     peerId: message.peerId,
