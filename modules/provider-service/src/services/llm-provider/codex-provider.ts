@@ -91,8 +91,24 @@ function readTrimmedEnv(name: string): string | undefined {
   return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function stringifyRawCodexErrorPayload(value: unknown): string {
@@ -239,57 +255,87 @@ export class CodexProvider extends OpenAIProvider {
     payload: Record<string, any>,
     apiKey: string,
     timeoutMs?: number,
-    traceHeaders: Record<string, string> = {}
+    traceHeaders: Record<string, string> = {},
+    signal?: AbortSignal
   ): Promise<any> {
-    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig, this.runtimeOptions);
-    if (proxyApiKey) {
-      return await this.fetchAndAssembleCodexResponseWithTransientRetry(
-        baseUrl,
-        responsesPath,
-        payload,
-        proxyApiKey,
-        null,
-        timeoutMs,
-        traceHeaders
-      );
+    const admission = await codexPromptCacheAdmissionGate.acquire({
+      payload,
+      executionMode: typeof traceHeaders['x-execution-mode'] === 'string'
+        ? traceHeaders['x-execution-mode']
+        : null,
+      signal
+    });
+    if (admission.enabled && admission.waitMs > 0) {
+      this.codexLogger.info('Codex prompt cache admission gate released request', {
+        bucketKey: admission.bucketKey,
+        waitMs: admission.waitMs,
+        queueDepth: admission.queueDepth,
+        priority: admission.priority,
+        bypassed: admission.bypassed,
+        sessionId: traceHeaders.session_id || null,
+        llmCallId: traceHeaders['x-llm-call-id'] || null,
+        executionMode: traceHeaders['x-execution-mode'] || null
+      });
     }
 
-    const accountId = this.extractAccountId(apiKey);
-
     try {
-      return await this.fetchAndAssembleCodexResponseWithTransientRetry(
-        baseUrl,
-        responsesPath,
-        payload,
-        apiKey,
-        accountId,
-        timeoutMs,
-        traceHeaders
-      );
-    } catch (error: any) {
-      const status = error?.response?.status || error?.status;
-      if (status !== 401 && status !== 403) {
-        throw error;
+      const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig, this.runtimeOptions);
+      if (proxyApiKey) {
+        return await this.fetchAndAssembleCodexResponseWithTransientRetry(
+          baseUrl,
+          responsesPath,
+          payload,
+          proxyApiKey,
+          null,
+          timeoutMs,
+          traceHeaders,
+          signal
+        );
       }
 
-      const { credential } = await this.resolveCredential(true);
-      if (!credential?.access || credential.access === apiKey) {
-        throw error;
+      const accountId = this.extractAccountId(apiKey);
+
+      try {
+        return await this.fetchAndAssembleCodexResponseWithTransientRetry(
+          baseUrl,
+          responsesPath,
+          payload,
+          apiKey,
+          accountId,
+          timeoutMs,
+          traceHeaders,
+          signal
+        );
+      } catch (error: any) {
+        const status = error?.response?.status || error?.status;
+        if (status !== 401 && status !== 403) {
+          throw error;
+        }
+
+        const { credential } = await this.resolveCredential(true);
+        if (!credential?.access || credential.access === apiKey) {
+          throw error;
+        }
+
+        this.codexLogger.warn('Retrying Codex request with refreshed OAuth token', {
+          status
+        });
+
+        return await this.fetchAndAssembleCodexResponseWithTransientRetry(
+          baseUrl,
+          responsesPath,
+          payload,
+          credential.access,
+          this.extractAccountId(credential.access),
+          timeoutMs,
+          traceHeaders,
+          signal
+        );
       }
-
-      this.codexLogger.warn('Retrying Codex request with refreshed OAuth token', {
-        status
-      });
-
-      return await this.fetchAndAssembleCodexResponseWithTransientRetry(
-        baseUrl,
-        responsesPath,
-        payload,
-        credential.access,
-        this.extractAccountId(credential.access),
-        timeoutMs,
-        traceHeaders
-      );
+    } finally {
+      // Keep one lease across transient retries and OAuth refresh. A retry is part
+      // of the same logical request and must not let another cold prefill through.
+      admission.release();
     }
   }
 
@@ -300,7 +346,8 @@ export class CodexProvider extends OpenAIProvider {
     apiKey: string,
     accountId: string | null,
     timeoutMs?: number,
-    traceHeaders: Record<string, string> = {}
+    traceHeaders: Record<string, string> = {},
+    signal?: AbortSignal
   ): Promise<any> {
     const maxAttempts = parsePositiveIntegerEnv(
       'CODEX_TRANSIENT_RETRY_ATTEMPTS',
@@ -320,9 +367,13 @@ export class CodexProvider extends OpenAIProvider {
           apiKey,
           accountId,
           timeoutMs,
-          traceHeaders
+          traceHeaders,
+          signal
         );
       } catch (error) {
+        if (signal?.aborted) {
+          throw error;
+        }
         if (attempt >= maxAttempts || !this.isRetryableTransientCodexError(error)) {
           throw error;
         }
@@ -336,7 +387,7 @@ export class CodexProvider extends OpenAIProvider {
           code: this.extractErrorCode(error),
           error: error instanceof Error ? error.message : String(error)
         });
-        await delay(delayMs);
+        await delay(delayMs, signal);
       }
     }
 
@@ -350,7 +401,8 @@ export class CodexProvider extends OpenAIProvider {
     apiKey: string,
     accountId: string | null,
     timeoutMs?: number,
-    traceHeaders: Record<string, string> = {}
+    traceHeaders: Record<string, string> = {},
+    signal?: AbortSignal
   ): Promise<any> {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
     const normalizedPath = responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`;
@@ -372,41 +424,24 @@ export class CodexProvider extends OpenAIProvider {
       ...codexTraceHeaders
     };
 
-    const admission = await codexPromptCacheAdmissionGate.admit({
-      payload,
-      executionMode: typeof traceHeaders['x-execution-mode'] === 'string'
-        ? traceHeaders['x-execution-mode']
-        : null
-    });
-    if (admission.enabled && admission.waitMs > 0) {
-      const logPayload = {
-        bucketKey: admission.bucketKey,
-        waitMs: admission.waitMs,
-        queueDepth: admission.queueDepth,
-        priority: admission.priority,
-        bypassed: admission.bypassed,
-        sessionId: traceHeaders.session_id || null,
-        llmCallId: traceHeaders['x-llm-call-id'] || null,
-        executionMode: traceHeaders['x-execution-mode'] || null
-      };
-      if (admission.bypassed) {
-        this.codexLogger.warn('Bypassing Codex prompt cache admission gate for interactive request', logPayload);
-      } else {
-        this.codexLogger.info('Codex prompt cache admission gate released request', logPayload);
-      }
-    }
-
     const controller = new AbortController();
+    const abortFromCaller = () => controller.abort();
+    if (signal?.aborted) {
+      controller.abort();
+    } else if (signal) {
+      signal.addEventListener('abort', abortFromCaller, { once: true });
+    }
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_CODEX_RESPONSE_TIMEOUT_MS);
-    this.recordWireExchange({
-      requestHeaders: this.sanitizeWireHeaders(requestHeaders),
-      requestUrl,
-      responseHeaders: null,
-      responseStatus: null,
-      responseStatusText: null
-    });
 
     try {
+      this.recordWireExchange({
+        requestHeaders: this.sanitizeWireHeaders(requestHeaders),
+        requestUrl,
+        responseHeaders: null,
+        responseStatus: null,
+        responseStatusText: null
+      });
+
       const response = await fetch(requestUrl, {
         method: 'POST',
         signal: controller.signal,
@@ -448,6 +483,7 @@ export class CodexProvider extends OpenAIProvider {
       const parsed = this.parseCodexSsePayload(bodyText);
       return parsed;
     } finally {
+      signal?.removeEventListener('abort', abortFromCaller);
       clearTimeout(timeoutId);
     }
   }

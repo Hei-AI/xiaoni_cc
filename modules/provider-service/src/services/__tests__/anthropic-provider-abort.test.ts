@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 
 import { AnthropicProvider } from '../llm-provider/anthropic-provider';
+import { resetCodexPromptCacheAdmissionGateForTest } from '../llm-provider/codex-prompt-cache-gate';
 import type { OpenResponseCreateRequest } from '../llm-provider/types';
 import type { AIConfig } from '../../types';
 
@@ -30,6 +31,7 @@ function baseConfig(extra: Partial<AIConfig> = {}): AIConfig {
 
 const REQ: OpenResponseCreateRequest = {
   model: 'claude-opus-4-6',
+  prompt_cache_key: 'xiaoni:test-global',
   instructions: 'sys',
   input: [{ type: 'message', role: 'user', content: 'ping' }],
   max_output_tokens: 64
@@ -124,6 +126,119 @@ test('a signal already aborted before the call still rejects', async () => {
         signal: controller.signal
       }));
     } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+test('same Anthropic cache namespace waits until the first upstream response returns', async () => {
+  await withCredential(async (file) => {
+    const previousEnv = {
+      CODEX_PROMPT_CACHE_GATE_ENABLED: process.env.CODEX_PROMPT_CACHE_GATE_ENABLED,
+      CODEX_PROMPT_CACHE_GATE_RPM: process.env.CODEX_PROMPT_CACHE_GATE_RPM,
+      CODEX_PROMPT_CACHE_GATE_WINDOW_MS: process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS
+    };
+    let requestCount = 0;
+    let firstResponse: http.ServerResponse | null = null;
+    const responseBody = JSON.stringify({
+      id: 'x', type: 'message', role: 'assistant', model: 'claude-opus-4-6', stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'pong' }],
+      usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 1 }
+    });
+    const server = http.createServer((req, res) => {
+      requestCount += 1;
+      req.resume();
+      if (requestCount === 1) {
+        firstResponse = res;
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(responseBody);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address() as any;
+    const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+    try {
+      resetCodexPromptCacheAdmissionGateForTest();
+      process.env.CODEX_PROMPT_CACHE_GATE_ENABLED = 'true';
+      process.env.CODEX_PROMPT_CACHE_GATE_RPM = '100';
+      process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS = '100';
+
+      const provider = new AnthropicProvider(
+        baseConfig({ anthropic_oauth_path: file }),
+        { baseUrl, timeoutMs: 2_000 }
+      );
+      const firstCall = provider.generateContent({
+        request: REQ,
+        modelName: 'claude-opus-4-6'
+      });
+      await new Promise<void>((resolve) => {
+        const started = () => (requestCount > 0 ? resolve() : setTimeout(started, 5));
+        started();
+      });
+
+      const secondCall = provider.generateContent({
+        request: REQ,
+        modelName: 'claude-opus-4-6'
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(requestCount, 1, 'the second same-prefix request must wait before reaching Anthropic');
+
+      const responseToRelease = firstResponse as http.ServerResponse | null;
+      responseToRelease?.writeHead(200, { 'content-type': 'application/json' });
+      responseToRelease?.end(responseBody);
+      const [firstResult, secondResult] = await Promise.all([firstCall, secondCall]);
+      assert.equal(firstResult.text, 'pong');
+      assert.equal(secondResult.text, 'pong');
+      assert.equal(requestCount, 2);
+    } finally {
+      resetCodexPromptCacheAdmissionGateForTest();
+      (firstResponse as http.ServerResponse | null)?.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      for (const [key, value] of Object.entries(previousEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+});
+
+test('does not sleep for a multi-hour Anthropic rate-limit retry-after', async () => {
+  await withCredential(async (file) => {
+    let requestCount = 0;
+    const server = http.createServer((req, res) => {
+      requestCount += 1;
+      req.resume();
+      res.writeHead(429, {
+        'content-type': 'application/json',
+        'retry-after': '17971'
+      });
+      res.end(JSON.stringify({ error: { type: 'rate_limit_error', message: 'quota reset later' } }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address() as any;
+    const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+    try {
+      resetCodexPromptCacheAdmissionGateForTest();
+      const provider = new AnthropicProvider(
+        baseConfig({ anthropic_oauth_path: file }),
+        { baseUrl, timeoutMs: 2_000 }
+      );
+      const startedAt = Date.now();
+      await assert.rejects(provider.generateContent({
+        request: REQ,
+        modelName: 'claude-opus-4-6'
+      }), /Anthropic API error \(429/);
+      const elapsedMs = Date.now() - startedAt;
+      assert.equal(requestCount, 1, 'a multi-hour retry-after must not trigger another request');
+      assert.ok(elapsedMs < 1_000, `long retry-after took ${elapsedMs}ms`);
+    } finally {
+      resetCodexPromptCacheAdmissionGateForTest();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });

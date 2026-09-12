@@ -1,16 +1,20 @@
-import { createHash } from 'crypto';
-
 type AdmissionPriority = 'interactive' | 'background';
 
 type QueueEntry = {
   id: number;
   priority: AdmissionPriority;
   enqueuedAt: number;
-  bypassTimer?: ReturnType<typeof setTimeout>;
+  signal?: AbortSignal;
+  onAbort?: () => void;
   resolve: (result: CodexPromptCacheAdmissionResult) => void;
+  reject: (error: Error) => void;
 };
 
 type BucketState = {
+  // A cache namespace is a single-flight resource. This is deliberately separate
+  // from `timestamps`: the RPM window limits admission starts, while `active`
+  // prevents a second upstream prefill before the first one returns.
+  active: boolean;
   timestamps: number[];
   queue: QueueEntry[];
   timer?: ReturnType<typeof setTimeout>;
@@ -24,17 +28,17 @@ export type CodexPromptCacheAdmissionResult = {
   waitMs: number;
   queueDepth: number;
   priority?: AdmissionPriority;
+  release: () => void;
 };
 
 type AdmissionOptions = {
   payload: Record<string, any>;
   executionMode?: string | null;
+  signal?: AbortSignal;
 };
 
 const DEFAULT_LIMIT_PER_WINDOW = 14;
 const DEFAULT_WINDOW_MS = 60_000;
-const DEFAULT_INTERACTIVE_MAX_WAIT_MS = 3_000;
-const DEFAULT_PREFIX_BYTES = 8_192;
 
 let nextEntryId = 1;
 
@@ -72,32 +76,6 @@ function resolvePriority(executionMode: string | null | undefined): AdmissionPri
   return 'interactive';
 }
 
-function stableStringify(value: unknown, maxBytes: number): string {
-  let serialized = '';
-  try {
-    serialized = JSON.stringify(value);
-  } catch {
-    serialized = String(value);
-  }
-  return serialized.length > maxBytes ? serialized.slice(0, maxBytes) : serialized;
-}
-
-function computeStablePrefixHash(payload: Record<string, any>, maxBytes: number): string {
-  const prefixShape = {
-    model: payload.model || null,
-    instructions: payload.instructions || null,
-    tools: Array.isArray(payload.tools) ? payload.tools : [],
-    text: payload.text || null,
-    input: Array.isArray(payload.input)
-      ? payload.input.slice(0, 16)
-      : payload.input
-  };
-  return createHash('sha256')
-    .update(stableStringify(prefixShape, maxBytes))
-    .digest('hex')
-    .slice(0, 24);
-}
-
 function removeQueueEntry(queue: QueueEntry[], entry: QueueEntry): boolean {
   const index = queue.indexOf(entry);
   if (index < 0) {
@@ -107,38 +85,60 @@ function removeQueueEntry(queue: QueueEntry[], entry: QueueEntry): boolean {
   return true;
 }
 
+function createAbortError(): Error {
+  const error = new Error('Prompt cache admission wait aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
 export class CodexPromptCacheAdmissionGate {
   private readonly buckets = new Map<string, BucketState>();
 
-  async admit(options: AdmissionOptions): Promise<CodexPromptCacheAdmissionResult> {
+  async acquire(options: AdmissionOptions): Promise<CodexPromptCacheAdmissionResult> {
     if (!parseBooleanEnv('CODEX_PROMPT_CACHE_GATE_ENABLED', true)) {
-      return { enabled: false, admitted: true, bypassed: false, waitMs: 0, queueDepth: 0 };
+      return this.createNoopAdmission({
+        enabled: false,
+        admitted: true,
+        bypassed: false,
+        waitMs: 0,
+        queueDepth: 0
+      });
     }
 
     const promptCacheKey = typeof options.payload.prompt_cache_key === 'string'
       ? options.payload.prompt_cache_key.trim()
       : '';
     if (!promptCacheKey) {
-      return { enabled: true, admitted: true, bypassed: false, waitMs: 0, queueDepth: 0 };
+      return this.createNoopAdmission({
+        enabled: true,
+        admitted: true,
+        bypassed: false,
+        waitMs: 0,
+        queueDepth: 0
+      });
+    }
+
+    if (options.signal?.aborted) {
+      throw createAbortError();
     }
 
     const limit = parsePositiveIntegerEnv('CODEX_PROMPT_CACHE_GATE_RPM', DEFAULT_LIMIT_PER_WINDOW);
     const windowMs = parsePositiveIntegerEnv('CODEX_PROMPT_CACHE_GATE_WINDOW_MS', DEFAULT_WINDOW_MS);
-    const prefixBytes = parsePositiveIntegerEnv('CODEX_PROMPT_CACHE_GATE_PREFIX_BYTES', DEFAULT_PREFIX_BYTES);
     const priority = resolvePriority(options.executionMode);
-    const bucketKey = [
-      options.payload.model || 'unknown-model',
-      promptCacheKey,
-      computeStablePrefixHash(options.payload, prefixBytes)
-    ].join(':');
+    // prompt_cache_key is the caller's cache namespace. Do not add a sample of
+    // `input` here: Anthropic caches system/tools before messages, so including
+    // the changing history would split requests that share the same cold prefix.
+    // Serializing different bodies under one namespace is conservative but safe.
+    const bucketKey = [options.payload.model || 'unknown-model', promptCacheKey].join(':');
 
     const now = Date.now();
     const bucket = this.getBucket(bucketKey);
     this.prune(bucket, now, windowMs);
-    if (bucket.timestamps.length < limit && bucket.queue.length === 0) {
+    if (!bucket.active && bucket.timestamps.length < limit && bucket.queue.length === 0) {
+      bucket.active = true;
       bucket.timestamps.push(now);
       this.schedule(bucketKey, bucket, limit, windowMs);
-      return {
+      return this.createAdmission({
         enabled: true,
         bucketKey,
         admitted: true,
@@ -146,43 +146,41 @@ export class CodexPromptCacheAdmissionGate {
         waitMs: 0,
         queueDepth: 0,
         priority
-      };
+      }, bucketKey, bucket, limit, windowMs);
     }
 
-    return await new Promise<CodexPromptCacheAdmissionResult>((resolve) => {
+    return await new Promise<CodexPromptCacheAdmissionResult>((resolve, reject) => {
       const entry: QueueEntry = {
         id: nextEntryId++,
         priority,
         enqueuedAt: now,
-        resolve
+        signal: options.signal,
+        resolve,
+        reject
+      };
+      entry.onAbort = () => {
+        if (!removeQueueEntry(bucket.queue, entry)) {
+          return;
+        }
+        this.cleanupQueueEntry(entry);
+        this.schedule(bucketKey, bucket, limit, windowMs);
+        reject(createAbortError());
       };
       bucket.queue.push(entry);
-      if (priority === 'interactive') {
-        const maxWaitMs = parsePositiveIntegerEnv(
-          'CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS',
-          DEFAULT_INTERACTIVE_MAX_WAIT_MS
-        );
-        entry.bypassTimer = setTimeout(() => {
-          if (!removeQueueEntry(bucket.queue, entry)) {
-            return;
-          }
-          const releasedAt = Date.now();
-          this.prune(bucket, releasedAt, windowMs);
-          bucket.timestamps.push(releasedAt);
-          this.schedule(bucketKey, bucket, limit, windowMs);
-          entry.resolve({
-            enabled: true,
-            bucketKey,
-            admitted: true,
-            bypassed: true,
-            waitMs: Math.max(0, releasedAt - entry.enqueuedAt),
-            queueDepth: bucket.queue.length,
-            priority
-          });
-        }, maxWaitMs);
+      if (options.signal) {
+        options.signal.addEventListener('abort', entry.onAbort, { once: true });
       }
       this.process(bucketKey, bucket, limit, windowMs);
     });
+  }
+
+  async runExclusive<T>(options: AdmissionOptions, operation: () => Promise<T>): Promise<T> {
+    const admission = await this.acquire(options);
+    try {
+      return await operation();
+    } finally {
+      admission.release();
+    }
   }
 
   resetForTest() {
@@ -191,9 +189,8 @@ export class CodexPromptCacheAdmissionGate {
         clearTimeout(bucket.timer);
       }
       for (const entry of bucket.queue) {
-        if (entry.bypassTimer) {
-          clearTimeout(entry.bypassTimer);
-        }
+        this.cleanupQueueEntry(entry);
+        entry.reject(new Error('Prompt cache admission gate reset'));
       }
     }
     this.buckets.clear();
@@ -203,7 +200,7 @@ export class CodexPromptCacheAdmissionGate {
   private getBucket(bucketKey: string): BucketState {
     let bucket = this.buckets.get(bucketKey);
     if (!bucket) {
-      bucket = { timestamps: [], queue: [] };
+      bucket = { active: false, timestamps: [], queue: [] };
       this.buckets.set(bucketKey, bucket);
     }
     return bucket;
@@ -218,27 +215,29 @@ export class CodexPromptCacheAdmissionGate {
     const now = Date.now();
     this.prune(bucket, now, windowMs);
 
-    while (bucket.timestamps.length < limit && bucket.queue.length > 0) {
-      const entry = this.dequeueNext(bucket.queue);
-      if (!entry) {
-        break;
-      }
-      if (entry.bypassTimer) {
-        clearTimeout(entry.bypassTimer);
-      }
-      const releasedAt = Date.now();
-      bucket.timestamps.push(releasedAt);
-      entry.resolve({
-        enabled: true,
-        bucketKey,
-        admitted: true,
-        bypassed: false,
-        waitMs: Math.max(0, releasedAt - entry.enqueuedAt),
-        queueDepth: bucket.queue.length,
-        priority: entry.priority
-      });
+    if (bucket.active || bucket.timestamps.length >= limit || bucket.queue.length === 0) {
+      this.schedule(bucketKey, bucket, limit, windowMs);
+      return;
     }
 
+    const entry = this.dequeueNext(bucket.queue);
+    if (!entry) {
+      this.schedule(bucketKey, bucket, limit, windowMs);
+      return;
+    }
+    const releasedAt = Date.now();
+    this.cleanupQueueEntry(entry);
+    bucket.active = true;
+    bucket.timestamps.push(releasedAt);
+    entry.resolve(this.createAdmission({
+      enabled: true,
+      bucketKey,
+      admitted: true,
+      bypassed: false,
+      waitMs: Math.max(0, releasedAt - entry.enqueuedAt),
+      queueDepth: bucket.queue.length,
+      priority: entry.priority
+    }, bucketKey, bucket, limit, windowMs));
     this.schedule(bucketKey, bucket, limit, windowMs);
   }
 
@@ -271,22 +270,67 @@ export class CodexPromptCacheAdmissionGate {
     const now = Date.now();
     this.prune(bucket, now, windowMs);
     if (bucket.queue.length === 0) {
-      if (bucket.timestamps.length === 0) {
+      if (!bucket.active && bucket.timestamps.length === 0) {
         this.buckets.delete(bucketKey);
-      } else {
+      } else if (!bucket.active) {
         const oldest = Math.min(...bucket.timestamps);
         const waitMs = Math.max(1, oldest + windowMs - now + 1);
         bucket.timer = setTimeout(() => this.schedule(bucketKey, bucket, limit, windowMs), waitMs);
       }
       return;
     }
-    if (bucket.timestamps.length < limit) {
+    if (!bucket.active && bucket.timestamps.length < limit) {
       bucket.timer = setTimeout(() => this.process(bucketKey, bucket, limit, windowMs), 0);
+      return;
+    }
+    if (bucket.active) {
       return;
     }
     const oldest = Math.min(...bucket.timestamps);
     const waitMs = Math.max(1, oldest + windowMs - now + 1);
     bucket.timer = setTimeout(() => this.process(bucketKey, bucket, limit, windowMs), waitMs);
+  }
+
+  private cleanupQueueEntry(entry: QueueEntry) {
+    if (entry.signal && entry.onAbort) {
+      entry.signal.removeEventListener('abort', entry.onAbort);
+    }
+    entry.onAbort = undefined;
+  }
+
+  private createNoopAdmission(
+    result: Omit<CodexPromptCacheAdmissionResult, 'release'>
+  ): CodexPromptCacheAdmissionResult {
+    return this.createAdmission(result);
+  }
+
+  private createAdmission(
+    result: Omit<CodexPromptCacheAdmissionResult, 'release'>,
+    bucketKey?: string,
+    bucket?: BucketState,
+    limit?: number,
+    windowMs?: number
+  ): CodexPromptCacheAdmissionResult {
+    let released = false;
+    return {
+      ...result,
+      release: () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        if (!bucketKey || !bucket || this.buckets.get(bucketKey) !== bucket) {
+          return;
+        }
+        bucket.active = false;
+        this.process(
+          bucketKey,
+          bucket,
+          limit || parsePositiveIntegerEnv('CODEX_PROMPT_CACHE_GATE_RPM', DEFAULT_LIMIT_PER_WINDOW),
+          windowMs || parsePositiveIntegerEnv('CODEX_PROMPT_CACHE_GATE_WINDOW_MS', DEFAULT_WINDOW_MS)
+        );
+      }
+    };
   }
 }
 

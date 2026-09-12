@@ -472,10 +472,11 @@ export async function executeDebugRequest(payload: DebugPayload, signal?: AbortS
   );
 }
 
-export async function executeAgentRequest(payload: AgentExecutePayload) {
+export async function executeAgentRequest(payload: AgentExecutePayload, signal?: AbortSignal) {
   return executeProviderRequest(
     payload,
     payload.executionMode || 'agent_loop',
-    true
+    true,
+    signal
   );
 }
