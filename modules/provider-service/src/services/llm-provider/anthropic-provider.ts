@@ -20,6 +20,7 @@ import { logger } from '../../utils/logger';
 import { buildTraceHeaders } from '../../utils/trace-headers';
 import { cloneValue } from './helpers';
 import { codexPromptCacheAdmissionGate } from './codex-prompt-cache-gate';
+import { anthropicRetryWindow } from './provider-retry-window';
 import {
   buildClaudeHeaders,
   CLAUDE_API_BASE_URL,
@@ -256,6 +257,10 @@ export class AnthropicProvider implements LLMProvider {
       let connAttempt = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        // Main turns, forks and small-model callers share this endpoint deadline.
+        // The single-flight lease remains held while waiting; caller cancellation
+        // releases its lease but does not erase the provider's retry deadline.
+        await anthropicRetryWindow.wait(this.baseUrl, input.signal);
         const resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
         const accessToken = resolved.credential?.access;
         if (!accessToken) {
@@ -323,6 +328,13 @@ export class AnthropicProvider implements LLMProvider {
             throw error;
           }
           const status: number | undefined = error?.response?.status;
+          if (status === 429) {
+            const retryAt = anthropicRetryWindow.defer(this.baseUrl, error.response.headers?.['retry-after']);
+            this.moduleLogger.warn('Anthropic requests deferred until Retry-After', {
+              retryAt: new Date(retryAt).toISOString(),
+              llmCallId: input.context?.llmCallId || null
+            });
+          }
           if (error?.response) {
             this.lastWireExchange = {
               requestHeaders: normalizeHeaderRecord(headers),

@@ -237,6 +237,23 @@ test('does not sleep for a multi-hour Anthropic rate-limit retry-after', async (
       const elapsedMs = Date.now() - startedAt;
       assert.equal(requestCount, 1, 'a multi-hour retry-after must not trigger another request');
       assert.ok(elapsedMs < 1_000, `long retry-after took ${elapsedMs}ms`);
+      // A fresh provider instance must not bypass the shared rate-limit deadline,
+      // even with a different model/cache key (the limit may be account-wide).
+      const secondProvider = new AnthropicProvider(
+        baseConfig({ anthropic_oauth_path: file }), { baseUrl, timeoutMs: 2_000 }
+      );
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30);
+      try {
+        await assert.rejects(secondProvider.generateContent({
+          request: { ...REQ, model: 'claude-sonnet-4-6', prompt_cache_key: 'another-key' },
+          modelName: 'claude-sonnet-4-6',
+          signal: controller.signal
+        }), { name: 'AbortError' });
+        assert.equal(requestCount, 1, 'no subsequent upstream request before Retry-After');
+      } finally {
+        clearTimeout(timer);
+      }
     } finally {
       resetCodexPromptCacheAdmissionGateForTest();
       await new Promise<void>((resolve) => server.close(() => resolve()));
