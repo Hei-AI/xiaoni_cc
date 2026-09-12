@@ -1020,13 +1020,12 @@ test('Codex provider gates background requests that share a prompt cache bucket'
   }
 });
 
-test('Codex provider short-waits then releases interactive requests when cache gate is full', async () => {
+test('Codex provider does not bypass a full cache gate for interactive requests', async () => {
   const previousFetch = globalThis.fetch;
   const previousEnv = {
     CODEX_PROMPT_CACHE_GATE_ENABLED: process.env.CODEX_PROMPT_CACHE_GATE_ENABLED,
     CODEX_PROMPT_CACHE_GATE_RPM: process.env.CODEX_PROMPT_CACHE_GATE_RPM,
-    CODEX_PROMPT_CACHE_GATE_WINDOW_MS: process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS,
-    CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS: process.env.CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS
+    CODEX_PROMPT_CACHE_GATE_WINDOW_MS: process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS
   };
   const calls: Array<{ at: number; executionMode: string | undefined }> = [];
 
@@ -1035,7 +1034,6 @@ test('Codex provider short-waits then releases interactive requests when cache g
     process.env.CODEX_PROMPT_CACHE_GATE_ENABLED = 'true';
     process.env.CODEX_PROMPT_CACHE_GATE_RPM = '1';
     process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS = '100';
-    process.env.CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS = '10';
 
     (globalThis as any).fetch = async (_url: string, init: any) => {
       calls.push({ at: Date.now(), executionMode: init.headers?.['x-execution-mode'] });
@@ -1077,7 +1075,89 @@ test('Codex provider short-waits then releases interactive requests when cache g
 
     assert.equal(calls.length, 2);
     assert.equal(calls[1]?.executionMode, 'agent_loop');
-    assert.ok(elapsedMs < 70, `expected interactive request to bypass before full window; elapsed=${elapsedMs}`);
+    assert.ok(elapsedMs >= 70, `expected interactive request to wait for cache gate; elapsed=${elapsedMs}`);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    resetCodexPromptCacheAdmissionGateForTest();
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Codex prompt cache lease spans transient retries', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_PROMPT_CACHE_GATE_ENABLED: process.env.CODEX_PROMPT_CACHE_GATE_ENABLED,
+    CODEX_PROMPT_CACHE_GATE_RPM: process.env.CODEX_PROMPT_CACHE_GATE_RPM,
+    CODEX_PROMPT_CACHE_GATE_WINDOW_MS: process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS,
+    CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
+    CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+  };
+  const calls: Array<{ at: number; body: any }> = [];
+
+  try {
+    resetCodexPromptCacheAdmissionGateForTest();
+    process.env.CODEX_PROMPT_CACHE_GATE_ENABLED = 'true';
+    process.env.CODEX_PROMPT_CACHE_GATE_RPM = '100';
+    process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS = '100';
+    process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '2';
+    process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '40';
+
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      calls.push({ at: Date.now(), body: JSON.parse(init.body) });
+      if (calls.length === 1) {
+        const error = new TypeError('fetch failed') as TypeError & { cause?: { code: string } };
+        error.cause = { code: 'ECONNRESET' };
+        throw error;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5-mini'
+    });
+    const payload = {
+      model: 'gpt-5-mini',
+      stream: true,
+      instructions: 'Stable prompt.',
+      prompt_cache_key: 'xiaoni:test-global',
+      input: [{ type: 'message', role: 'user', content: 'stable head' }]
+    };
+
+    const first = provider.postForTest(payload, { 'x-execution-mode': 'agent_loop' });
+    await new Promise<void>((resolve) => {
+      const started = () => (calls.length > 0 ? resolve() : setTimeout(started, 5));
+      started();
+    });
+    const second = provider.postForTest(payload, { 'x-execution-mode': 'cache_heartbeat_no_persist' });
+
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(calls.length, 1, 'a queued request must not start during the first request retry delay');
+
+    await Promise.all([first, second]);
+    assert.equal(calls.length, 3, 'the first retry must complete before the second request starts');
   } finally {
     (globalThis as any).fetch = previousFetch;
     resetCodexPromptCacheAdmissionGateForTest();

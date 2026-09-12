@@ -2040,10 +2040,25 @@ app.post('/api/internal/llm/debug', async (req, res) => {
 });
 
 app.post('/api/internal/agent/execute', async (req, res) => {
+  // The agent loop retries a transport failure. Cancel the provider request when
+  // that caller disconnects, otherwise the old Anthropic call can keep running
+  // while the retry starts a second cold prefill.
+  const abortController = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
+  });
   try {
-    const result = await executeAgentRequest(req.body || {});
+    const result = await executeAgentRequest(req.body || {}, abortController.signal);
     res.json(result);
   } catch (error) {
+    if (abortController.signal.aborted) {
+      moduleLogger.warn('Agent execution request cancelled by client disconnect', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return;
+    }
     moduleLogger.error('Agent execution request failed', {
       error: error instanceof Error ? error.message : String(error)
     });

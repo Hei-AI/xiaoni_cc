@@ -46,6 +46,7 @@ const DEFAULT_LLM_RESPONSE_TIMEOUT_MS = 300_000;
 const TRANSIENT_RETRY_ATTEMPTS = 2;
 const CONNECTION_RETRY_ATTEMPTS = 4;
 const TRANSIENT_RETRY_BASE_DELAY_MS = 400;
+const MAX_TRANSIENT_RETRY_DELAY_MS = 30_000;
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -92,8 +93,30 @@ function stringifyRawError(value: unknown): string {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function createAbortError(): Error {
+  const error = new Error('Anthropic request aborted during retry backoff');
+  error.name = 'AbortError';
+  return error;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(createAbortError());
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export interface AnthropicProviderOptions {
@@ -203,20 +226,17 @@ export class AnthropicProvider implements LLMProvider {
     const timeout = input.providerConfig?.performance.timeout || this.timeoutMs || DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
 
     // Prefix-cache admission gate (Claude parity with the Codex path). Anthropic has
-    // no prompt_cache_key — cache identity is purely content-prefix + manual
-    // breakpoints + 5min TTL. When the main loop and its forks (which share the same
-    // tools/system/history prefix) fire concurrently while that prefix is still cold,
-    // they each cold-prefill and duplicate-write instead of one warming it for the
-    // rest. The gate (keyed on model + stable-prefix-hash) serializes same-prefix
-    // requests so one warms the cache, then the others read it. Forks/heartbeat/
-    // subconscious run as background priority; the interactive main loop bypasses
-    // after a bounded wait. The gate keys off the canonical request (which still
-    // carries prompt_cache_key=xiaoni:global), not the translated Messages body.
-    const admission = await codexPromptCacheAdmissionGate.admit({
+    // no prompt_cache_key on the wire, so the gate uses the canonical request's
+    // stable-prefix key. A cache prefix is a single-flight resource: the gate lease
+    // stays held for the whole upstream retry loop, and a waiting interactive request
+    // may not bypass it. Otherwise a cold prefill can be duplicated by a retry before
+    // the first request has returned and written its cache entry.
+    const admission = await codexPromptCacheAdmissionGate.acquire({
       payload: input.request as unknown as Record<string, any>,
       executionMode: typeof traceHeaders['x-execution-mode'] === 'string'
         ? traceHeaders['x-execution-mode']
-        : null
+        : null,
+      signal: input.signal
     });
     if (admission.enabled && admission.waitMs > 0) {
       this.moduleLogger.info('Anthropic prompt cache admission gate released request', {
@@ -230,125 +250,143 @@ export class AnthropicProvider implements LLMProvider {
       });
     }
 
-    let refreshedOnce = false;
-    let attempt = 0;
-    let connAttempt = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
-      const accessToken = resolved.credential?.access;
-      if (!accessToken) {
-        throw new Error('Claude OAuth access token is unavailable (check ~/.claude/.credentials.json).');
-      }
-      const headers = { ...buildClaudeHeaders(accessToken, this.aiConfig), ...traceHeaders };
-      // Computer use is gated behind a per-version beta flag. Derive it from the
-      // computer_* tool type the translator placed in the body (model-resolved),
-      // and append it so we never send the wrong/no computer-use beta. No-op when
-      // the body carries no computer tool.
-      const computerToolType = Array.isArray((body as any).tools)
-        ? ((body as any).tools.find(
-            (t: any) => typeof t?.type === 'string' && t.type.startsWith('computer_')
-          )?.type as string | undefined)
-        : undefined;
-      if (computerToolType) {
-        const cuBeta = computerUseBeta(computerToolType);
-        const existing = String(headers['anthropic-beta'] || '');
-        if (cuBeta && !existing.split(',').includes(cuBeta)) {
-          headers['anthropic-beta'] = existing ? `${existing},${cuBeta}` : cuBeta;
+    try {
+      let refreshedOnce = false;
+      let attempt = 0;
+      let connAttempt = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
+        const accessToken = resolved.credential?.access;
+        if (!accessToken) {
+          throw new Error('Claude OAuth access token is unavailable (check ~/.claude/.credentials.json).');
         }
-      }
-      const requestConfig: AxiosRequestConfig = {
-        url: requestUrl,
-        method: 'post',
-        timeout,
-        data: body,
-        headers,
-        // Cancellation: when the caller aborts (e.g. cache-heartbeat client timeout),
-        // axios tears down the in-flight upstream request so it stops burning tokens
-        // instead of orphaning it to completion. Undefined signal → no-op.
-        signal: input.signal
-      };
+        const headers = { ...buildClaudeHeaders(accessToken, this.aiConfig), ...traceHeaders };
+        // Computer use is gated behind a per-version beta flag. Derive it from the
+        // computer_* tool type the translator placed in the body (model-resolved),
+        // and append it so we never send the wrong/no computer-use beta. No-op when
+        // the body carries no computer tool.
+        const computerToolType = Array.isArray((body as any).tools)
+          ? ((body as any).tools.find(
+              (t: any) => typeof t?.type === 'string' && t.type.startsWith('computer_')
+            )?.type as string | undefined)
+          : undefined;
+        if (computerToolType) {
+          const cuBeta = computerUseBeta(computerToolType);
+          const existing = String(headers['anthropic-beta'] || '');
+          if (cuBeta && !existing.split(',').includes(cuBeta)) {
+            headers['anthropic-beta'] = existing ? `${existing},${cuBeta}` : cuBeta;
+          }
+        }
+        const requestConfig: AxiosRequestConfig = {
+          url: requestUrl,
+          method: 'post',
+          timeout,
+          data: body,
+          headers,
+          // Cancellation: when the caller aborts (e.g. cache-heartbeat client timeout),
+          // axios tears down the in-flight upstream request so it stops burning tokens
+          // instead of orphaning it to completion. Undefined signal → no-op.
+          signal: input.signal
+        };
 
-      this.lastWireExchange = {
-        requestHeaders: normalizeHeaderRecord(headers),
-        requestUrl,
-        responseHeaders: null,
-        responseStatus: null,
-        responseStatusText: null
-      };
-
-      try {
-        const response = await axios(requestConfig);
         this.lastWireExchange = {
           requestHeaders: normalizeHeaderRecord(headers),
           requestUrl,
-          responseHeaders: normalizeHeaderRecord(response.headers),
-          responseStatus: response.status,
-          responseStatusText: response.statusText || null
+          responseHeaders: null,
+          responseStatus: null,
+          responseStatusText: null
         };
-        return response.data as AnthropicMessagesResponse;
-      } catch (error: any) {
-        // Caller aborted (heartbeat client timeout / disconnect): bail immediately.
-        // An axios cancel has no `error.response`, so without this guard it would fall
-        // into the connection-level retry below and re-issue the very request we just
-        // cancelled — defeating the whole point. Never retry an aborted request.
-        if (
-          input.signal?.aborted ||
-          axios.isCancel(error) ||
-          error?.code === 'ERR_CANCELED' ||
-          error?.name === 'CanceledError' ||
-          error?.name === 'AbortError'
-        ) {
-          throw error;
-        }
-        const status: number | undefined = error?.response?.status;
-        if (error?.response) {
+
+        try {
+          const response = await axios(requestConfig);
           this.lastWireExchange = {
             requestHeaders: normalizeHeaderRecord(headers),
             requestUrl,
-            responseHeaders: normalizeHeaderRecord(error.response.headers),
-            responseStatus: status ?? null,
-            responseStatusText: error.response.statusText || null
+            responseHeaders: normalizeHeaderRecord(response.headers),
+            responseStatus: response.status,
+            responseStatusText: response.statusText || null
           };
-        }
+          return response.data as AnthropicMessagesResponse;
+        } catch (error: any) {
+          // Caller aborted (heartbeat client timeout / disconnect): bail immediately.
+          // An axios cancel has no `error.response`, so without this guard it would fall
+          // into the connection-level retry below and re-issue the very request we just
+          // cancelled — defeating the whole point. Never retry an aborted request.
+          if (
+            input.signal?.aborted ||
+            axios.isCancel(error) ||
+            error?.code === 'ERR_CANCELED' ||
+            error?.name === 'CanceledError' ||
+            error?.name === 'AbortError'
+          ) {
+            throw error;
+          }
+          const status: number | undefined = error?.response?.status;
+          if (error?.response) {
+            this.lastWireExchange = {
+              requestHeaders: normalizeHeaderRecord(headers),
+              requestUrl,
+              responseHeaders: normalizeHeaderRecord(error.response.headers),
+              responseStatus: status ?? null,
+              responseStatusText: error.response.statusText || null
+            };
+          }
 
-        // 401 -> refresh the OAuth token once and retry
-        if (status === 401 && !refreshedOnce) {
-          refreshedOnce = true;
-          continue;
-        }
+          // 401 -> refresh the OAuth token once and retry
+          if (status === 401 && !refreshedOnce) {
+            refreshedOnce = true;
+            continue;
+          }
 
-        // transient: 429 / 5xx / overloaded -> bounded backoff retry
-        if ((status === 429 || (status && status >= 500)) && attempt < TRANSIENT_RETRY_ATTEMPTS) {
-          const retryAfter = Number(error?.response?.headers?.['retry-after']);
-          const delay = Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter * 1000
-            : TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
-          attempt += 1;
-          await sleep(delay);
-          continue;
-        }
+          // transient: 429 / 5xx / overloaded -> bounded backoff retry
+          if ((status === 429 || (status && status >= 500)) && attempt < TRANSIENT_RETRY_ATTEMPTS) {
+            const retryAfter = Number(error?.response?.headers?.['retry-after']);
+            const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter * 1000
+              : 0;
+            const longRateLimitReset = status === 429 && retryAfterMs > MAX_TRANSIENT_RETRY_DELAY_MS;
+            if (!longRateLimitReset) {
+              const delay = retryAfterMs > 0
+                ? Math.min(retryAfterMs, MAX_TRANSIENT_RETRY_DELAY_MS)
+                : TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+              attempt += 1;
+              await sleep(delay, input.signal);
+              continue;
+            }
+            this.moduleLogger.warn('Skipping long Anthropic rate-limit retry-after', {
+              retryAfterSeconds: retryAfter,
+              maxRetryDelayMs: MAX_TRANSIENT_RETRY_DELAY_MS,
+              traceId: input.context?.traceId || null,
+              llmCallId: input.context?.llmCallId || null
+            });
+          }
 
-        // connection-level errors (no HTTP response): TLS reset / socket disconnected /
-        // timeout / DNS. This network drops TLS to api.anthropic.com intermittently, so
-        // retry these (they cost no tokens — nothing reached the model).
-        if (!error?.response && connAttempt < CONNECTION_RETRY_ATTEMPTS) {
-          connAttempt += 1;
-          await sleep(TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, connAttempt - 1));
-          continue;
-        }
+          // connection-level errors (no HTTP response): TLS reset / socket disconnected /
+          // timeout / DNS. This network drops TLS to api.anthropic.com intermittently, so
+          // retry these (they cost no tokens — nothing reached the model).
+          if (!error?.response && connAttempt < CONNECTION_RETRY_ATTEMPTS) {
+            connAttempt += 1;
+            await sleep(TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, connAttempt - 1), input.signal);
+            continue;
+          }
 
-        if (error?.response) {
-          const rawBody = stringifyRawError(error.response.data);
-          const message = `Anthropic API error (${status} ${error.response.statusText || ''}): ${rawBody}`;
-          const next = new Error(message.trim()) as Error & { status?: number; response?: unknown; cause?: unknown };
-          next.status = status;
-          next.response = error.response;
-          next.cause = error;
-          throw next;
+          if (error?.response) {
+            const rawBody = stringifyRawError(error.response.data);
+            const message = `Anthropic API error (${status} ${error.response.statusText || ''}): ${rawBody}`;
+            const next = new Error(message.trim()) as Error & { status?: number; response?: unknown; cause?: unknown };
+            next.status = status;
+            next.response = error.response;
+            next.cause = error;
+            throw next;
+          }
+          throw error;
         }
-        throw error;
       }
+    } finally {
+      // Do not release between internal provider retries: a waiting request must not
+      // become another cold prefill while this logical request is still unresolved.
+      admission.release();
     }
   }
 }

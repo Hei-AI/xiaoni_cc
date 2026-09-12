@@ -196,7 +196,8 @@ export class OpenAIProvider implements LLMProvider {
         payload,
         apiKey,
         providerConfig?.performance.timeout || this.timeoutMs,
-        buildTraceHeaders(input.context)
+        buildTraceHeaders(input.context),
+        input.signal
       );
       const wireExchange = this.lastWireExchange;
 
@@ -368,7 +369,8 @@ export class OpenAIProvider implements LLMProvider {
     payload: Record<string, any>,
     apiKey: string,
     timeoutMs?: number,
-    traceHeaders: Record<string, string> = {}
+    traceHeaders: Record<string, string> = {},
+    signal?: AbortSignal
   ): Promise<any> {
     const requestUrl = `${baseUrl}${responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`}`;
     const requestConfig: AxiosRequestConfig = {
@@ -376,6 +378,7 @@ export class OpenAIProvider implements LLMProvider {
       method: 'post',
       timeout: timeoutMs || DEFAULT_LLM_RESPONSE_TIMEOUT_MS,
       data: payload,
+      signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
