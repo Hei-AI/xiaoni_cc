@@ -17,6 +17,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 import { fetch } from 'undici';
 import { AIConfig } from '../../types';
 import { isOAuthCredentialExpired, type NormalizedOAuthCredential } from './oauth-credentials';
@@ -39,6 +40,13 @@ const DEFAULT_CLIENT_VERSION = '2.1.77';
 const DEFAULT_ANTHROPIC_BETA =
   'claude-code-20250219,oauth-2025-04-20,files-api-2025-04-14,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28';
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+// Prefer a supplied account identity. Older OAuth stores only contain opaque
+// tokens: use a non-secret fingerprint and preserve it through refresh rotation.
+export function claudeAccountKey(credential: NormalizedOAuthCredential): string {
+  if (credential.accountId) return credential.accountId;
+  return createHash('sha256').update(credential.refresh || credential.access || '').digest('hex');
+}
 
 export interface ClaudeOAuthSource {
   path: string;
@@ -77,6 +85,7 @@ function readRecord(input: any): NormalizedOAuthCredential | null {
   return {
     access,
     refresh,
+    ...(typeof input.accountId === 'string' ? { accountId: input.accountId } : {}),
     expires: Number.isFinite(expires) ? (expires as number) : undefined
   };
 }
@@ -112,7 +121,7 @@ export async function loadClaudeOAuthCredential(
   return { credential: null };
 }
 
-let refreshInFlight: Promise<NormalizedOAuthCredential> | null = null;
+const refreshInFlight = new Map<string, Promise<NormalizedOAuthCredential>>();
 
 export async function resolveClaudeOAuthCredential(
   aiConfig: AIConfig,
@@ -140,11 +149,11 @@ export async function refreshClaudeOAuthCredential(
     throw new Error('Claude OAuth refresh token is missing.');
   }
   // single-flight: avoid a refresh stampede across concurrent requests
-  if (refreshInFlight) {
-    return refreshInFlight;
-  }
+  const accountKey = claudeAccountKey(credential);
+  const pending = refreshInFlight.get(accountKey);
+  if (pending) return pending;
 
-  refreshInFlight = (async () => {
+  const refresh = (async () => {
     const response = await (globalThis.fetch || fetch)(CLAUDE_OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -172,6 +181,7 @@ export async function refreshClaudeOAuthCredential(
       throw new Error('Claude OAuth token refresh returned an invalid payload.');
     }
     const refreshed: NormalizedOAuthCredential = {
+      accountId: claudeAccountKey(credential),
       access: payload.access_token,
       refresh: payload.refresh_token || credential.refresh,
       // 5-minute early-expiry buffer, mirroring the Claude Code client
@@ -180,11 +190,12 @@ export async function refreshClaudeOAuthCredential(
     await persistClaudeOAuthCredential(source, refreshed);
     return refreshed;
   })();
+  refreshInFlight.set(accountKey, refresh);
 
   try {
-    return await refreshInFlight;
+    return await refresh;
   } finally {
-    refreshInFlight = null;
+    refreshInFlight.delete(accountKey);
   }
 }
 
@@ -206,6 +217,7 @@ export async function persistClaudeOAuthCredential(
     ...existing,
     ...(credential.access ? { accessToken: credential.access } : {}),
     ...(credential.refresh ? { refreshToken: credential.refresh } : {}),
+    ...(credential.accountId ? { accountId: credential.accountId } : {}),
     ...(credential.expires ? { expiresAt: credential.expires } : {})
   };
   await fs.mkdir(path.dirname(source.path), { recursive: true });

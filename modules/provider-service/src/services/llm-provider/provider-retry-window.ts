@@ -3,6 +3,16 @@
 export class ProviderRetryWindow {
   private readonly deadlines = new Map<string, number>();
 
+  assertReady(scope: string): void {
+    const retryAt = this.deadlines.get(scope) || 0;
+    if (retryAt > Date.now()) {
+      const error = new Error(`Provider rate limit; retry after ${new Date(retryAt).toISOString()}`) as Error & { status: number; retryAt: number };
+      error.status = 429;
+      error.retryAt = retryAt;
+      throw error;
+    }
+  }
+
   defer(scope: string, retryAfter: unknown, now = Date.now()): number {
     const raw = String(retryAfter ?? '').trim();
     const seconds = Number(raw);

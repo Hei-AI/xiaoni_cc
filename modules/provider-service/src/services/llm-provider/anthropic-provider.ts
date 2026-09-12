@@ -23,6 +23,7 @@ import { codexPromptCacheAdmissionGate } from './codex-prompt-cache-gate';
 import { anthropicRetryWindow } from './provider-retry-window';
 import {
   buildClaudeHeaders,
+  claudeAccountKey,
   CLAUDE_API_BASE_URL,
   CLAUDE_MESSAGES_PATH,
   resolveClaudeOAuthCredential
@@ -225,6 +226,13 @@ export class AnthropicProvider implements LLMProvider {
     const requestUrl = `${this.baseUrl}${CLAUDE_MESSAGES_PATH}`;
     const traceHeaders = buildTraceHeaders(input.context);
     const timeout = input.providerConfig?.performance.timeout || this.timeoutMs || DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
+    const initialCredential = (await resolveClaudeOAuthCredential(this.aiConfig)).credential;
+    if (!initialCredential?.access) throw new Error('Claude OAuth access token is unavailable.');
+    const initialAccountKey = claudeAccountKey(initialCredential);
+    const isMainRequest = input.context?.executionMode === 'agent_loop';
+    if (!isMainRequest) {
+      anthropicRetryWindow.assertReady(JSON.stringify([this.baseUrl, body.model, initialAccountKey]));
+    }
 
     // Prefix-cache admission gate (Claude parity with the Codex path). Anthropic has
     // no prompt_cache_key on the wire, so the gate uses the canonical request's
@@ -233,7 +241,14 @@ export class AnthropicProvider implements LLMProvider {
     // may not bypass it. Otherwise a cold prefill can be duplicated by a retry before
     // the first request has returned and written its cache entry.
     const admission = await codexPromptCacheAdmissionGate.acquire({
-      payload: input.request as unknown as Record<string, any>,
+      // Admission-only namespace; canonical/wire request bytes are untouched.
+      payload: {
+        ...input.request,
+        model: body.model,
+        prompt_cache_key: input.request.prompt_cache_key
+          ? JSON.stringify([this.baseUrl, initialAccountKey, input.request.prompt_cache_key])
+          : undefined
+      },
       executionMode: typeof traceHeaders['x-execution-mode'] === 'string'
         ? traceHeaders['x-execution-mode']
         : null,
@@ -257,15 +272,22 @@ export class AnthropicProvider implements LLMProvider {
       let connAttempt = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        // Main turns, forks and small-model callers share this endpoint deadline.
-        // The single-flight lease remains held while waiting; caller cancellation
-        // releases its lease but does not erase the provider's retry deadline.
-        await anthropicRetryWindow.wait(this.baseUrl, input.signal);
-        const resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
-        const accessToken = resolved.credential?.access;
+        let resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
+        let accessToken = resolved.credential?.access;
         if (!accessToken) {
           throw new Error('Claude OAuth access token is unavailable (check ~/.claude/.credentials.json).');
         }
+        const retryScope = JSON.stringify([this.baseUrl, body.model, claudeAccountKey(resolved.credential!)]);
+        // Only main requests own timed retry. Auxiliary calls fail promptly during
+        // the same model/account window instead of maintaining their own timers.
+        if (isMainRequest) {
+          await anthropicRetryWindow.wait(retryScope, input.signal);
+          // OAuth may expire or be switched while waiting hours for rate reset.
+          resolved = await resolveClaudeOAuthCredential(this.aiConfig);
+          if (!resolved.credential?.access) throw new Error('Claude OAuth access token is unavailable.');
+          if (retryScope !== JSON.stringify([this.baseUrl, body.model, claudeAccountKey(resolved.credential)])) continue;
+          accessToken = resolved.credential.access;
+        } else anthropicRetryWindow.assertReady(retryScope);
         const headers = { ...buildClaudeHeaders(accessToken, this.aiConfig), ...traceHeaders };
         // Computer use is gated behind a per-version beta flag. Derive it from the
         // computer_* tool type the translator placed in the body (model-resolved),
@@ -329,11 +351,12 @@ export class AnthropicProvider implements LLMProvider {
           }
           const status: number | undefined = error?.response?.status;
           if (status === 429) {
-            const retryAt = anthropicRetryWindow.defer(this.baseUrl, error.response.headers?.['retry-after']);
+            const retryAt = anthropicRetryWindow.defer(retryScope, error.response.headers?.['retry-after']);
             this.moduleLogger.warn('Anthropic requests deferred until Retry-After', {
               retryAt: new Date(retryAt).toISOString(),
               llmCallId: input.context?.llmCallId || null
             });
+            if (!isMainRequest) throw error;
           }
           if (error?.response) {
             this.lastWireExchange = {

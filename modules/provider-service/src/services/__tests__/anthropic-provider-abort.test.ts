@@ -232,13 +232,13 @@ test('does not sleep for a multi-hour Anthropic rate-limit retry-after', async (
       const startedAt = Date.now();
       await assert.rejects(provider.generateContent({
         request: REQ,
+        context: { executionMode: 'agent_loop' },
         modelName: 'claude-opus-4-6'
       }), /Anthropic API error \(429/);
       const elapsedMs = Date.now() - startedAt;
       assert.equal(requestCount, 1, 'a multi-hour retry-after must not trigger another request');
       assert.ok(elapsedMs < 1_000, `long retry-after took ${elapsedMs}ms`);
-      // A fresh provider instance must not bypass the shared rate-limit deadline,
-      // even with a different model/cache key (the limit may be account-wide).
+      // Same account/model shares the deadline even across provider instances.
       const secondProvider = new AnthropicProvider(
         baseConfig({ anthropic_oauth_path: file }), { baseUrl, timeoutMs: 2_000 }
       );
@@ -246,11 +246,26 @@ test('does not sleep for a multi-hour Anthropic rate-limit retry-after', async (
       const timer = setTimeout(() => controller.abort(), 30);
       try {
         await assert.rejects(secondProvider.generateContent({
-          request: { ...REQ, model: 'claude-sonnet-4-6', prompt_cache_key: 'another-key' },
-          modelName: 'claude-sonnet-4-6',
+          request: { ...REQ, prompt_cache_key: 'another-key' },
+          modelName: 'claude-opus-4-6',
+          context: { executionMode: 'agent_loop' },
           signal: controller.signal
         }), { name: 'AbortError' });
         assert.equal(requestCount, 1, 'no subsequent upstream request before Retry-After');
+        await assert.rejects(secondProvider.generateContent({
+          request: REQ, modelName: 'claude-opus-4-6',
+          context: { executionMode: 'subconscious_agent_fork' }
+        }), /Provider rate limit; retry after/);
+        assert.equal(requestCount, 1, 'fork returns immediately without reaching upstream');
+        await assert.rejects(secondProvider.generateContent({
+          request: { ...REQ, model: 'claude-sonnet-4-6' }, modelName: 'claude-sonnet-4-6'
+        }));
+        assert.equal(requestCount, 2, 'another model is not blocked by the Opus deadline');
+        const otherAccount = new AnthropicProvider(baseConfig({
+          anthropic_access_token: 'other-account-token', anthropic_refresh_token: 'other-refresh'
+        }), { baseUrl });
+        await assert.rejects(otherAccount.generateContent({ request: REQ, modelName: 'claude-opus-4-6' }));
+        assert.equal(requestCount, 3, 'another account is not blocked by the first account deadline');
       } finally {
         clearTimeout(timer);
       }
