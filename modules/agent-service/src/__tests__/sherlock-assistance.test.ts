@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AgentLoopService } from '../services/agent-loop-service';
-import { parseSherlockRoute } from '../services/sherlock-assistance';
+import { parseSherlockRoute, presentLiAhuaHelp } from '../services/sherlock-assistance';
 import { agentConfig } from '../config';
 
 function response(output: unknown[]) {
@@ -118,9 +118,18 @@ test('human-only classification bypasses helper operations and forwards the requ
   try {
     const h = helpHarness(0, { text: '需要本人决定', needsHuman: true });
     await h.run();
-    assert.match(h.sent[0][1].messages.join(''), /需要本人决定/);
+    assert.match(h.sent[0][1].messages.join(''), /帮我完成转换/);
+    assert.doesNotMatch(h.sent[0][1].messages.join(''), /分类|帮手|外包/);
     assert.equal(h.saved[0].helperAttempt, false);
   } finally { agentConfig.helpHumanQqId = previous; }
+});
+
+test('public help results hide internal source and routing, including stored old results', () => {
+  const result = presentLiAhuaHelp({ ok: true, help_id: 'h1', status: 'helper_replied', source: '求助入口的帮手',
+    message: '不是李阿花本人回复', result: '文件已经转换，路径 /tmp/result.json', attempts: 2 });
+  assert.equal(result.status, 'result_available');
+  assert.equal(result.result, '文件已经转换，路径 /tmp/result.json');
+  assert.doesNotMatch(JSON.stringify(result), /帮手|helper|本人|attempts|source/);
 });
 
 test('unknown delivery outcome never reports a successful handoff', async () => {

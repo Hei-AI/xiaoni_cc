@@ -15,7 +15,7 @@ import {
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
-import { SHERLOCK_ROUTE_TOOL, parseSherlockRoute } from './sherlock-assistance';
+import { SHERLOCK_ROUTE_TOOL, parseSherlockRoute, presentLiAhuaHelp } from './sherlock-assistance';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
@@ -1975,11 +1975,11 @@ export const ASK_LI_AHUA_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.askLiAhua,
-    description: '向李阿花求助。说明你需要什么帮助、卡在哪里、试过什么以及希望得到什么结果。适用于日常计算机操作、查不明白的问题和需要他本人参与的事情，不必先创建深挖。返回求助编号和处理结果或转交状态。同一件事仍未解决时，带上原 help_id，说明上次结果哪里没解决；不要另起一件重复求助。',
+    description: '找李阿花获取帮助。说明你需要什么帮助、遇到了什么困难，以及希望得到什么结果。同一件事继续求助时，带上原 help_id 并补充情况。',
     parameters: {
       type: 'object',
       properties: {
-        request: { type: 'string', description: '你需要李阿花帮你做什么。明确需要本人回答时也写在这里。' },
+        request: { type: 'string', description: '你需要李阿花帮忙解决的问题或完成的事情。' },
         context: { type: 'string', description: '相关文件或页面、已尝试的办法、报错、希望的结果与操作边界。继续求助时写清上次结果哪里没解决。' },
         help_id: { type: 'string', description: '同一件事继续求助时，原样带回上次返回的编号；首次求助不填。' }
       },
@@ -12433,13 +12433,14 @@ export class AgentLoopService {
       return { text: `需要补充信息：${route.reason}`, toolCallsUsed: 0, turns: 0 };
     }
     await params.onHelperStart?.();
-    const reminderText = route.kind === 'execute'
+    const taskReminder = route.kind === 'execute'
       ? renderPromptSnippet('sherlock_execute.md', {
           QUESTION: params.question,
           SEARCHED_PATHS: params.searchedPaths,
           PREVIOUS_DIRECTION: params.previousDirection ?? ''
         }).trim()
       : renderSherlockReminder(params.question, params.searchedPaths, params.previousDirection);
+    const reminderText = `${taskReminder}\n\n${readPromptSnippet('help_result_style.md').trim()}`;
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
     // 每次都是独立一跑,按深挖归组会把多次复核的 slice 混成一堆(而且没有硬上界可取)。
@@ -14623,11 +14624,11 @@ export class AgentLoopService {
       helpId, request, context, callId: toolCall.callId, correlationKey, traceId: queueMessage.traceId, runId: queueMessage.runId
     });
     if (!started.ok) {
-      return started.result || {
+      return presentLiAhuaHelp(started.result || {
         ok: false, help_id: started.task?.id ?? helpId, status: started.reason,
         message: started.reason === 'help_human_sent' ? '已转交李阿花，等待他的 QQ 私聊回复。'
           : '这次求助没有重新执行。请保留求助编号；处理中或中断的操作需要先核实状态。'
-      };
+      });
     }
     const task = started.task;
     let helperAttempt = false;
@@ -14668,8 +14669,8 @@ export class AgentLoopService {
             `【小腻求助 ${task.id}】`, task.prompt,
             `背景：${task.input_json?.context || context}`,
             `本次补充：${request}\n${context}`,
-            `转交原因：${outcome.text || '帮手未能给出可用结果。'}`,
-            prior.length ? `此前处理记录：${JSON.stringify(prior)}` : '',
+            '这件事目前仍需要你的帮助。',
+            prior.length ? `此前求助结果：${JSON.stringify(prior.map((entry: any) => ({ request: entry.request, result: presentLiAhuaHelp(entry.result) })))}` : '',
             '请在这个 QQ 私聊里回复小腻。'
           ].filter(Boolean).join('\n\n');
           const characters = Array.from(message);
@@ -14700,7 +14701,7 @@ export class AgentLoopService {
       helperAttempt: helperAttempt && !attemptRecorded
     });
     if (!saved) throw new Error('Help result persistence claim lost');
-    return result;
+    return presentLiAhuaHelp(result);
   }
 
   private async executeTool(
