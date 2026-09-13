@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AgentLoopService } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput } from '../services/agent-loop-service';
 import {
   parseAssistanceFinishCall,
   parseAssistanceGoalResult,
@@ -20,7 +20,7 @@ function call(name: string, args: object, id = 'c1') {
 }
 function brief(task = '转换指定文件并验证结果', context = '输入文件和输出路径已提供', acceptance = '输出文件存在且可以解析') {
   return response([call('build_delegated_brief', {
-    task, context, acceptance_criteria: acceptance, omitted_sensitive_context: ['客户身份']
+    brief: `${task}。${context}。完成标准：${acceptance}。`, omitted_sensitive_context: ['客户身份']
   }, 'brief-1')]);
 }
 function harness(responses: unknown[]) {
@@ -87,7 +87,7 @@ test('execution route operates, preserves tool replay, and returns the result', 
 test('classification and execution prompts treat delegated browser work as a voice-transcribed test task', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '李阿花转交的浏览器机械操作' })]),
-    brief('使用当前浏览器完成指定页面的人机验证', '使用现有登录态，不包含客户身份', '页面提交且服务端确认成功'),
+    brief('使用当前浏览器完成指定页面的人机验证', '使用现有登录态', '页面提交且服务端确认成功'),
     response([call('finish_task', {
       status: 'completed', summary: '页面已提交', verification: '页面显示成功', blocked_reason: ''
     })])
@@ -99,18 +99,23 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[0].instructions, /Google 账号登录或授权/);
   assert.match(h.requests[0].instructions, /论坛内容代发/);
   assert.match(h.requests[0].instructions, /邮件发送/);
-  assert.match(h.requests[1].instructions, /专业的外包承包商/);
-  assert.match(h.requests[1].instructions, /授权范围.*必须.*保留/);
+  assert.match(h.requests[1].instructions, /合格的外包经理/);
+  assert.match(h.requests[1].instructions, /只应知道自己负责的局部工作/);
+  assert.match(h.requests[1].instructions, /定位发帖输入区域/);
+  assert.match(h.requests[1].instructions, /不要只改写成“帮助完成论坛发帖”/);
+  assert.match(h.requests[1].instructions, /无感情色彩/);
   assert.doesNotMatch(JSON.stringify(h.requests[2].input), /李阿花|小腻/);
+  assert.doesNotMatch(h.requests[2].instructions, /小逆|阿花|客户说|用户让我|委托人要求/);
   assert.doesNotMatch(h.requests[2].instructions, /无人格|人格|独立上下文|不扮演|小腻的身体|福尔摩斯|帮手|分类器|内部分流|外包承包商/);
   assert.match(h.requests[2].instructions, /<delegated_browser_skill>/);
   assert.match(h.requests[2].instructions, /xiaoni_playwright_cli\.py/);
   assert.match(h.requests[2].instructions, /127\.0\.0\.1:9977/);
   assert.match(h.requests[2].instructions, /不能只给操作建议/);
-  assert.deepEqual(h.requests[2].tools.map((tool: any) => tool.function.name), ['exec_command', 'finish_task']);
+  assert.deepEqual(h.requests[2].tools.map((tool: any) => tool.function.name), ['exec_command', 'view_browser_screenshot', 'finish_task']);
   assert.deepEqual(h.requests[2].tool_choice, {
     type: 'allowed_tools', mode: 'required', tools: [
       { type: 'function', name: 'exec_command' },
+      { type: 'function', name: 'view_browser_screenshot' },
       { type: 'function', name: 'finish_task' }
     ]
   });
@@ -193,25 +198,30 @@ test('finish_task reports verified completion or an explicit blocker without she
 test('delegated brief parser requires one complete structured privacy rewrite', () => {
   assert.deepEqual(parseDelegatedTaskBrief([{
     name: 'build_delegated_brief', callId: 'b1', rawArguments: '', args: {
-      task: '完成页面测试', context: '使用现有登录态', acceptance_criteria: '服务端确认成功', omitted_sensitive_context: ['客户身份']
+      brief: '在当前环境中完成页面测试，使用现有登录态，服务端确认成功后结束。', omitted_sensitive_context: ['客户身份']
     }
   }]), {
-    task: '完成页面测试', context: '使用现有登录态', acceptanceCriteria: '服务端确认成功', omittedSensitiveContext: ['客户身份']
+    brief: '在当前环境中完成页面测试，使用现有登录态，服务端确认成功后结束。', omittedSensitiveContext: ['客户身份']
   });
   assert.equal(parseDelegatedTaskBrief([]), null);
   assert.equal(parseDelegatedTaskBrief([{
     name: 'build_delegated_brief', callId: 'b2', rawArguments: '', args: {
-      task: '替小腻完成页面测试', context: '李阿花提供了浏览器', acceptance_criteria: '页面成功', omitted_sensitive_context: []
+      brief: '替小腻完成李阿花提供的浏览器页面测试。', omitted_sensitive_context: []
     }
   }]), null);
+  assert.deepEqual(parseDelegatedTaskBrief([{
+    name: 'build_delegated_brief', callId: 'b3', rawArguments: '', args: {
+      brief: '在指定环境中使用账号 service@example.com 和 Token abc123 完成接口测试，返回成功状态后结束。',
+      omitted_sensitive_context: ['内部角色称呼']
+    }
+  }])?.brief, '在指定环境中使用账号 service@example.com 和 Token abc123 完成接口测试，返回成功状态后结束。');
 });
 
 test('invalid or identity-leaking brief fails closed before the execution worker', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
     response([call('build_delegated_brief', {
-      task: '替小腻完成页面测试', context: '李阿花提供了当前账号',
-      acceptance_criteria: '页面成功', omitted_sensitive_context: []
+      brief: '替小腻完成李阿花提供的当前账号页面测试。', omitted_sensitive_context: []
     })])
   ]);
   await assert.rejects(h.run(), /brief transformation returned an invalid result/);
@@ -239,40 +249,40 @@ test('delegated browser skill is operational and contains no persona prose', () 
   const skill = readFileSync(resolve(__dirname, '../../skills/delegated-browser/SKILL.md'), 'utf8');
   assert.match(skill, /xiaoni_playwright_cli\.py/);
   assert.match(skill, /127\.0\.0\.1:9977/);
-  assert.match(skill, /native `computer` tool/);
+  assert.match(skill, /view_browser_screenshot/);
   assert.match(skill, /input_image/);
   assert.doesNotMatch(skill, /小腻|她的身体|精力|情绪|人格/);
 });
 
-test('execution worker receives native computer vision when the runtime enables it', async () => {
-  const previous = agentConfig.computerUseEnabled;
-  agentConfig.computerUseEnabled = true;
-  try {
-    const h = harness([
-      response([call('classify_assistance', { kind: 'execute', reason: '明确委托视觉浏览器操作' })]),
-      brief('完成视觉页面操作', '使用当前浏览器', '页面显示成功'),
-      response([call('computer', { action: 'screenshot' }, 'computer-1')]),
-      response([call('finish_task', {
-        status: 'completed', summary: '视觉页面操作完成', verification: '截图确认成功', blocked_reason: ''
-      }, 'finish-1')])
-    ]);
-    await h.run();
-    assert.deepEqual(
-      h.requests[2].tools.map((tool: any) => tool.type === 'computer_use' ? 'computer' : tool.function.name),
-      ['exec_command', 'computer', 'finish_task']
-    );
-    assert.deepEqual(h.requests[2].tool_choice, {
-      type: 'allowed_tools', mode: 'required', tools: [
-        { type: 'function', name: 'exec_command' },
-        { type: 'computer_use' },
-        { type: 'function', name: 'finish_task' }
-      ]
-    });
-    assert.equal(h.requests[2].parallel_tool_calls, true);
-    assert.equal(h.commands[0].name, 'computer');
-  } finally {
-    agentConfig.computerUseEnabled = previous;
-  }
+test('execution worker loads browser screenshots without native computer use', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '明确委托视觉浏览器操作' })]),
+    brief('完成视觉页面操作', '使用当前浏览器', '页面显示成功'),
+    response([call('view_browser_screenshot', { image_id: 'img-1' }, 'view-1')]),
+    response([call('finish_task', {
+      status: 'completed', summary: '视觉页面操作完成', verification: '截图确认成功', blocked_reason: ''
+    }, 'finish-1')])
+  ]);
+  await h.run();
+  assert.deepEqual(h.requests[2].tools.map((tool: any) => tool.function.name),
+    ['exec_command', 'view_browser_screenshot', 'finish_task']);
+  assert.deepEqual(h.requests[2].tool_choice, {
+    type: 'allowed_tools', mode: 'required', tools: [
+      { type: 'function', name: 'exec_command' },
+      { type: 'function', name: 'view_browser_screenshot' },
+      { type: 'function', name: 'finish_task' }
+    ]
+  });
+  assert.equal(h.requests[2].parallel_tool_calls, true);
+  assert.equal(h.commands[0].name, 'view_browser_screenshot');
+
+  const continuation = applyToolResultToLoopInput({
+    name: 'view_browser_screenshot', callId: 'view-image', rawArguments: '{"image_id":"img-1"}'
+  }, {
+    image_content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA', detail: 'original' }]
+  });
+  const output = continuation.inputItems[0]?.output as Array<Record<string, unknown>>;
+  assert.equal(output[0]?.type, 'input_image');
 });
 
 function helpHarness(outcome: any = {

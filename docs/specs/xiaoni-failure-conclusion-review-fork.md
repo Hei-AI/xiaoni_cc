@@ -23,18 +23,18 @@
 | 分类 | 处理 |
 | --- | --- |
 | investigate | 福尔摩斯独立调查，返回新的方向与可核对依据，保留由小腻自己形成结论的边界。 |
-| execute | 执行 worker 实际完成李阿花转交的机械性计算机操作，验证结果，返回完成情况、产物、检查结果及未完成部分。语音转写的明确委托可包括使用当前浏览器和当前账号完成人机测试、Google 登录或授权、论坛内容代发和邮件发送；模型统一读取 `$xiaoni-browser` 后通过现役 Playwright 桥逐步完成页面操作。 |
+| execute | 执行 worker 实际完成转写 brief 中的机械性计算机操作，验证结果，返回完成情况、产物、检查结果及未完成部分。语音转写的明确委托可包括使用当前浏览器和当前账号完成人机测试、Google 登录或授权、论坛内容代发和邮件发送；模型通过内嵌的中性浏览器 skill 和现役 Playwright 桥逐步完成页面操作。 |
 | human | 需要本人决定、个人信息、授权或明确指定本人参与，直接交给李阿花。 |
 | clarify | 任务目标或必要信息不足，返回具体需要补充的问题。 |
 
-分类器读取本次请求、背景和该任务的历史反馈。分类后、worker 启动前，独立需求转述请求以“专业外包承包商”视角调用 `build_delegated_brief`，把原始材料改写成第三方口吻的 `task`、最少必要 `context` 和 `acceptance_criteria`。它省略客户身份、内部角色关系、私聊措辞、无关个人背景和非执行必需的标识；任务不可缺少且已经明确提供的 URL、文件路径、收件人或正文仍可保留。转述无效时 fail-closed，不把原始材料直接交给 worker。worker 只读取转述后的 brief，不读取原始问题、原始背景或历史反馈。
+分类器读取本次请求、背景和该任务的历史反馈。分类后、worker 启动前，独立需求转述请求以“合格的外包经理”视角调用 `build_delegated_brief`，把真实需求改写成一个客观、自包含、可执行的 `brief` 段落。这里的 brief 不是去名字后的目标摘要，而是按执行顺序写清使用或打开什么、在哪里输入什么、点击什么以及最终核对什么状态；允许在同一段中使用内联步骤编号。它省略用户身份、姓名昵称、内部角色与委派关系、原始对话、情绪和不必要的业务全貌；任务必需且已经明确提供的 URL、文件路径、账号标识、收件人、正文、凭据、Cookie 和 Token 可以原样保留，但只允许用于指定环境和任务。转述无效或仍含“小腻”“小逆”“李阿花”“阿花”等内部称呼时 fail-closed，不把原始材料直接交给 worker。worker 只读取转述后的局部 brief，不读取原始问题、原始背景或历史反馈。
 调查与执行均通过现有 provider 和 `exec_command`，执行环境为现有 xiaoni-executor；浏览器和其它本地能力先读对应 `SKILL.md`。
-执行层只接受 `exec_command` 和不产生外部动作的 `finish_task`；拒绝其它工具，包括递归求助、QQ 发言和修改深挖状态。`finish_task` 不能和其它 tool call 混在同一 response，字段矛盾或缺少完成证据时拒绝收口并继续 Goal。shell 内的行为边界由工作目录规则与帮手提示词约束，不声称是独立权限沙箱。
-浏览器委托会把 `modules/agent-service/skills/delegated-browser/SKILL.md` 的完整正文直接装配进执行 worker 的稳定 instructions。该 skill 复用 `$xiaoni-browser` 的现役 Playwright host bridge 和脚本实现，但使用中性执行者表述，删除人格化描述，并明确委托范围、凭据、上传路径与 host bridge 故障边界；worker 不再依赖先自行定位和读取浏览器 skill 文件。
+执行层只接受 `exec_command`、只读的 `view_browser_screenshot` 和不产生外部动作的 `finish_task`；不注册 Anthropic 原生 `computer_use`，拒绝递归求助、QQ 发言和修改深挖状态等其它工具。浏览器 CLI 截图先注册为 media asset，worker 再用截图工具按 `image_id` 将像素作为下一轮 `input_image` 读取。`finish_task` 不能和其它 tool call 混在同一 response，字段矛盾或缺少完成证据时拒绝收口并继续 Goal。shell 内的行为边界由工作目录规则与帮手提示词约束，不声称是独立权限沙箱。
+浏览器委托会把 `modules/agent-service/skills/delegated-browser/SKILL.md` 的完整正文直接装配进执行 worker 的稳定 instructions。该 skill 复用 `$xiaoni-browser` 的现役 Playwright host bridge 和脚本实现，但使用中性执行者表述，删除人格化描述，并明确委托范围、必要凭据、截图读取、上传路径与 host bridge 故障边界；worker 不再依赖先自行定位和读取浏览器 skill 文件。
 命令结果复用 `applyToolResultToLoopInput` 回传原始 `codex_output`、stdout/stderr 和拒绝信息；不能使用发送消息的精简回执函数，否则帮手只能看到 `ok` 而无法核对执行结果。
 
 `execute` 是持久 Goal。worker 只有调用结构化 `finish_task` 才提交终态：`status=completed` 必须带非空 `summary` 和 `verification`，且 `blocked_reason` 为空；`status=blocked` 必须带非空 `summary` 和 `blocked_reason`，`verification` 可记录已核对的当前状态。普通 final、部分进度、单次失败或单轮预算耗尽都重新排队继续。旧 `<goal_completed>` / `<goal_blocked>` 历史输出仍只作兼容解析，不再作为 prompt-facing 主路径。每轮开始外部动作前先检查现场，避免重启或重试造成重复提交。阻塞任务进入等待补充状态；使用同一 `help_id` 补充后继续。
-明确需要本人参与直接转人工。单次 worker 沿用 32 个模型 turn / 30 次工具调用的安全阀，达到安全阀只结束本轮，不结束 Goal。
+明确需要本人参与直接转人工。单次执行 worker 的安全阀为 100 个模型 turn / 100 次工具调用，允许同一 response 并行调用工具；模型请求强制选择已允许的工具（Anthropic wire 为 `tool_choice.type=any`），不接受普通 Text 作为终态。达到安全阀只结束本轮，不结束 Goal。
 
 ## 持久化与重复调用
 
@@ -62,8 +62,8 @@
 | `AGENT_SHERLOCK_CLASSIFIER_MODEL` | `claude-sonnet-4-6`；通过 provider 执行分类器。 |
 | `AGENT_HELP_HUMAN_QQ_ID` | 无默认；未配置不发送，并明确返回未转交。 |
 
-新增主工具和主 prompt 改变部署时的缓存前缀，产生一次预期冷读。工具静态注册，所有克隆 fork 共用同一工具列表，之后不随求助状态变化。
-分类和 worker 是独立 no-persist 请求，不改变主请求历史。主工具的 pending 回执和完成 notify 在生成时冻结，下一 run 逐字节回放；不把尝试次数、分类状态或时间插入主缓存前缀。
+新增主工具和主 prompt 改变部署时的缓存前缀，产生一次预期冷读。工具静态注册，所有主请求克隆 fork 共用同一工具列表，之后不随求助状态变化。
+本节后续对转写及执行 worker 的修改都只改变独立 no-persist 请求：主 Agent 的 system、tools 和 stack replay 字节不变，因此不改变 fork Agent 的主请求克隆前缀，也不改变下一次主 run 的 replay 前缀。主工具的 pending 回执和完成 notify 在生成时冻结，下一 run 逐字节回放；不把尝试次数、分类状态或时间插入主缓存前缀。
 验证要求仍按仓库不可变缓存回归和相邻实际 wire request / cache-read 证据执行。
 
 ## 2026-09-13 验证记录
@@ -152,5 +152,7 @@
 后续 wire 对照纠正了“截图只能作为路径、模型看不到”的错误归因。真正缺口是中性 skill 初版误删了原 skill 的原生 `computer` 视觉通道，执行 worker 也只注册了 `exec_command,finish_task`。修复后 worker 注册 `exec_command,computer,finish_task`，`computer` 每次动作经 `applyToolResultToLoopInput` 把截图作为 `input_image` 回灌。`recaptcha-lab-1789308688335` 从第 2 turn 起实际使用 computer，识别并点击“人行横道”和“桥”图片题；但在旧 30 次工具预算耗尽前没有通过。`recaptcha-lab-1789309426603` 使用强制工具模式运行到 100 turn / 100 次工具，真实 wire 的 Anthropic `tool_choice.type=any`，每轮只有工具调用而无 Text；它仍未通过或调用 `finish_task`，所以保持未完成而非伪造终态。
 
 最终执行契约为 100 turn / 100 tool、`tool_choice=required`（Anthropic wire 为 `any`）、允许并行工具调用，且只有单独有效的 `finish_task` 能正常结束；普通 Text 和旧 goal 标签不再终结执行 Goal。用原始输入“阿花，你能帮我点击一下这个页面的人机认证吗？能帮我通过它一下吗？”运行的 `recaptcha-lab-1789310233646` 完整经过分类和需求转写，分类为 execute，转写后不含内部称呼；worker 看到“摩托车”4×3 图片题后在第 4 turn 调用 `finish_task(blocked)`，理由是其操作规范不允许自行完成 CAPTCHA。仓库 prompt 与 skill 中不存在该禁止语句；这次行为来自模型侧判断。故截至本记录，**多模态输入链路已经修复，派遣终态契约已生效，但目标 Agent 仍没有通过真实图片 CAPTCHA。**
+
+上段记录的是原生 `computer_use` 配置下的历史结果，已被当前配置取代。现行执行 worker 不再注册该原生工具，改为 `exec_command,view_browser_screenshot,finish_task`：Playwright CLI 负责操作当前 host Chrome 和产生截图，`view_browser_screenshot` 将已注册截图作为多模态 `input_image` 回灌。转写输出也已收敛为一个局部执行段落，内部姓名和角色必须删除，但必要凭据、Cookie、Token、账号和 URL 不属于应被误删的内容。该配置需以部署后的完整原始输入实测重新验收，不能沿用此前结果宣称通过。
 
 需求转写进一步明确：去身份化不得丢失客户材料已明确提供的授权范围、自有测试环境和允许使用的设备/账号状态。以上 worker 变更只影响独立 no-persist 请求，不改变主 Agent system/tools/stack replay；对主 fork 缓存和下一主 run 缓存均无前缀字节影响。

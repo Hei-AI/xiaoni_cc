@@ -20,6 +20,8 @@ import {
   ASSISTANCE_FINISH_TOOL_NAME,
   DELEGATED_BRIEF_TOOL,
   DELEGATED_BRIEF_TOOL_NAME,
+  DELEGATED_SCREENSHOT_TOOL,
+  DELEGATED_SCREENSHOT_TOOL_NAME,
   SHERLOCK_ROUTE_TOOL,
   parseAssistanceFinishCall,
   parseDelegatedTaskBrief,
@@ -3329,16 +3331,14 @@ export function buildSherlockForkRequest(
   allowFinishTool = false
 ): CanonicalAgentTurnRequest {
   const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL];
-  if (allowFinishTool && agentConfig.computerUseEnabled) {
-    tools.push(COMPUTER_USE_TOOL);
-  }
   if (allowFinishTool) {
+    tools.push(DELEGATED_SCREENSHOT_TOOL);
     tools.push(ASSISTANCE_FINISH_TOOL);
   }
   const forcedToolChoice = allowFinishTool
     ? buildAllowedToolsToolChoice([
         { type: 'function', name: TOOL_NAMES.execCommand },
-        ...(agentConfig.computerUseEnabled ? [{ type: 'computer_use' } as const] : []),
+        { type: 'function', name: DELEGATED_SCREENSHOT_TOOL_NAME },
         { type: 'function', name: ASSISTANCE_FINISH_TOOL_NAME }
       ], 'required')
     : undefined;
@@ -6837,7 +6837,8 @@ export function applyToolResultToLoopInput(
   // Computer use returns a screenshot after every action; surface it as an
   // input_image content block (same shape the image-vision fork uses) so Claude
   // sees the new screen and continues the action loop.
-  const computerImageContent = toolCall.name === TOOL_NAMES.computerUse
+  const computerImageContent = (toolCall.name === TOOL_NAMES.computerUse
+    || toolCall.name === DELEGATED_SCREENSHOT_TOOL_NAME)
     && Array.isArray((toolResult as { image_content?: unknown }).image_content)
     ? (toolResult as { image_content: OpenResponseInputItem[] }).image_content
     : null;
@@ -12528,18 +12529,14 @@ export class AgentLoopService {
     });
     if (!brief) throw new Error('Sherlock assistance brief transformation returned an invalid result');
 
-    const delegatedContext = JSON.stringify({
-      context: brief.context,
-      acceptance_criteria: brief.acceptanceCriteria
-    });
     const taskReminder = route.kind === 'execute'
       ? renderPromptSnippet('sherlock_execute.md', {
-          QUESTION: brief.task,
-          SEARCHED_PATHS: delegatedContext,
+          QUESTION: brief.brief,
+          SEARCHED_PATHS: '',
           PREVIOUS_DIRECTION: '',
           BROWSER_SKILL: readDelegatedBrowserSkill()
         }).trim()
-      : renderSherlockReminder(brief.task, delegatedContext, null);
+      : renderSherlockReminder(brief.brief, '', null);
     const reminderText = `${taskReminder}\n\n${readPromptSnippet('help_result_style.md').trim()}`;
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
@@ -12679,13 +12676,11 @@ export class AgentLoopService {
         toolCallsUsed += 1;
         let rawToolResult: Record<string, unknown>;
         try {
-          // finish_task 已在上方作为无副作用终态处理；执行型 worker 另放行原生
-          // computer，使每次浏览器动作的截图作为 input_image 回灌给多模态模型。
+          // finish_task 已在上方作为无副作用终态处理；执行型 worker 通过专用
+          // screenshot viewer 把浏览器桥注册的图片作为 input_image 回灌给同一模型。
           // 说话/发图/深挖工具在这里一律被拒。
           rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
-            || (allowFinishTool
-              && agentConfig.computerUseEnabled
-              && item.toolCall.name === TOOL_NAMES.computerUse)
+            || (allowFinishTool && item.toolCall.name === DELEGATED_SCREENSHOT_TOOL_NAME)
             ? await this.executeTool(item.toolCall, params.queueMessage, {
                 currentCanonicalRequest: forkRequest
               })
@@ -12693,8 +12688,8 @@ export class AgentLoopService {
                 item.toolCall,
                 renderPromptSnippet('fork_tool_rejected_output.md', {
                   TOOL_NAME: item.toolCall.name,
-                  ALLOWED_TOOLS: allowFinishTool && agentConfig.computerUseEnabled
-                    ? `${TOOL_NAMES.execCommand}, ${TOOL_NAMES.computerUse}`
+                  ALLOWED_TOOLS: allowFinishTool
+                    ? `${TOOL_NAMES.execCommand}, ${DELEGATED_SCREENSHOT_TOOL_NAME}`
                     : TOOL_NAMES.execCommand
                 })
               );
@@ -15053,6 +15048,9 @@ export class AgentLoopService {
       case TOOL_NAMES.computerUse: {
         return this.executeComputerAction(toolCall);
       }
+      case DELEGATED_SCREENSHOT_TOOL_NAME: {
+        return this.viewDelegatedBrowserScreenshot(toolCall, queueMessage);
+      }
       case TOOL_NAMES.inspectImage: {
         return this.inspectImagePlaceholder(toolCall, queueMessage, context);
       }
@@ -15532,6 +15530,33 @@ export class AgentLoopService {
       const message = error instanceof Error ? error.message : String(error);
       return { computer_action: actionName, error: `computer bridge unavailable: ${message}`, tool_error: true };
     }
+  }
+
+  private async viewDelegatedBrowserScreenshot(
+    toolCall: AgentToolCall,
+    queueMessage: QueueMessageRecord['payload']
+  ): Promise<Record<string, unknown>> {
+    const imageId = typeof toolCall.args.image_id === 'string' ? toolCall.args.image_id.trim() : '';
+    if (!imageId) {
+      return { tool_error: true, error: 'view_browser_screenshot requires image_id' };
+    }
+    const asset = await this.resolveMediaAssetForToolReference(queueMessage, imageId, { globalId: true });
+    if (!asset) {
+      return { tool_error: true, error: `browser screenshot image_id does not exist: ${imageId}` };
+    }
+    const materialized = await this.materializeImageAsset(asset);
+    if (!materialized.dataUrl) {
+      return { tool_error: true, error: `browser screenshot has no readable image data: ${imageId}` };
+    }
+    const webpContent = await transcodeInputImageItemsToWebpLossless(
+      [{ type: 'input_image', image_url: materialized.dataUrl, detail: 'original' }] as OpenResponseInputItem[]
+    );
+    const imageContent = await externalizeInputImageItemsToAnthropicFile(webpContent);
+    return {
+      image_id: imageId,
+      image_content: imageContent,
+      ...(materialized.executorPath ? { saved_path: materialized.executorPath } : {})
+    };
   }
 
   private async executeCommand(

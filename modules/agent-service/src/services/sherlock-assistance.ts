@@ -3,14 +3,29 @@ import type { AgentToolCall } from '../types';
 export type SherlockAssistanceKind = 'investigate' | 'execute' | 'human' | 'clarify';
 export type AssistanceGoalResult = { status: 'completed' | 'blocked'; text: string };
 export type DelegatedTaskBrief = {
-  task: string;
-  context: string;
-  acceptanceCriteria: string;
+  brief: string;
   omittedSensitiveContext: string[];
 };
 
 export const ASSISTANCE_FINISH_TOOL_NAME = 'finish_task';
 export const DELEGATED_BRIEF_TOOL_NAME = 'build_delegated_brief';
+export const DELEGATED_SCREENSHOT_TOOL_NAME = 'view_browser_screenshot';
+
+export const DELEGATED_SCREENSHOT_TOOL = {
+  type: 'function',
+  function: {
+    name: DELEGATED_SCREENSHOT_TOOL_NAME,
+    description: 'Load a browser screenshot registered by the browser bridge into this model turn as an input image.',
+    parameters: {
+      type: 'object',
+      properties: {
+        image_id: { type: 'string', description: 'The exact image id printed by the browser screenshot command.' }
+      },
+      required: ['image_id'],
+      additionalProperties: false
+    }
+  }
+} as const;
 
 export const ASSISTANCE_FINISH_TOOL = {
   type: 'function',
@@ -39,12 +54,10 @@ export const DELEGATED_BRIEF_TOOL = {
     parameters: {
       type: 'object',
       properties: {
-        task: { type: 'string' },
-        context: { type: 'string' },
-        acceptance_criteria: { type: 'string' },
+        brief: { type: 'string', description: 'One self-contained paragraph containing only the worker\'s executable instructions and acceptance state.' },
         omitted_sensitive_context: { type: 'array', items: { type: 'string' } }
       },
-      required: ['task', 'context', 'acceptance_criteria', 'omitted_sensitive_context'],
+      required: ['brief', 'omitted_sensitive_context'],
       additionalProperties: false
     }
   }
@@ -69,19 +82,16 @@ export function parseAssistanceFinishCall(call: AgentToolCall): AssistanceGoalRe
 export function parseDelegatedTaskBrief(calls: AgentToolCall[]): DelegatedTaskBrief | null {
   if (calls.length !== 1 || calls[0].name !== DELEGATED_BRIEF_TOOL_NAME) return null;
   const args = calls[0].args;
-  const task = typeof args.task === 'string' ? args.task.trim() : '';
-  const context = typeof args.context === 'string' ? args.context.trim() : '';
-  const acceptanceCriteria = typeof args.acceptance_criteria === 'string' ? args.acceptance_criteria.trim() : '';
+  const brief = typeof args.brief === 'string' ? args.brief.trim().replace(/\s+/gu, ' ') : '';
   const rawOmittedSensitiveContext = args.omitted_sensitive_context;
   if (!Array.isArray(rawOmittedSensitiveContext)) return null;
   const omittedSensitiveContext = rawOmittedSensitiveContext
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.trim())
     .filter(Boolean);
-  const workerVisibleText = `${task}\n${context}\n${acceptanceCriteria}`;
-  if (!task || !acceptanceCriteria || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
-  if (workerVisibleText.includes('小腻') || workerVisibleText.includes('李阿花')) return null;
-  return { task, context, acceptanceCriteria, omittedSensitiveContext };
+  if (!brief || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
+  if (/小腻|小逆|李阿花|阿花|客户说|用户让我|委托人要求/u.test(brief)) return null;
+  return { brief, omittedSensitiveContext };
 }
 
 export function parseAssistanceGoalResult(text: string | null): AssistanceGoalResult | null {
