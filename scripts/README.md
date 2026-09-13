@@ -36,6 +36,16 @@ RECAPTCHA_AUDIT_FILE=/tmp/qqbot-recaptcha-verifications.jsonl node scripts/recap
 
 Google 契约：[测试密钥说明](https://developers.google.com/recaptcha/docs/faq)、[服务端验证](https://developers.google.com/recaptcha/docs/verify)。
 
+分阶段独立输入实验：`isolated-probe.cjs` 使用全新无头 Chromium，识图、单步决策、完成验收分别调用部署 provider 中的 Sonnet 4.6，每次只有本阶段的一个新 user input，真实图片必须出现在 provider wire 中。`observe.md` / `decide.md` / `verify.md` 是各阶段 Prompt；不使用“忘掉历史”来假装隔离。浏览器执行器只执行模型给出的合法格子，完成回执 `10` 还必须同时满足实际出现图片题和本站 Google live 验证成功。此入口仍是实验，不等于生产 `ask_li_ahua` 已切换实现。
+
+```bash
+node --test scripts/recaptcha-lab/stage-contract.test.cjs
+docker cp scripts/recaptcha-lab/model-stage.cjs qqbot-agent-service:/tmp/recaptcha-model-stage.cjs
+node scripts/recaptcha-lab/isolated-probe.cjs
+```
+
+默认目标固定为 `https://captcha.liahuas.top`；本机需安装 Playwright，可用 `PLAYWRIGHT_MODULE` 指定模块路径。默认单次诊断上限 100 个画面步骤，可用 `RECAPTCHA_MAX_STEPS` 调整；达到上限只记录未完成，不返回 10。每次实验在 `/tmp/recaptcha-isolated-<时间戳>/` 保存图片、阶段决策和动作记录；独立 fork 账本保存真实 request/response、阶段名和 Prompt SHA-256。阶段只经由当前部署的 help worker model transport 调用，尚不覆盖生产求助队列和目标恢复生命周期。
+
 ## Current Expectations
 
 - 当前脚本面围绕 PostgreSQL + compose 主栈维护，不再以 MySQL 直连为主线。
