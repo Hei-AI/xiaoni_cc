@@ -1755,6 +1755,10 @@ export function getAgentMediaAssetById(
 export function createAgentMediaObservation(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
 export function ensureAgentTaskSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function createAgentTask(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
+export function beginXiaoniHelp(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
+export function finishXiaoniHelp(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<boolean>;
+export function markXiaoniHelpSending(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<boolean>;
+export function startXiaoniHelpAttempt(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<boolean>;
 export function claimNextAgentTask(workerId: string, config?: DatabaseUrlConfig): Promise<any | null>;
 export function updateAgentTask(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
 export function addAgentTaskArtifacts(taskId: string, artifacts: Record<string, any>[], config?: DatabaseUrlConfig): Promise<any[]>;

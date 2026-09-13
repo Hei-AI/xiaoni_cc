@@ -45,6 +45,9 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 
 ## Prompt-Facing Templates
 
+通用求助工具 `ask_li_ahua` 的内部分流、福尔摩斯调查/代办、重复求助与 QQ 人工交接契约见
+`docs/specs/xiaoni-failure-conclusion-review-fork.md`。
+
 模板正文只维护在 `docs/xiaoni_prompt/`，索引和装配规则看 `docs/remind.md`。
 
 | Template family | Current behavior |

@@ -15,6 +15,7 @@ import {
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
+import { SHERLOCK_ROUTE_TOOL, parseSherlockRoute } from './sherlock-assistance';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
@@ -1537,6 +1538,7 @@ const TOOL_NAMES = {
   feedbackLearningState: 'update_learning_state',
   execCommand: 'exec_command',
   readFile: 'read_file',
+  askLiAhua: 'ask_li_ahua',
   privateReply: 'send_in_private',
   groupReply: 'send_in_group',
   recoverEnergy: 'recover_energy',
@@ -1560,6 +1562,7 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.imageTask]: 0.030,
   [TOOL_NAMES.execCommand]: 0.002,
   [TOOL_NAMES.readFile]: 0.001,
+  [TOOL_NAMES.askLiAhua]: 0.002,
   [TOOL_NAMES.recoverEnergy]: 0.000,
   [TOOL_NAMES.compressCoreMemory]: 0.020,
   [TOOL_NAMES.webSearch]: 0.030,
@@ -1968,6 +1971,24 @@ const RECOVER_ENERGY_TOOL = {
 //
 // 缓存:这三个定义进 tools 数组 = 一次性改掉主 agent 与全部 fork 的前缀。只在部署那一次
 // 冷读,之后稳态。**必须挑压缩边界那一帧部署**(那帧本来就冷读)。
+export const ASK_LI_AHUA_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.askLiAhua,
+    description: '向李阿花求助。说明你需要什么帮助、卡在哪里、试过什么以及希望得到什么结果。适用于日常计算机操作、查不明白的问题和需要他本人参与的事情，不必先创建深挖。返回求助编号和处理结果或转交状态。同一件事仍未解决时，带上原 help_id，说明上次结果哪里没解决；不要另起一件重复求助。',
+    parameters: {
+      type: 'object',
+      properties: {
+        request: { type: 'string', description: '你需要李阿花帮你做什么。明确需要本人回答时也写在这里。' },
+        context: { type: 'string', description: '相关文件或页面、已尝试的办法、报错、希望的结果与操作边界。继续求助时写清上次结果哪里没解决。' },
+        help_id: { type: 'string', description: '同一件事继续求助时，原样带回上次返回的编号；首次求助不填。' }
+      },
+      required: ['request', 'context'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
 const GET_DEEP_DIVE_TOOL = {
   type: 'function',
   function: {
@@ -2047,7 +2068,7 @@ export const UPDATE_DEEP_DIVE_TOOL = {
 
 ## 五个 action
 - conclude —— 挖到底了,你有结论了
-- need_outsider —— 想不通了,去问福尔摩斯(要一起交出你整理的排查路径)
+- need_outsider —— 想不通了,通过求助入口请人帮忙(要一起交出你整理的排查路径;日常求助直接用 ask_li_ahua)
 - pause / resume —— 先放一放 / 接着挖
 - edit —— 改问题本身或轮次上限
 
@@ -2064,7 +2085,7 @@ export const UPDATE_DEEP_DIVE_TOOL = {
 「难」「不确定」「还有别的事」不算想不通,那是还没开始。
 只是想换件事做,用 pause。
 
-求来的必须理:福尔摩斯回你一个方向之后,照它走一遍,别当没看见。
+求来的必须理:求助返回处理结果后,核对它是否解决了问题;没有解决就用 ask_li_ahua 带原 help_id 继续求助。
 
 ## 轮数
 requests_spent 数的是你为这个问题发了多少次请求。它越大说明你挖得越深,不是消耗掉的额度。`,
@@ -2080,7 +2101,7 @@ requests_spent 数的是你为这个问题发了多少次请求。它越大说�
         },
         question: { type: 'string', description: '仅 edit 有意义:改后的问题。' },
         max_requests: { type: 'integer', minimum: 1, maximum: 200, description: '仅 edit 有意义:改后的上限。' },
-        searched_paths: { type: 'string', description: '仅 need_outsider 必填:把你已经查过的地方整理出来 —— 翻过哪些文件、跑过哪些查法。福尔摩斯拿不到你的上下文,只有这份和你的问题,写得越实他给的方向越准。' }
+        searched_paths: { type: 'string', description: '仅 need_outsider 必填:把你已经查过的地方整理出来 —— 翻过哪些文件、跑过哪些查法。求助入口只拿到这份和你的问题,写清楚背景和需要的帮助。' }
       },
       required: ['deep_dive_id', 'revision', 'action'],
       additionalProperties: false
@@ -2988,7 +3009,8 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
     // 否则 allowed-tools 前缀和 tools 定义对不上。
     GET_DEEP_DIVE_TOOL,
     CREATE_DEEP_DIVE_TOOL,
-    UPDATE_DEEP_DIVE_TOOL
+    UPDATE_DEEP_DIVE_TOOL,
+    ASK_LI_AHUA_TOOL
   ];
 }
 
@@ -3033,6 +3055,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   tools.push({ type: 'function', name: TOOL_NAMES.getDeepDive });
   tools.push({ type: 'function', name: TOOL_NAMES.createDeepDive });
   tools.push({ type: 'function', name: TOOL_NAMES.updateDeepDive });
+  tools.push({ type: 'function', name: TOOL_NAMES.askLiAhua });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
   // allowed-tools prefix aligned with the tool definitions across loop + forks.
   if (agentConfig.computerUseEnabled) {
@@ -12352,44 +12375,81 @@ export class AgentLoopService {
     });
   }
 
-  // 深挖活着时的点火。照 enqueueSubconsciousAgentNotify 的形状,但正文由引擎拼装
-  // (见 renderDeepDiveRoundNotify),所以轮间字节只差一个 round 数字。
-  //
-  // 缓存:正文在 enqueue 这一刻冻结进 payload.systemReminder.reminder,下一 run 的 stack
-  // replay 从同一字段读回同样的字节 —— 逐字节可重建,与既有几条 notify 同一条已验过的路径。
-  // ── 复核 fork ──────────────────────────────────────────────────────────────
-  // 她宣布想不通(update_deep_dive action=blocked)之后跑一次。克隆她当轮请求 + 尾部换成第三方
-  // 引导,用受限 exec_command 自己查一遍,只把**可核对的证据**经 Notify Bucket 交回。
-  //
-  // 它和 xiaoni_plan 走同一条通道、同样是一段自然语言 —— **可核对性是它们在她眼里唯一的
-  // 分别**(ADR-0007:自生声音的权威只能来自可核对的证据)。写成指令它就退化成第二个 plan。
-  //
-  // 账本落**独立表** failure_review_fork_slices(表名沿用,内容已是福尔摩斯;改表名要动
-  // 行动流/管理端/前端三处,不在本次范围,留作后续)。曾经想复用 subconscious_agent_fork_*
-  // 并以 forkRunId 前缀当判别符 —— **那是错的**:那几张表的读取端(usage rollup、行动流)
-  // 按表名整表归类,不看前缀,混进去会把复核算成潜意识 fork。
-  //
-  // 已知未验证的假设(ADR-0009 §六):克隆她的上下文之后,尾部改写身份到底能不能挡住她的
-  // 自我认知和情绪。上线后读它的输出前 20 条 —— **开口是「我想不起来了」这类第一人称自述,
-  // 就是隔离失败**,那时退回全新上下文方案。
+  // The help worker starts with an independent context. Classification is recorded
+  // as turn 0, followed by investigation or execution slices in the existing
+  // failure_review_fork_slices ledger. Nothing is cloned from the main request.
   private async runSherlockFork(params: {
     diveId: string;
     question: string;
     searchedPaths: string;
     previousDirection: string | null;
     forkRunId: string;
-    baseRequest: CanonicalAgentTurnRequest;
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
-  }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
+    onHelperStart?: () => Promise<void>;
+  }): Promise<{ text: string | null; toolCallsUsed: number; turns: number; needsHuman?: boolean; helperAttempt?: boolean }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
-    const reminderText = renderSherlockReminder(params.question, params.searchedPaths, params.previousDirection);
+    const helperModel = agentConfig.sherlockModelName || params.runtimePrompt.modelName;
+    const classifierModel = agentConfig.sherlockClassifierModelName || helperModel;
+    const classifierRequest = {
+      model: classifierModel,
+      instructions: readPromptSnippet('sherlock_classify.md').trim(),
+      input: [{ type: 'message', role: 'user', content: JSON.stringify({
+        request: params.question, context: params.searchedPaths, previous_result: params.previousDirection
+      }) }],
+      tools: [SHERLOCK_ROUTE_TOOL],
+      tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: 'classify_assistance' }], 'required'),
+      parallel_tool_calls: false,
+      store: false,
+      max_output_tokens: 1000
+    } as CanonicalAgentTurnRequest;
+    await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+    const classified = await this.executeSubconsciousAgentForkTurn(
+      classifierRequest, params.queueMessage,
+      { ...params.runtimePrompt, modelName: classifierModel, parameters: {} }, 0,
+      { agentType: 'sherlock_classifier', executionMode: 'sherlock_classifier_no_persist' }
+    );
+    const route = parseSherlockRoute(this.responseActionRouter.route(classified.canonical_response).toolCalls);
+    await this.recordFailureReviewForkSliceSafe({
+      sliceId: classified.llm_request_slice_id || classified.llm_call_id || `${params.forkRunId}:classify`,
+      forkRunId: params.forkRunId,
+      diveId: params.diveId,
+      llmCallId: classified.llm_call_id || null,
+      canonicalRequest: classified.canonical_request || classifierRequest,
+      wireRequest: classified.wire_request || null,
+      canonicalResponse: classified.canonical_response || null,
+      wireResponse: classified.wire_response || null,
+      outputItems: extractCanonicalResponseOutputItems(classified),
+      tokenUsage: buildProviderTokenUsage(classified),
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      agentTurn: 0,
+      modelName: classified.model || classifierModel,
+      status: route ? 'completed' : 'failed',
+      metadata: { fork_kind: 'sherlock', stage: 'classification', assistance_kind: route?.kind ?? null }
+    });
+    if (!route) throw new Error('Sherlock assistance classification returned an invalid decision');
+    if (route.kind === 'human') {
+      return { text: route.reason, toolCallsUsed: 0, turns: 0, needsHuman: true };
+    }
+    if (route.kind === 'clarify') {
+      return { text: `需要补充信息：${route.reason}`, toolCallsUsed: 0, turns: 0 };
+    }
+    await params.onHelperStart?.();
+    const reminderText = route.kind === 'execute'
+      ? renderPromptSnippet('sherlock_execute.md', {
+          QUESTION: params.question,
+          SEARCHED_PATHS: params.searchedPaths,
+          PREVIOUS_DIRECTION: params.previousDirection ?? ''
+        }).trim()
+      : renderSherlockReminder(params.question, params.searchedPaths, params.previousDirection);
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
     // 每次都是独立一跑,按深挖归组会把多次复核的 slice 混成一堆(而且没有硬上界可取)。
     const forkRunId = params.forkRunId;
     const baseForkMetadata = {
       fork_kind: 'sherlock',
+      assistance_kind: route.kind,
       deep_dive_question: params.question,
       searched_paths: params.searchedPaths,
       no_main_stack_persist: true,
@@ -12411,7 +12471,7 @@ export class AgentLoopService {
     for (let forkTurn = 1; forkTurn <= SHERLOCK_FORK_MAX_TURNS; forkTurn += 1) {
       turns = forkTurn;
       const forkRequest = buildSherlockForkRequest(
-        params.runtimePrompt.modelName,
+        helperModel,
         forkInput,
         forkTurn,
         reminderText
@@ -12422,7 +12482,7 @@ export class AgentLoopService {
       const modelResult = await this.executeSubconsciousAgentForkTurn(
         forkRequest,
         params.queueMessage,
-        params.runtimePrompt,
+        { ...params.runtimePrompt, modelName: helperModel, parameters: {} },
         forkTurn,
         { agentType: 'sherlock', executionMode: 'sherlock_fork_no_persist' }
       );
@@ -12472,7 +12532,8 @@ export class AgentLoopService {
 
       if (toolCalls.length === 0) {
         finalText = extractSubconsciousNaturalLanguage(outputItems);
-        break;
+        if (finalText) break;
+        continue;
       }
 
       for (const item of toolCalls) {
@@ -12506,16 +12567,12 @@ export class AgentLoopService {
         } catch (error) {
           rawToolResult = buildToolErrorResult(item.toolCall, error);
         }
-        forkInput.push({
-          type: 'function_call_output',
-          call_id: item.toolCall.callId,
-          output: buildSendToolOutput(rawToolResult)
-        } as unknown as OpenResponseInputItem);
+        forkInput.push(...applyToolResultToLoopInput(item.toolCall, rawToolResult).inputItems);
       }
       forkInput = normalizeResponseInputItems(forkInput);
     }
 
-    return { text: finalText, toolCallsUsed, turns };
+    return { text: finalText, toolCallsUsed, turns, helperAttempt: true };
   }
 
   // 复核结论回到她面前。走 Notify Bucket —— 与既有几条 notify 同一条已在线验过的缓存路径:
@@ -12615,101 +12672,25 @@ export class AgentLoopService {
     dive: { id: string; revision: number; sherlockConsults: number; question: string; searchedPaths: string; previousDirection: string | null },
     queueMessage: QueueMessageRecord['payload']
   ) {
-    // 起 fork 之前就去重:复核要跑到 30 次工具调用,重复的 blocked 不该白烧一遍再在
-    // 入队那一步被拦下。键按【这一次 blocked】(diveId + revision),不是按深挖。
-    // 键**不带 revision**:revision 每次 mutation 都 +1,带上它等于没有去重,
-    // 同一次深挖能把福尔摩斯跑无数遍。按「这次深挖已经请过几次」挡重,与阶梯只走两级一致。
     const reviewKey = `${dive.id}:${dive.sherlockConsults}`;
-    if (this.sherlockConsultsStarted.has(reviewKey)) {
-      return;
-    }
-    const seed = this.lastMainAgentForkSeed;
-    if (!seed?.canonicalRequest) {
-      // 刚重启、还没有可克隆的主请求。不重建上下文(重建会和主 loop 漂移),这一次就不复核。
-      // **不登记键**:这次是环境原因跳过(刚重启,没有可克隆的主请求),不是已经复核过。
-      // 先登记再守卫的话,这一次 blocked 会永久失去复核机会。
-      moduleLogger.warn('复核 fork 跳过:手上没有可克隆的主请求', { diveId: dive.id });
-      return;
-    }
+    if (this.sherlockConsultsStarted.has(reviewKey)) return;
     this.sherlockConsultsStarted.add(reviewKey);
-    const baseRequest = seed.canonicalRequest;
+    // Historical need_outsider calls use the same durable help thread and routing
+    // as the general entry, so restarting or switching entry cannot reset attempts.
     void (async () => {
-      // **开跑就留痕。** 收尾事件写在 finally 里 —— 之前收尾写在 try 内、await 之后,
-      // turn-1 就抛(provider 500/400)时一条记录都不留,事后无法回答「跑过没有、跑了几轮」。
-      let outcome: { text: string | null; toolCallsUsed: number; turns: number } | null = null;
-      let failure: string | null = null;
-      // 「一次复核」的唯一标识。**在开跑之前生成**,好让 start 事件就带上它 —— 否则 fork
-      // turn-1 就挂掉时,只剩一条没有连接键的 start 行,事后无法把已落库的 slice 认回来。
-      const forkRunId = `sherlock:${queueMessage.runId}:${uuidv4().slice(0, 8)}`;
-      await this.store.logTimelineEvent({
-        traceId: `sherlock:${dive.id}:${dive.revision}`,
-        eventType: 'fork',
-        eventName: 'sherlock_fork',
-        eventPhase: 'start',
-        metadata: { deep_dive_id: dive.id, deep_dive_revision: dive.revision, deep_dive_question: dive.question, fork_run_id: forkRunId }
-      }).catch(() => undefined);
-      try {
-        const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
-        const result = await this.runSherlockFork({
-          diveId: dive.id,
-          question: dive.question,
-          searchedPaths: dive.searchedPaths,
-          previousDirection: dive.previousDirection,
-          forkRunId,
-          baseRequest,
-          queueMessage,
-          runtimePrompt
-        });
-        outcome = result;
-        const text = (result.text || '').trim();
-        // 查不到就不投递 —— 不拿「我尽力了」去占她一次唤醒。
-        if (!shouldDeliverSherlockDirection(text)) {
-          moduleLogger.info('复核 fork 无发现,不投递', {
-            diveId: dive.id,
-            toolCallsUsed: result.toolCallsUsed,
-            turns: result.turns
-          });
-          return;
-        }
-        await this.enqueueSherlockNotify({ diveId: dive.id, revision: dive.revision, findings: text });
-        moduleLogger.info('复核 fork 已投递', {
-          diveId: dive.id,
-          toolCallsUsed: result.toolCallsUsed,
-          turns: result.turns,
-          findingsLength: text.length
-        });
-      } catch (error) {
-        failure = error instanceof Error ? error.message : String(error);
-        moduleLogger.warn('复核 fork 失败', { diveId: dive.id, error: failure });
-      } finally {
-        // 观测(ADR-0009 §六,**必需项**)。写在 finally:成功、无发现、抛异常三条路都留痕,
-        // 否则 turn-1 就挂时事后无法回答「跑过没有、跑了几轮」。
-        // 输出原文必须落库 —— 上线后要人工读前 20 条判断人称与语气,
-        // **开口是「我想不起来了」这类第一人称自述,就是隔离失败**(那时退回全新上下文方案)。
-        const text = (outcome?.text || '').trim();
-        await this.store.logTimelineEvent({
-          traceId: `sherlock:${dive.id}:${dive.revision}`,
-          eventType: 'fork',
-          eventName: 'sherlock_fork',
-          eventPhase: failure ? 'failed' : (text ? 'completed' : 'empty'),
-          metadata: {
-            deep_dive_id: dive.id,
-            deep_dive_revision: dive.revision,
-            fork_run_id: forkRunId,
-            // 键名必须与起始事件(:12357)和读端(agent-runtime-routes)逐字一致。
-            // 这里曾经写成 `question`,而读端读 deep_dive_question —— 于是**恰恰是带
-            // findings_text 的那些行**的 question 恒空。同一个错本轮第三次。
-            deep_dive_question: dive.question,
-            searched_paths: dive.searchedPaths,
-            tool_calls_used: outcome?.toolCallsUsed ?? 0,
-            turns: outcome?.turns ?? 0,
-            findings_text: text,
-            delivered: shouldDeliverSherlockDirection(text),
-            error_message: failure
-          }
-        }).catch(() => undefined);
-      }
-    })();
+      const args = { request: dive.question, context: dive.searchedPaths };
+      const result = await this.askLiAhua({
+        name: TOOL_NAMES.askLiAhua,
+        callId: `deep-dive-help:${dive.id}:${dive.revision}`,
+        args,
+        rawArguments: JSON.stringify(args)
+      }, queueMessage, `deep-dive:${dive.id}`);
+      const findings = JSON.stringify(result);
+      await this.enqueueSherlockNotify({ diveId: dive.id, revision: dive.revision, findings });
+    })().catch(error => {
+      this.sherlockConsultsStarted.delete(reviewKey);
+      moduleLogger.warn('Deep dive help failed', { diveId: dive.id, error: String(error) });
+    });
   }
 
   // 到点了:告诉她该去问福尔摩斯。判据见 sherlockConsultDue —— 只数主 agent 的 LLM 请求数。
@@ -14218,7 +14199,10 @@ export class AgentLoopService {
             'Content-Type': 'application/json',
             [NO_TRAFFIC_PERSIST_HEADER]: '1'
           },
-          body
+          body,
+          signal: kind.agentType.startsWith('sherlock')
+            ? AbortSignal.timeout(agentConfig.mainAgentTurnTimeoutMs)
+            : undefined
         });
 
         const payload = await response.json() as ProviderAgentResponse;
@@ -14627,12 +14611,103 @@ export class AgentLoopService {
     throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Provider agent execute failed'));
   }
 
+  private async askLiAhua(toolCall: AgentToolCall, queueMessage: QueueMessageRecord['payload'], correlationKey?: string): Promise<Record<string, unknown>> {
+    const request = typeof toolCall.args.request === 'string' ? toolCall.args.request.trim() : '';
+    const context = typeof toolCall.args.context === 'string' ? toolCall.args.context.trim() : '';
+    const helpId = typeof toolCall.args.help_id === 'string' ? toolCall.args.help_id.trim() : '';
+    if (!request || !context) return { ok: false, message: '请说明需要什么帮助，以及背景和已经尝试的办法。' };
+    const started = await this.store.beginHelp({
+      helpId, request, context, callId: toolCall.callId, correlationKey, traceId: queueMessage.traceId, runId: queueMessage.runId
+    });
+    if (!started.ok) {
+      return started.result || {
+        ok: false, help_id: started.task?.id ?? helpId, status: started.reason,
+        message: started.reason === 'help_human_sent' ? '已转交李阿花，等待他的 QQ 私聊回复。'
+          : '这次求助没有重新执行。请保留求助编号；处理中或中断的操作需要先核实状态。'
+      };
+    }
+    const task = started.task;
+    let helperAttempt = false;
+    let attemptRecorded = false;
+    let sending = false;
+    let result: Record<string, unknown>;
+    let status = 'help_answered';
+    try {
+      const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
+      const prior = started.history.map((entry: any) => ({ request: entry.request, result: entry.result }));
+      const outcome = started.interrupted
+        ? { text: '上次处理被服务重启中断，现场可能已有变更，需要李阿花核实后继续。', needsHuman: true, helperAttempt: false }
+        : task.attempts >= agentConfig.helpMaxHelperAttempts
+        ? { text: '同一件事经帮手处理后仍未解决，需要李阿花本人看看。', needsHuman: true, helperAttempt: false }
+        : await this.runSherlockFork({
+            diveId: '',
+            question: task.prompt,
+            searchedPaths: JSON.stringify({ original_context: task.input_json?.context, request, context }),
+            previousDirection: prior.length ? JSON.stringify(prior) : null,
+            forkRunId: `help:${task.id}:${uuidv4().slice(0, 8)}`,
+            queueMessage, runtimePrompt,
+            onHelperStart: async () => {
+              if (!await this.store.startHelpAttempt({ helpId: task.id, claim: started.claim })) throw new Error('Help attempt claim lost');
+              attemptRecorded = true;
+              helperAttempt = true;
+            }
+          });
+      helperAttempt = Boolean(outcome.helperAttempt);
+      if (outcome.needsHuman || (helperAttempt && !shouldDeliverSherlockDirection(outcome.text))) {
+        const qqId = Number(agentConfig.helpHumanQqId);
+        if (!Number.isSafeInteger(qqId) || qqId <= 0) {
+          status = 'help_failed';
+          result = { ok: false, help_id: task.id, status: 'human_contact_unconfigured', message: '需要李阿花本人帮助，但求助私聊收件人尚未配置，消息未发送。' };
+        } else {
+          if (!await this.store.markHelpSending({ helpId: task.id, claim: started.claim })) throw new Error('Help delivery claim lost');
+          sending = true;
+          const message = [
+            `【小腻求助 ${task.id}】`, task.prompt,
+            `背景：${task.input_json?.context || context}`,
+            `本次补充：${request}\n${context}`,
+            `转交原因：${outcome.text || '帮手未能给出可用结果。'}`,
+            prior.length ? `此前处理记录：${JSON.stringify(prior)}` : '',
+            '请在这个 QQ 私聊里回复小腻。'
+          ].filter(Boolean).join('\n\n');
+          const characters = Array.from(message);
+          const messages: string[] = [];
+          for (let offset = 0; offset < characters.length; offset += 1500) {
+            messages.push(characters.slice(offset, offset + 1500).join(''));
+          }
+          await this.sendMessage('private', { user_id: qqId, messages }, queueMessage);
+          status = 'help_human_sent';
+          result = { ok: true, help_id: task.id, status: 'waiting_for_li_ahua', message: '已把求助和此前处理记录发到你与李阿花的 QQ 私聊，等待他本人回复。' };
+        }
+      } else {
+        result = {
+          ok: true, help_id: task.id, status: 'helper_replied', source: '求助入口的帮手',
+          result: outcome.text, message: '这是帮手的处理结果，不是李阿花本人回复。仍未解决时带上这个 help_id 说明情况。'
+        };
+      }
+    } catch (error) {
+      status = sending ? 'help_human_sending' : 'help_failed';
+      result = {
+        ok: false, help_id: task.id, status: sending ? 'delivery_uncertain' : 'help_failed',
+        message: sending ? '私聊发送结果尚未确认，请先核对聊天记录，避免重复发送。' : '这次求助处理未完成，请保留编号后再试。'
+      };
+      moduleLogger.warn('Help request failed', { helpId: task.id, error: error instanceof Error ? error.message : String(error) });
+    }
+    const saved = await this.store.finishHelp({
+      helpId: task.id, claim: started.claim, callId: toolCall.callId, request, result, status,
+      helperAttempt: helperAttempt && !attemptRecorded
+    });
+    if (!saved) throw new Error('Help result persistence claim lost');
+    return result;
+  }
+
   private async executeTool(
     toolCall: AgentToolCall,
     queueMessage: QueueMessageRecord['payload'],
     context: ToolExecutionContext = {}
   ): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
+      case TOOL_NAMES.askLiAhua:
+        return this.askLiAhua(toolCall, queueMessage);
       case TOOL_NAMES.privateReply:
         return this.sendMessage('private', toolCall.args, queueMessage);
       case TOOL_NAMES.groupReply:

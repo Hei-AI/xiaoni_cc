@@ -11,6 +11,7 @@ const { createImageLabPersistence } = require('./image-lab');
 const { createAgentMediaPersistence } = require('./agent-media');
 const { createAgentTaskPersistence } = require('./agent-tasks');
 const { createXiaoniDeepDivePersistence } = require('./xiaoni-deep-dive');
+const { createXiaoniHelpPersistence } = require('./xiaoni-help');
 const { createXiaoniOsRewritePersistence } = require('./xiaoni-os-rewrite');
 const { createAgentQueuePersistence } = require('./agent-queue');
 const { createInboundInboxPersistence } = require('./inbound-inbox');
@@ -509,6 +510,7 @@ const xiaoniDeepDivePersistence = createXiaoniDeepDivePersistence({
   getPrismaClient,
   createSqlAdapter
 });
+const xiaoniHelpPersistence = createXiaoniHelpPersistence({ getPrismaClient });
 
 const xiaoniOsRewritePersistence = createXiaoniOsRewritePersistence({
   createSqlAdapter
@@ -617,6 +619,7 @@ module.exports = {
   ...agentMediaPersistence,
   ...agentTaskPersistence,
   ...xiaoniDeepDivePersistence,
+  ...xiaoniHelpPersistence,
   ...xiaoniOsRewritePersistence,
   ...agentQueuePersistence,
   ...inboundInboxPersistence,
