@@ -356,6 +356,8 @@ function buildPhoneNotificationMessage(
     rawBody: preview,
     commandBody: '',
     wasMentioned: message.wasMentioned,
+    // 睡觉唤醒属性:私聊、群里 @ 她 → true;群普通消息 → false。唤醒计数与开窗只认这一个字段。
+    wakesXiaoni: message.chatType === 'direct' || message.wasMentioned === true,
     receivedAt: message.receivedAt,
     messageTimestamp: message.messageTimestamp,
     rawPayload: {

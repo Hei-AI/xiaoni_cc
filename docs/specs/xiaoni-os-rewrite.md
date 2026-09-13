@@ -82,8 +82,9 @@
 ## 2026-09-13 部署核验（UTC+8）
 
 - 实现提交 `d4a1efcd` 已合入主分支，包含同事先上线的 Notify Bucket 新提交，未覆盖其工作。
-- 15:14:53 更新 admin-frontend；15:15:33 更新 agent-service。两服务定向 build/up，容器 healthy；未重启其它服务。
+- 15:14:53 更新 admin-frontend；15:15:33 更新 agent-service；15:20:36 更新 admin-backend。只对这三个服务定向 build/up。
 - agent 定向测试 82/82，包含不可变 replay/fork 缓存用例；persistence 8/8，包含主 Postgres 容器上的 `qqbot_cache_test` 真库用例，无跳过。前端构建通过，本地及公网 headless 浏览器核对两个开关均为 true、显示新文案；没有切换开关值。
 - 用历史拒答 slice `llm_1789281666341_a0e953ec` 的完整 canonical request，仅替换 fork 尾部提示，经现有 no-persist debug 路径回放。不执行输出工具，不投 Notify、不写主 stack。
 - `llm_1789283814884_be586da8` 与 `llm_1789283817290_352a679e` 两次返回的 wire request 一致；各为 357645 input / 357642 cache_read / 0 cache_creation。输出有效 OS，保留原来的“手做完了。等能睡。”，没有要求发言。这只验证该案例与这对真实 fork 请求，不是长期成功率。
 - 重启后的主栈回放 heartbeat 为 362713 cached input。核验时生产主 slice 仍停在 166532（14:43:04），**部署后下一主 run 的真实相邻 slice 缓存及长期行为效果仍待新数据**，不能用隔离回放或单元测试代替这项观测。
+- 行动流投影修复 `7f3ea21d`：fill 原样返回显示“上下文复核 → 原文准入”，辅助处理失败保留原文不再误标为“分类失败”。投影测试 51/51，admin-backend 镜像内 TypeScript 构建通过；只改管理端读时展示，不改变主/fork 请求或 schema。
