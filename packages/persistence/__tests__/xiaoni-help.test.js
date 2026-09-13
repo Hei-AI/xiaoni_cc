@@ -8,6 +8,12 @@ function harness() {
   const api = createXiaoniHelpPersistence({ getPrismaClient: () => ({ agentTask: {
     upsert: async ({ create }) => { row ??= { ...create, attempts: 0, updated_at: 1 }; },
     findUnique: async ({ where }) => row?.id === where.id ? structuredClone(row) : null,
+    findFirst: async ({ where }) => {
+      if (!row || row.task_type !== where.task_type) return null;
+      const claimable = row.status === 'help_ready'
+        || (row.status === 'help_running' && !String(row.claimed_by || '').includes(':test-worker:'));
+      return claimable ? structuredClone(row) : null;
+    },
     updateMany: async ({ where, data }) => {
       if (!row || Object.entries(where).some(([key, value]) =>
         value && typeof value === 'object' && value.in ? !value.in.includes(row[key]) : row[key] !== value
@@ -65,4 +71,40 @@ test('attempts are recorded before work and process replacement requires human r
   assert.equal(resumed.ok, true);
   assert.equal(resumed.interrupted, true);
   assert.equal(resumed.task.attempts, 1);
+});
+
+test('asynchronous help is enqueued, claimed, and requeued until the goal completes', async () => {
+  const { api, row } = harness();
+  const queued = await api.enqueueXiaoniHelp({
+    ...input, sessionKey: 'xiaoni:global', chatType: 'direct',
+    queueMessage: { runId: 'r', traceId: 't' }
+  });
+  assert.equal(queued.ok, true);
+  assert.equal(queued.task.status, 'help_ready');
+
+  const claimed = await api.claimNextXiaoniHelp('test-worker');
+  assert.equal(claimed.status, 'help_running');
+  assert.equal(await api.requeueXiaoniHelp({
+    helpId: claimed.id, claim: claimed.claim, callId: 'first', request: input.request,
+    result: { status: 'incomplete' }, availableAt: new Date(0)
+  }), true);
+  assert.equal(row().status, 'help_ready');
+  assert.equal(row().result_json.history[0].result.status, 'incomplete');
+
+  const resumed = await api.claimNextXiaoniHelp('test-worker');
+  assert.equal(resumed.status, 'help_running');
+});
+
+test('supplying missing input reopens the same waiting goal', async () => {
+  const { api, row } = harness();
+  const queued = await api.enqueueXiaoniHelp(input);
+  const claimed = await api.claimNextXiaoniHelp('test-worker');
+  assert.equal(await api.finishXiaoniHelp({
+    helpId: queued.task.id, claim: claimed.claim, callId: 'first', request: input.request,
+    status: 'help_waiting_input', result: { status: 'help_waiting_input', result: '需要邮箱地址' }
+  }), true);
+  const resumed = await api.enqueueXiaoniHelp({ ...input, helpId: queued.task.id, callId: 'second', context: '邮箱是 test@example.com' });
+  assert.equal(resumed.ok, true);
+  assert.equal(row().status, 'help_ready');
+  assert.equal(row().input_json.call_id, 'second');
 });

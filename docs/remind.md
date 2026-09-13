@@ -13,6 +13,8 @@
 | `attention_lease` | `docs/xiaoni_prompt/attention_lease_reminder.md` | `$qq-usage` 主动查看某个 QQ 会话后，工程侧短期余光窗口内该会话又有新未读时。 |
 | `image_task_pending` | `docs/xiaoni_prompt/image_task_pending.md` | `request_image_task` 已排队但成品图片 id/path 尚不存在时，防止小腻盲猜路径或误判任务失败。 |
 | `image_task_notification` | `docs/xiaoni_prompt/image_task_notification.md` | 图片任务完成后由 task worker 写入 completion notify，再被主 loop pick。 |
+| `help_task_completed_notification` | `docs/xiaoni_prompt/help_task_completed_notification.md` | 异步委托 Goal 完成后由 help task worker 写入 completion notify。 |
+| `help_task_attention_notification` | `docs/xiaoni_prompt/help_task_attention_notification.md` | 异步委托 Goal 缺少必要输入或需要人工处理时写入 attention notify。 |
 | `self_continuation` | `docs/xiaoni_prompt/self_continuation_reminder.md` | 没有 notify，且候选 requestInput 最后一个 input item 是 `assistant final_answer` 时。 |
 | `core_memory_compression_fork_forced` | `docs/xiaoni_prompt/core_memory_compression_fork_forced_reminder.md` | compression fork 用满整理轮次(>= FORCE_TURNS)仍未写 xiaoni_status 时的强制提醒。 |
 | `image_vision_write_description` | `docs/xiaoni_prompt/image_vision_write_description_reminder.md` | image vision fork 要求模型用 `exec_command` 写入指定观察文件时。 |

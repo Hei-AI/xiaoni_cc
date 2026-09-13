@@ -39,6 +39,7 @@ const qqProfileRuntime = new QqProfileSkillRuntime(new QqProfileService({
 let stopping = false;
 let workerBusy = false;
 let taskWorkerBusy = false;
+let helpWorkerBusy = false;
 let runtimeEnabled = true;
 let lastProcessingRecoveryAt = 0;
 const promptReloadPolicy = new XiaoniPromptReloadPolicy();
@@ -55,6 +56,7 @@ app.get('/health', async (_req, res) => {
     service: 'agent-service',
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
+    help_worker_busy: helpWorkerBusy,
     runtime_enabled: runtimeEnabled,
     timestamp: new Date().toISOString()
   });
@@ -399,6 +401,24 @@ async function pollTaskQueueOnce() {
   }
 }
 
+async function pollHelpQueueOnce() {
+  if (stopping || helpWorkerBusy) return agentConfig.idleIntervalMs;
+  runtimeEnabled = await isRuntimeEnabled();
+  if (!runtimeEnabled) return agentConfig.idleIntervalMs;
+  helpWorkerBusy = true;
+  try {
+    const processed = await loopService.processNextHelpTask(`${agentConfig.workerId}:help-task`);
+    return processed ? 0 : agentConfig.idleIntervalMs;
+  } catch (error) {
+    moduleLogger.error('Help task queue poll failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return agentConfig.idleIntervalMs;
+  } finally {
+    helpWorkerBusy = false;
+  }
+}
+
 async function isRuntimeEnabled() {
   try {
     const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
@@ -516,6 +536,13 @@ async function runTaskWorkerLoop() {
     if (!stopping && delayMs > 0) {
       await wait(delayMs);
     }
+  }
+}
+
+async function runHelpWorkerLoop() {
+  while (!stopping) {
+    const delayMs = await pollHelpQueueOnce();
+    if (!stopping && delayMs > 0) await wait(delayMs);
   }
 }
 
@@ -708,6 +735,7 @@ async function start() {
     }
   }));
   void wait(500).then(() => runTaskWorkerLoop());
+  void wait(650).then(() => runHelpWorkerLoop());
   void wait(800).then(() => runDebugCacheHeartbeatLoop());
   if (agentConfig.clockPingEnabled) {
     void wait(1100).then(() => runClockPingLoop());

@@ -1,10 +1,13 @@
 import {
   createAgentMediaObservation,
   createAgentTask,
+  enqueueXiaoniHelp,
+  claimNextXiaoniHelp,
   beginXiaoniHelp,
   finishXiaoniHelp,
   markXiaoniHelpSending,
   startXiaoniHelpAttempt,
+  requeueXiaoniHelp,
   createFeedbackEpisode,
   createSqlAdapter,
   getAgentRuntimeControl,
@@ -2061,9 +2064,12 @@ export class RuntimeStore {
   }
 
   async beginHelp(input: Record<string, unknown>) { return beginXiaoniHelp(input, databaseConfig); }
+  async enqueueHelp(input: Record<string, unknown>) { return enqueueXiaoniHelp(input, databaseConfig); }
+  async claimNextHelp(workerId: string) { return claimNextXiaoniHelp(workerId, databaseConfig); }
   async finishHelp(input: Record<string, unknown>) { return finishXiaoniHelp(input, databaseConfig); }
   async markHelpSending(input: Record<string, unknown>) { return markXiaoniHelpSending(input, databaseConfig); }
   async startHelpAttempt(input: Record<string, unknown>) { return startXiaoniHelpAttempt(input, databaseConfig); }
+  async requeueHelp(input: Record<string, unknown>) { return requeueXiaoniHelp(input, databaseConfig); }
 
   async incrementActiveDeepDiveRequests() {
     return incrementActiveXiaoniDeepDiveRequests({}, databaseConfig);

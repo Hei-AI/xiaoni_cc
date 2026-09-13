@@ -5,11 +5,11 @@
 
 ## 面向小腻的入口
 
-`ask_li_ahua(request, context, help_id?)` 表达“向李阿花求助”。日常计算机操作与研究问题都可使用，不要求创建 deep dive。
+`ask_li_ahua(request, context, help_id?)` 把“需要李阿花帮助的事情”提交为异步任务。日常计算机操作与研究问题都可使用，不要求创建 deep dive。
 `request` 写需要的帮助，`context` 写现场、已尝试的办法、预期结果与边界。
-同一件事仍未解决时传回 `help_id`，并说明上次结果哪里没有解决；新问题不复用旧编号。
+调用只返回 task/help id 和 `pending`，不在主 agent turn 内等待 worker。完成或需要补充信息时，task worker 通过 Notify Bucket 另行唤醒小腻。同一件事补充必要信息时传回 `help_id`；新问题不复用旧编号。
 
-小腻只看到“找李阿花获取帮助”。李阿花可在内部把求助交给福尔摩斯处理，或接收 QQ 私聊；分类、外包、模型和重试机制不进入工具描述或回传字段。返回中性的求助结果、待回复或未送达状态，不虚构李阿花本人说过或做过什么。处理结果不等于自动宣布小腻的深挖已经完成。
+小腻只看到异步委托任务、任务编号和后续结果；分类、worker 模型和重试机制不进入回传字段。返回中性的任务状态，不虚构李阿花本人说过或做过什么。处理结果不等于自动宣布小腻的深挖已经完成。
 模型可见回传统一经过 `presentLiAhuaHelp` 白名单投影，包括旧记录的重复调用；内部来源与状态保留在工程账本中。QQ 求助正文只带问题、背景和此前求助结果，不暴露内部分流说明。既有 stack 历史按原字节回放，不重写旧回执。
 人工交接走 `agent-service -> provider-service -> NapCat`，发到小腻与李阿花的 QQ 私聊；本人回复仍由现有 QQ inbox 进入，小腻用 `$qq-usage` 查看。
 
@@ -27,14 +27,13 @@
 | human | 需要本人决定、个人信息、授权或明确指定本人参与，直接交给李阿花。 |
 | clarify | 任务目标或必要信息不足，返回具体需要补充的问题。 |
 
-分类器读取本次请求、背景和该求助的历史反馈。帮手使用全新上下文，只拿到求助材料，不克隆小腻的身份和主请求。
+分类器读取本次请求、背景和该任务的历史反馈。worker 的输入只组装完成当前 Goal 所需的任务材料。
 调查与执行均通过现有 provider 和 `exec_command`，执行环境为现有 xiaoni-executor；浏览器和其它本地能力先读对应 `SKILL.md`。
 执行层拒绝其它工具，包括递归求助、QQ 发言和修改深挖状态；shell 内的行为边界由工作目录规则与帮手提示词约束，不声称是独立权限沙箱。
 命令结果复用 `applyToolResultToLoopInput` 回传原始 `codex_output`、stdout/stderr 和拒绝信息；不能使用发送消息的精简回执函数，否则帮手只能看到 `ok` 而无法核对执行结果。
 
-默认帮手最多处理同一求助两次；小腻再次反馈未解决时，直接转人工，附原始请求、补充内容和此前处理记录。
-明确需要本人参与不必等两次。帮手没有给出可用结果时也转人工。分类澄清不占帮手尝试次数。
-单次帮手沿用 32 个模型 turn / 30 次工具调用的预算；预算不是完成判据。
+`execute` 是持久 Goal。worker 只有收到完整的 `<goal_completed>...</goal_completed>` 并取得可核对结果才结束；普通 final、部分进度、单次失败或单轮预算耗尽都重新排队继续。每轮开始外部动作前先检查现场，避免重启或重试造成重复提交。确实缺少必要输入时返回 `<goal_blocked>...</goal_blocked>`，任务进入等待补充状态；使用同一 `help_id` 补充后继续。
+明确需要本人参与直接转人工。单次 worker 沿用 32 个模型 turn / 30 次工具调用的安全阀，达到安全阀只结束本轮，不结束 Goal。
 
 ## 持久化与重复调用
 
@@ -42,8 +41,10 @@
 使用 `help_*` 状态，现有只领取 `pending` 的图像 worker 不会消费求助。
 `attempts`、原始请求、每次请求与返回结果保存在同一记录；比较并交换领取和 call ID 去重避免并发重复执行。
 
-- `help_running`：已经领取，同进程重复调用不执行；主 runtime 单宿主重启后，同编号再次求助转人工核实现场，不重新执行可能已产生副作用的动作。
-- `help_answered` / `help_failed`：已返回结果或失败，可以用原编号继续。
+- `help_ready`：等待独立 help task worker 领取；主 loop 已经返回，不被阻塞。
+- `help_running`：worker 已领取。服务替换后新进程可恢复领取，并把此前记录交给下一轮检查现场后继续。
+- `help_waiting_input`：缺少必要输入；小腻收到 attention notify，使用原编号补充后回到 `help_ready`。
+- `help_answered`：Goal 已完成并持久化，随后写入 completion notify。
 - `help_human_sending`：已开始发送或发送结果不确定，不自动重发；先核对 QQ 记录。
 - `help_human_sent`：已转交本人，后续调用返回等待本人回复。
 
@@ -59,10 +60,9 @@
 | `AGENT_SHERLOCK_MODEL` | `claude-sonnet-4-6`；通过 provider 执行 worker。 |
 | `AGENT_SHERLOCK_CLASSIFIER_MODEL` | `claude-sonnet-4-6`；通过 provider 执行分类器。 |
 | `AGENT_HELP_HUMAN_QQ_ID` | 无默认；未配置不发送，并明确返回未转交。 |
-| `AGENT_HELP_MAX_HELPER_ATTEMPTS` | 2。 |
 
 新增主工具和主 prompt 改变部署时的缓存前缀，产生一次预期冷读。工具静态注册，所有克隆 fork 共用同一工具列表，之后不随求助状态变化。
-分类和帮手是独立请求，不改变主请求历史。主工具结果和兼容入口通知在生成时冻结，下一 run 逐字节回放；不把尝试次数、分类状态或时间插入主缓存前缀。
+分类和 worker 是独立 no-persist 请求，不改变主请求历史。主工具的 pending 回执和完成 notify 在生成时冻结，下一 run 逐字节回放；不把尝试次数、分类状态或时间插入主缓存前缀。
 验证要求仍按仓库不可变缓存回归和相邻实际 wire request / cache-read 证据执行。
 
 ## 2026-09-13 验证记录
@@ -83,3 +83,7 @@
 2026-09-13 17:07（UTC+8）已基于 `a07ff05c` 定向构建并更新 agent-service。镜像内求助/缓存对齐测试 22/22 通过，服务 healthy、runtime enabled；运行容器确认工具描述只表达找李阿花求助，旧回执投影不再返回内部来源字段。
 
 2026-09-13 17:27（UTC+8）补齐语音转写测试委托：分类器把当前浏览器人机认证、当前 Google 账号登录或授权、论坛代发和邮件发送视为明确 `execute`，worker 读取 `$xiaoni-browser` 后通过 Playwright 桥逐步执行并验证。分类器和 worker 已显式切到 provider 的 `claude-sonnet-4-6`；定向求助与两支不可变 agent 缓存用例 53/53、真库缓存 4/4 通过。真实 Sonnet 4.6 no-persist 分类探针返回 `execute`，agent-service 定向 build/up 后 healthy，容器内模型环境和 prompt 均核对生效。
+
+### 异步 Goal worker
+
+`ask_li_ahua` 改为与图片任务相同的入队/完成通知边界：调用当轮只写 `xiaoni_help` task 并立即返回 pending；独立 help task worker 领取并持续执行，完成后写 completion notify 唤醒小腻。执行结果必须使用明确完成标签，未完成与普通异常重新排队，缺输入则保留同一 Goal 等待补充。主 agent 不轮询，也不占用原 run 等待 worker。

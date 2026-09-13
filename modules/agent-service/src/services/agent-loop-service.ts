@@ -15,7 +15,7 @@ import {
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
-import { SHERLOCK_ROUTE_TOOL, parseSherlockRoute, presentLiAhuaHelp } from './sherlock-assistance';
+import { SHERLOCK_ROUTE_TOOL, parseAssistanceGoalResult, parseSherlockRoute, presentLiAhuaHelp } from './sherlock-assistance';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
@@ -1975,7 +1975,7 @@ export const ASK_LI_AHUA_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.askLiAhua,
-    description: '找李阿花获取帮助。说明你需要什么帮助、遇到了什么困难，以及希望得到什么结果。同一件事继续求助时，带上原 help_id 并补充情况。',
+    description: '把需要李阿花帮助的事情提交为异步任务。工具会立即返回任务编号和 pending 状态；任务完成后会另行通知，不要等待、轮询或重复提交。同一件事补充必要信息时，带上原 help_id。',
     parameters: {
       type: 'object',
       properties: {
@@ -12384,7 +12384,16 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     onHelperStart?: () => Promise<void>;
-  }): Promise<{ text: string | null; toolCallsUsed: number; turns: number; needsHuman?: boolean; helperAttempt?: boolean }> {
+  }): Promise<{
+    text: string | null;
+    toolCallsUsed: number;
+    turns: number;
+    needsHuman?: boolean;
+    helperAttempt?: boolean;
+    goalCompleted?: boolean;
+    goalBlocked?: boolean;
+    assistanceKind?: 'investigate' | 'execute' | 'human' | 'clarify';
+  }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
     const helperModel = agentConfig.sherlockModelName || params.runtimePrompt.modelName;
     const classifierModel = agentConfig.sherlockClassifierModelName || helperModel;
@@ -12427,10 +12436,16 @@ export class AgentLoopService {
     });
     if (!route) throw new Error('Sherlock assistance classification returned an invalid decision');
     if (route.kind === 'human') {
-      return { text: route.reason, toolCallsUsed: 0, turns: 0, needsHuman: true };
+      return { text: route.reason, toolCallsUsed: 0, turns: 0, needsHuman: true, assistanceKind: route.kind };
     }
     if (route.kind === 'clarify') {
-      return { text: `需要补充信息：${route.reason}`, toolCallsUsed: 0, turns: 0 };
+      return {
+        text: `需要补充信息：${route.reason}`,
+        toolCallsUsed: 0,
+        turns: 0,
+        goalBlocked: true,
+        assistanceKind: route.kind
+      };
     }
     await params.onHelperStart?.();
     const taskReminder = route.kind === 'execute'
@@ -12465,6 +12480,8 @@ export class AgentLoopService {
     let toolCallsUsed = 0;
     let turns = 0;
     let finalText: string | null = null;
+    let goalCompleted = route.kind !== 'execute';
+    let goalBlocked = false;
 
     for (let forkTurn = 1; forkTurn <= SHERLOCK_FORK_MAX_TURNS; forkTurn += 1) {
       turns = forkTurn;
@@ -12529,7 +12546,24 @@ export class AgentLoopService {
       }
 
       if (toolCalls.length === 0) {
-        finalText = extractSubconsciousNaturalLanguage(outputItems);
+        const naturalText = extractSubconsciousNaturalLanguage(outputItems);
+        if (route.kind === 'execute') {
+          const goalResult = parseAssistanceGoalResult(naturalText);
+          if (goalResult?.status === 'completed') {
+            finalText = goalResult.text;
+            goalCompleted = true;
+            break;
+          }
+          if (goalResult?.status === 'blocked') {
+            finalText = goalResult.text;
+            goalBlocked = true;
+            break;
+          }
+          forkInput.push(buildDeveloperInputItem([readPromptSnippet('sherlock_goal_continue.md').trim()]));
+          forkInput = normalizeResponseInputItems(forkInput);
+          continue;
+        }
+        finalText = naturalText;
         if (finalText) break;
         continue;
       }
@@ -12570,7 +12604,15 @@ export class AgentLoopService {
       forkInput = normalizeResponseInputItems(forkInput);
     }
 
-    return { text: finalText, toolCallsUsed, turns, helperAttempt: true };
+    return {
+      text: finalText,
+      toolCallsUsed,
+      turns,
+      helperAttempt: true,
+      goalCompleted,
+      goalBlocked,
+      assistanceKind: route.kind
+    };
   }
 
   // 复核结论回到她面前。走 Notify Bucket —— 与既有几条 notify 同一条已在线验过的缓存路径:
@@ -14620,17 +14662,83 @@ export class AgentLoopService {
     const context = typeof toolCall.args.context === 'string' ? toolCall.args.context.trim() : '';
     const helpId = typeof toolCall.args.help_id === 'string' ? toolCall.args.help_id.trim() : '';
     if (!request || !context) return { ok: false, message: '请说明需要什么帮助，以及背景和已经尝试的办法。' };
-    const started = await this.store.beginHelp({
-      helpId, request, context, callId: toolCall.callId, correlationKey, traceId: queueMessage.traceId, runId: queueMessage.runId
+    const queued = await this.store.enqueueHelp({
+      helpId,
+      request,
+      context,
+      callId: toolCall.callId,
+      correlationKey,
+      traceId: queueMessage.traceId,
+      runId: queueMessage.runId,
+      sessionKey: queueMessage.sessionKey,
+      chatType: queueMessage.chatType,
+      peerId: queueMessage.peerId,
+      peerName: queueMessage.peerName || null,
+      requesterSenderId: queueMessage.senderId,
+      requesterSenderName: queueMessage.senderName || null,
+      queueMessage: {
+        traceId: queueMessage.traceId,
+        runId: queueMessage.runId,
+        batchId: queueMessage.batchId,
+        source: 'help_task',
+        chatType: queueMessage.chatType,
+        sessionKey: queueMessage.sessionKey,
+        peerId: queueMessage.peerId,
+        peerName: queueMessage.peerName || null,
+        senderId: queueMessage.senderId,
+        senderName: queueMessage.senderName || null,
+        accountId: queueMessage.accountId,
+        messages: []
+      }
     });
-    if (!started.ok) {
-      return presentLiAhuaHelp(started.result || {
-        ok: false, help_id: started.task?.id ?? helpId, status: started.reason,
-        message: started.reason === 'help_human_sent' ? '已转交李阿花，等待他的 QQ 私聊回复。'
-          : '这次求助没有重新执行。请保留求助编号；处理中或中断的操作需要先核实状态。'
+    if (!queued.ok) {
+      return presentLiAhuaHelp(queued.result || {
+        ok: false, help_id: queued.task?.id ?? helpId, status: queued.reason,
+        message: '这次求助没有重新排队。请保留求助编号。'
       });
     }
-    const task = started.task;
+    return presentLiAhuaHelp({
+      ok: true,
+      help_id: queued.task?.id ?? helpId,
+      status: queued.task?.status || 'help_ready'
+    });
+  }
+
+  async processNextHelpTask(workerId: string): Promise<boolean> {
+    const task = await this.store.claimNextHelp(workerId);
+    if (!task) return false;
+    try {
+      await this.processClaimedHelpTask(task);
+    } catch (error) {
+      moduleLogger.warn('Background help task failed; requeueing goal', {
+        helpId: task.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      await this.store.requeueHelp({
+        helpId: task.id,
+        claim: task.claim,
+        callId: task.input_json?.call_id || task.id,
+        request: task.prompt,
+        result: {
+          status: 'incomplete',
+          error: error instanceof Error ? error.message : String(error)
+        }
+      });
+    }
+    return true;
+  }
+
+  private async processClaimedHelpTask(task: any): Promise<void> {
+    const queueMessage = {
+      ...(task.input_json?.queue_message || {}),
+      traceId: task.source_trace_id || task.input_json?.queue_message?.traceId || `help-trace:${task.id}`,
+      runId: task.source_run_id || task.input_json?.queue_message?.runId || `help-run:${task.id}`,
+      messages: []
+    } as QueueMessageRecord['payload'];
+    const request = task.prompt;
+    const context = typeof task.input_json?.context === 'string' ? task.input_json.context : '';
+    const callId = typeof task.input_json?.call_id === 'string' ? task.input_json.call_id : task.id;
+    const history = Array.isArray(task.result_json?.history) ? task.result_json.history : [];
     let helperAttempt = false;
     let attemptRecorded = false;
     let sending = false;
@@ -14638,32 +14746,52 @@ export class AgentLoopService {
     let status = 'help_answered';
     try {
       const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
-      const prior = started.history.map((entry: any) => ({ request: entry.request, result: entry.result }));
-      const outcome = started.interrupted
-        ? { text: '上次处理被服务重启中断，现场可能已有变更，需要李阿花核实后继续。', needsHuman: true, helperAttempt: false }
-        : task.attempts >= agentConfig.helpMaxHelperAttempts
-        ? { text: '同一件事经帮手处理后仍未解决，需要李阿花本人看看。', needsHuman: true, helperAttempt: false }
-        : await this.runSherlockFork({
+      const prior = history.map((entry: any) => ({ request: entry.request, result: entry.result }));
+      const outcome = await this.runSherlockFork({
             diveId: '',
             question: task.prompt,
-            searchedPaths: JSON.stringify({ original_context: task.input_json?.context, request, context }),
+            searchedPaths: JSON.stringify({ original_context: context, request, context }),
             previousDirection: prior.length ? JSON.stringify(prior) : null,
             forkRunId: `help:${task.id}:${uuidv4().slice(0, 8)}`,
             queueMessage, runtimePrompt,
             onHelperStart: async () => {
-              if (!await this.store.startHelpAttempt({ helpId: task.id, claim: started.claim })) throw new Error('Help attempt claim lost');
+              if (!await this.store.startHelpAttempt({ helpId: task.id, claim: task.claim })) throw new Error('Help attempt claim lost');
               attemptRecorded = true;
               helperAttempt = true;
             }
           });
       helperAttempt = Boolean(outcome.helperAttempt);
-      if (outcome.needsHuman || (helperAttempt && !shouldDeliverSherlockDirection(outcome.text))) {
+      if (outcome.assistanceKind === 'execute' && !outcome.goalCompleted && !outcome.goalBlocked) {
+        const requeued = await this.store.requeueHelp({
+          helpId: task.id,
+          claim: task.claim,
+          callId,
+          request,
+          result: {
+            status: 'incomplete',
+            summary: outcome.text,
+            turns: outcome.turns,
+            tool_calls: outcome.toolCallsUsed
+          }
+        });
+        if (!requeued) throw new Error('Help goal requeue claim lost');
+        return;
+      }
+      if (outcome.goalBlocked) {
+        status = 'help_waiting_input';
+        result = {
+          ok: false,
+          help_id: task.id,
+          status,
+          result: outcome.text || '需要补充完成任务所必需的信息。'
+        };
+      } else if (outcome.needsHuman || (outcome.assistanceKind === 'investigate' && helperAttempt && !shouldDeliverSherlockDirection(outcome.text))) {
         const qqId = Number(agentConfig.helpHumanQqId);
         if (!Number.isSafeInteger(qqId) || qqId <= 0) {
-          status = 'help_failed';
+          status = 'help_waiting_input';
           result = { ok: false, help_id: task.id, status: 'human_contact_unconfigured', message: '需要李阿花本人帮助，但求助私聊收件人尚未配置，消息未发送。' };
         } else {
-          if (!await this.store.markHelpSending({ helpId: task.id, claim: started.claim })) throw new Error('Help delivery claim lost');
+          if (!await this.store.markHelpSending({ helpId: task.id, claim: task.claim })) throw new Error('Help delivery claim lost');
           sending = true;
           const message = [
             `【小腻求助 ${task.id}】`, task.prompt,
@@ -14689,19 +14817,97 @@ export class AgentLoopService {
         };
       }
     } catch (error) {
-      status = sending ? 'help_human_sending' : 'help_failed';
-      result = {
-        ok: false, help_id: task.id, status: sending ? 'delivery_uncertain' : 'help_failed',
-        message: sending ? '私聊发送结果尚未确认，请先核对聊天记录，避免重复发送。' : '这次求助处理未完成，请保留编号后再试。'
-      };
       moduleLogger.warn('Help request failed', { helpId: task.id, error: error instanceof Error ? error.message : String(error) });
+      if (!sending) {
+        const requeued = await this.store.requeueHelp({
+          helpId: task.id,
+          claim: task.claim,
+          callId,
+          request,
+          result: {
+            status: 'incomplete',
+            error: error instanceof Error ? error.message : String(error)
+          }
+        });
+        if (!requeued) throw new Error('Help goal requeue claim lost');
+        return;
+      }
+      status = 'help_human_sending';
+      result = {
+        ok: false, help_id: task.id, status: 'delivery_uncertain',
+        message: '私聊发送结果尚未确认，请先核对聊天记录，避免重复发送。'
+      };
     }
     const saved = await this.store.finishHelp({
-      helpId: task.id, claim: started.claim, callId: toolCall.callId, request, result, status,
+      helpId: task.id, claim: task.claim, callId, request, result, status,
       helperAttempt: helperAttempt && !attemptRecorded
     });
     if (!saved) throw new Error('Help result persistence claim lost');
-    return presentLiAhuaHelp(result);
+    await this.enqueueHelpTaskNotification(task, result, status);
+  }
+
+  private async enqueueHelpTaskNotification(task: any, result: Record<string, unknown>, status: string) {
+    const now = new Date();
+    const accountId = agentConfig.botAccountId;
+    const completed = status === 'help_answered';
+    const resultText = typeof result.result === 'string' ? result.result : result.message || JSON.stringify(result);
+    const body = renderPromptSnippet(
+      completed ? 'help_task_completed_notification.md' : 'help_task_attention_notification.md',
+      { TASK_ID: task.id, RESULT: String(resultText) }
+    ).trim();
+    const messageSid = `help-task:${status}:${task.id}:${task.attempts || 0}`;
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
+    const payload = {
+      traceId,
+      runId: '',
+      batchId: '',
+      source: 'system_reminder',
+      chatType: 'direct',
+      sessionKey: getGlobalPromptContextSessionKey(),
+      peerId: accountId,
+      peerName: XIAONI_IDENTITY_KEY,
+      senderId: 'help-task-worker',
+      senderName: '委托任务',
+      accountId,
+      bodyForAgent: body,
+      rawBody: body,
+      commandBody: body,
+      wasMentioned: true,
+      receivedAt: now.toISOString(),
+      messageTimestamp: now.toISOString(),
+      rawPayload: { kind: completed ? 'help_task_completed' : 'help_task_attention', task_id: task.id, status },
+      inboundContext: {
+        Body: body,
+        BodyForAgent: body,
+        BodyForCommands: body,
+        RawBody: body,
+        CommandBody: body,
+        SessionKey: getGlobalPromptContextSessionKey(),
+        AccountId: accountId,
+        MessageSid: messageSid,
+        ChatType: 'direct',
+        ConversationLabel: XIAONI_IDENTITY_KEY,
+        SenderName: '委托任务',
+        SenderId: 'help-task-worker',
+        Timestamp: now.getTime(),
+        Provider: 'internal',
+        Surface: 'system_reminder',
+        WasMentioned: true,
+        NativeChannelId: getGlobalPromptContextSessionKey(),
+        CommandAuthorized: false
+      },
+      messages: [],
+      systemReminder: {
+        reminder: body,
+        reason: completed ? 'help_task_completed' : 'help_task_attention',
+        sourceTurn: 1,
+        createdAt: now.toISOString()
+      }
+    };
+    await this.store.enqueueQueueMessage({
+      message: { ...payload, dedupeKey: messageSid, messageSid },
+      payload
+    });
   }
 
   private async executeTool(

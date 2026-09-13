@@ -55,6 +55,7 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 | QQ/attention | `phone_notification` 只表示状态栏未读短摘要；完整正文必须通过 `$qq-usage` 主动打开。群聊 `mentions_only` 模式下普通群消息只进 inbox，不敲状态栏；`set_group_notification_delay` 可以把普通群消息聚合成一条延迟提醒，群 @ 仍立即提醒。`attention_lease` 是短期余光提醒，不续期所有 inbox。 |
 | Self continuation | 只有 no-notify 且候选 requestInput 尾项仍是 `assistant final_answer` 时追加；不是 queue trigger。 |
 | Image tasks | `image_task_pending` 防止盲猜成品路径；`image_task_notification` 只在任务完成后提供 task id、图片 id/path 和目标说明。 |
+| Help tasks | `ask_li_ahua` 立即返回 task id 与 pending；独立 worker 持续推进 Goal，完成或需要补充输入时通过 Notify Bucket 唤醒小腻。 |
 | Recovery | 模型主动 `recover_energy` 的成功、被打断、clock、clock deferred 和拒绝都作为同一个 tool call 的 callback；强制休息醒来走 runtime input。 |
 | Core memory pressure | 后台 compression fork 的当前输入；工程用 `allowed_tools` 限制为 `exec_command` + `compress_core_memory`。 |
 

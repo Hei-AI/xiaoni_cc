@@ -268,6 +268,15 @@ task worker 写入 `image_task_notification` notify，主 loop pick 后才把图
 和目标说明渲染给模型。图片 bytes、trace/run、原始 prompt 和 provider 参数留在 DB/trace，
 不进入 prompt-facing reminder。
 
+### Help Tasks
+
+`ask_li_ahua` 也是异步任务。主 loop 只把 `xiaoni_help` 写入 `agent_tasks` 并返回 task id
+和 pending 状态；独立 help task worker 领取后把 execute 类任务作为必须完成的 Goal 持续推进。
+只有经过验证的明确完成结果才进入 `help_answered`，随后 worker 写入 completion notify 唤醒主
+loop。单轮未完成或普通异常重新进入 `help_ready`；缺少必要输入时进入
+`help_waiting_input` 并发 attention notify，补充信息沿用原 task id 继续。worker 的 provider 请求
+使用 no-persist fork slice，不进入主 stack；pending 回执和 notify 入栈后按原字节 replay。
+
 ### Tool Callback Boundaries
 
 `recover_energy` 是普通工具执行，但不再由 tool handler 内同步等待固定时长。模型主动调用

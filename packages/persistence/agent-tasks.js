@@ -305,6 +305,79 @@ const HELP_PROCESS_ID = randomUUID();
 // Help shares the existing task ledger, with help_* states that the image worker
 // cannot claim. CAS transitions prevent parallel calls from repeating operations.
 function createXiaoniHelpPersistence({ getPrismaClient }) {
+  async function enqueueXiaoniHelp(input, config = {}) {
+    const prisma = getPrismaClient(config);
+    const id = input.helpId || `help_${createHash('sha256').update(input.correlationKey || input.callId).digest('hex').slice(0, 40)}`;
+    if (!input.helpId) {
+      await prisma.agentTask.upsert({
+        where: { id }, update: {},
+        create: {
+          id, task_type: HELP_TASK_TYPE, status: 'help_ready',
+          session_key: input.sessionKey || 'xiaoni:global', chat_type: input.chatType || 'direct',
+          peer_id: input.peerId || null, peer_name: input.peerName || null,
+          requester_sender_id: input.requesterSenderId || null,
+          requester_sender_name: input.requesterSenderName || null,
+          prompt: input.request, source_trace_id: input.traceId, source_run_id: input.runId,
+          input_json: {
+            context: input.context,
+            call_id: input.callId,
+            queue_message: normalizeJsonObject(input.queueMessage)
+          },
+          result_json: { history: [] }
+        }
+      }).catch(error => { if (error.code !== 'P2002') throw error; });
+    }
+    let row = await prisma.agentTask.findUnique({ where: { id } });
+    if (!row || row.task_type !== HELP_TASK_TYPE) return { ok: false, reason: 'help_not_found' };
+    const history = Array.isArray(row.result_json?.history) ? row.result_json.history : [];
+    const duplicate = history.find(entry => entry.call_id === input.callId);
+    if (duplicate) return { ok: false, reason: 'already_processed', task: normalizeTask(row), result: duplicate.result };
+    if (row.status === 'help_human_sent' || row.status === 'help_human_sending') {
+      return { ok: false, reason: row.status, task: normalizeTask(row) };
+    }
+    if (input.helpId && ['help_answered', 'help_failed', 'help_waiting_input'].includes(row.status)) {
+      const updated = await prisma.agentTask.updateMany({
+        where: { id, task_type: HELP_TASK_TYPE, status: row.status, updated_at: row.updated_at },
+        data: {
+          status: 'help_ready', prompt: input.request,
+          input_json: {
+            context: input.context,
+            call_id: input.callId,
+            queue_message: normalizeJsonObject(input.queueMessage)
+          },
+          error_message: null, completed_at: null, available_at: new Date()
+        }
+      });
+      if (updated.count !== 1) return { ok: false, reason: 'help_busy', task: normalizeTask(row) };
+      row = await prisma.agentTask.findUnique({ where: { id } });
+    }
+    return { ok: true, queued: true, task: normalizeTask(row), history };
+  }
+
+  async function claimNextXiaoniHelp(workerId, config = {}) {
+    const prisma = getPrismaClient(config);
+    const now = new Date();
+    const row = await prisma.agentTask.findFirst({
+      where: {
+        task_type: HELP_TASK_TYPE,
+        OR: [
+          { status: 'help_ready', available_at: { lte: now } },
+          { status: 'help_running', claimed_by: { not: { startsWith: `${HELP_PROCESS_ID}:` } } }
+        ]
+      },
+      orderBy: [{ available_at: 'asc' }, { created_at: 'asc' }, { id: 'asc' }]
+    });
+    if (!row) return null;
+    const interrupted = row.status === 'help_running';
+    const claim = `${HELP_PROCESS_ID}:${workerId}:${randomUUID()}`;
+    const updated = await prisma.agentTask.updateMany({
+      where: { id: row.id, task_type: HELP_TASK_TYPE, status: row.status, updated_at: row.updated_at },
+      data: { status: 'help_running', claimed_by: claim, claimed_at: now }
+    });
+    if (updated.count !== 1) return null;
+    return { ...normalizeTask(row), status: 'help_running', claim, interrupted };
+  }
+
   async function beginXiaoniHelp(input, config = {}) {
     const prisma = getPrismaClient(config);
     const id = input.helpId || `help_${createHash('sha256').update(input.correlationKey || input.callId).digest('hex').slice(0, 40)}`;
@@ -373,7 +446,40 @@ function createXiaoniHelpPersistence({ getPrismaClient }) {
     return result.count === 1;
   }
 
-  return { beginXiaoniHelp, finishXiaoniHelp, markXiaoniHelpSending, startXiaoniHelpAttempt };
+  async function requeueXiaoniHelp(input, config = {}) {
+    const prisma = getPrismaClient(config);
+    const row = await prisma.agentTask.findUnique({ where: { id: input.helpId } });
+    if (!row || row.task_type !== HELP_TASK_TYPE || row.claimed_by !== input.claim) return false;
+    const history = Array.isArray(row.result_json?.history) ? row.result_json.history : [];
+    const updated = await prisma.agentTask.updateMany({
+      where: { id: row.id, task_type: HELP_TASK_TYPE, claimed_by: input.claim, status: 'help_running' },
+      data: {
+        status: 'help_ready',
+        result_json: {
+          history: [...history, {
+            call_id: `${input.callId}:incomplete:${history.length + 1}`,
+            request: input.request,
+            result: input.result
+          }]
+        },
+        available_at: input.availableAt || new Date(Date.now() + 5000),
+        claimed_by: null,
+        claimed_at: null,
+        completed_at: null
+      }
+    });
+    return updated.count === 1;
+  }
+
+  return {
+    enqueueXiaoniHelp,
+    claimNextXiaoniHelp,
+    beginXiaoniHelp,
+    finishXiaoniHelp,
+    markXiaoniHelpSending,
+    startXiaoniHelpAttempt,
+    requeueXiaoniHelp
+  };
 }
 
 module.exports = {
