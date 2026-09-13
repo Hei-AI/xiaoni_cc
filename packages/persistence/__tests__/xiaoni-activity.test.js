@@ -2238,6 +2238,31 @@ test('Xiaoni xiaoni_os rewrite leg: kept outcome has a single classify event', a
   assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true, '它就是一次 provider 请求,要答 LLM 源标签');
 });
 
+test('OS fill review: retaining original text is completed, not a failed rewrite', async () => {
+  const persistence = createPersistence({ xiaoniOsRewriteRows: [xiaoniOsRewriteRow({
+    outcome: 'kept', classify_verdict: 'idle', rewrite_stage: 'fill',
+    original_text: '今天先休息，等她回复。', rewritten_text: null, rewrite_llm_call_id: 'fill-kept'
+  })] });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.xiaoniOsRewriteTimeline.runs[0];
+  assert.equal(run.status, 'ok');
+  assert.match(run.body, /上下文复核 → 原文准入/u);
+  assert.match(run.events[1].body, /上下文复核完成，保留原文/u);
+  assert.doesNotMatch(run.events[1].body, /失败/u);
+});
+
+test('OS fill failure: original text admission is not mislabeled as a classification failure', async () => {
+  const persistence = createPersistence({ xiaoniOsRewriteRows: [xiaoniOsRewriteRow({
+    outcome: 'failed_open', classify_verdict: 'idle', rewrite_stage: 'fill', rewritten_text: null,
+    error_message: 'fill: empty or over-length output'
+  })] });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.xiaoniOsRewriteTimeline.runs[0];
+  assert.match(run.body, /辅助处理失败 → 原文准入/u);
+  assert.doesNotMatch(run.body, /分类失败/u);
+  assert.equal(run.metadata.classifyVerdict, 'idle');
+});
+
 test('Xiaoni xiaoni_os rewrite leg: polished outcome renders classify + polish events with retry count', async () => {
   const persistence = createPersistence({
     xiaoniOsRewriteRows: [xiaoniOsRewriteRow({ id: 12, original_text: '在。Forth 读到 ch52 了。等困意来。', classify_verdict: 'action', classify_raw: '1', rewritten_text: 'Forth 读到 ch52 了。\nratfactor 的信先回。', rewrite_llm_call_id: 'llm_polish_1', rewrite_stage: 'polish', rewrite_retries: 1, outcome: 'polished' })],

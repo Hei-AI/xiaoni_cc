@@ -2185,7 +2185,7 @@ const XIAONI_OS_REWRITE_OUTCOME_LABELS = {
   polished: '有事但夹填充句 → 润色后准入',
   rewritten: '空转 → 改写后准入',
   evicted: '空转 → 改写失败，不进上下文',
-  failed_open: '分类失败 → fail-open 原文准入'
+  failed_open: '辅助处理失败 → 原文准入'
 };
 const XIAONI_OS_REWRITE_VERDICT_LABELS = {
   action: '有事(1)',
@@ -2241,14 +2241,15 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
   const stageFailed = isClassify
     ? (verdict === 'failed' || verdict === 'unparsed')
     : (outcome === 'evicted' || outcome === 'failed_open');
-  const secondLegDone = outcome === 'rewritten' || outcome === 'polished';
+  const keptByReview = outcome === 'kept' && stage === 'fill';
+  const secondLegDone = outcome === 'rewritten' || outcome === 'polished' || keptByReview;
   const stageWord = isPolish ? '润色' : stage === 'fill' ? '潜意识填充' : '改写';
   const summary = isClassify
     ? `判定 ${XIAONI_OS_REWRITE_VERDICT_LABELS[verdict] || verdict || '—'}`
-    : (secondLegDone ? `${stageWord}完成${retrySuffix}` : `${stageWord}失败${retrySuffix}${errorMessage ? ` · ${recallLlmOneLine(errorMessage, 120)}` : ''}`);
+    : (keptByReview ? '上下文复核完成，保留原文' : secondLegDone ? `${stageWord}完成${retrySuffix}` : `${stageWord}失败${retrySuffix}${errorMessage ? ` · ${recallLlmOneLine(errorMessage, 120)}` : ''}`);
   const headline = isClassify
     ? recallLlmOneLine(original, 160)
-    : (secondLegDone ? recallLlmOneLine(rewritten, 200) : '');
+    : (secondLegDone ? recallLlmOneLine(keptByReview ? original : rewritten, 200) : '');
   const timestamp = eventTimestamp(row.created_at || row.createdAt);
   return {
     id: eventId,
@@ -2321,7 +2322,9 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
   const original = String(row.original_text ?? row.originalText ?? '');
   const rewritten = String(row.rewritten_text ?? row.rewrittenText ?? '');
   const timestamp = events[0].timestamp;
-  const outcomeLabel = XIAONI_OS_REWRITE_OUTCOME_LABELS[outcome] || outcome || '—';
+  const outcomeLabel = outcome === 'kept' && row.rewrite_stage === 'fill'
+    ? '上下文复核 → 原文准入'
+    : XIAONI_OS_REWRITE_OUTCOME_LABELS[outcome] || outcome || '—';
   return {
     id: `${leg.idPrefix}:${rowId}`,
     forkRunId: `${leg.idPrefix}:${rowId}`,
