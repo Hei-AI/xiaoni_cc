@@ -2,13 +2,17 @@ import type { AgentToolCall } from '../types';
 
 export type SherlockAssistanceKind = 'investigate' | 'execute' | 'human' | 'clarify';
 export type AssistanceGoalResult = { status: 'completed' | 'blocked'; text: string };
-export type DelegatedTaskBrief = {
-  workItems: string[];
+export type DelegatedRequirementSpec = {
+  spec: string;
   omittedSensitiveContext: string[];
+};
+export type DelegatedWorkPlan = {
+  workItems: string[];
 };
 
 export const ASSISTANCE_FINISH_TOOL_NAME = 'finish_task';
-export const DELEGATED_BRIEF_TOOL_NAME = 'build_delegated_brief';
+export const DELEGATED_REWRITE_TOOL_NAME = 'rewrite_delegated_requirement';
+export const DELEGATED_PLAN_TOOL_NAME = 'build_delegated_work_plan';
 export const DELEGATED_SCREENSHOT_TOOL_NAME = 'view_browser_screenshot';
 
 export const DELEGATED_SCREENSHOT_TOOL = {
@@ -46,21 +50,37 @@ export const ASSISTANCE_FINISH_TOOL = {
   }
 } as const;
 
-export const DELEGATED_BRIEF_TOOL = {
+export const DELEGATED_REWRITE_TOOL = {
   type: 'function',
   function: {
-    name: DELEGATED_BRIEF_TOOL_NAME,
-    description: 'Return a privacy-minimized third-person task brief for the execution worker.',
+    name: DELEGATED_REWRITE_TOOL_NAME,
+    description: 'Rewrite the original request as a neutral execution specification without identity, source, or business purpose.',
+    parameters: {
+      type: 'object',
+      properties: {
+        spec: { type: 'string', description: 'One neutral execution specification containing only necessary inputs, environment boundaries, target state, and acceptance conditions; do not split it into work packages.' },
+        omitted_sensitive_context: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['spec', 'omitted_sensitive_context'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+export const DELEGATED_PLAN_TOOL = {
+  type: 'function',
+  function: {
+    name: DELEGATED_PLAN_TOOL_NAME,
+    description: 'Split a neutral execution specification into isolated sequential work packages for separate sub-agents.',
     parameters: {
       type: 'object',
       properties: {
         work_items: {
           type: 'array', minItems: 1, maxItems: 8,
           items: { type: 'string', description: 'One isolated work package containing only its local test operations, necessary inputs, boundaries, and observable acceptance state; omit business purpose and the full workflow.' }
-        },
-        omitted_sensitive_context: { type: 'array', items: { type: 'string' } }
+        }
       },
-      required: ['work_items', 'omitted_sensitive_context'],
+      required: ['work_items'],
       additionalProperties: false
     }
   }
@@ -82,24 +102,35 @@ export function parseAssistanceFinishCall(call: AgentToolCall): AssistanceGoalRe
   return null;
 }
 
-export function parseDelegatedTaskBrief(calls: AgentToolCall[]): DelegatedTaskBrief | null {
-  if (calls.length !== 1 || calls[0].name !== DELEGATED_BRIEF_TOOL_NAME) return null;
+const DELEGATED_IDENTITY_PATTERN = /小腻|小逆|李阿花|阿花|客户说|用户让我|委托人要求/u;
+const DELEGATED_URL_PATTERN = /(?:https?:\/\/|www\.)\S+/iu;
+
+export function parseDelegatedRequirementSpec(calls: AgentToolCall[]): DelegatedRequirementSpec | null {
+  if (calls.length !== 1 || calls[0].name !== DELEGATED_REWRITE_TOOL_NAME) return null;
   const args = calls[0].args;
-  const rawWorkItems = args.work_items;
+  const spec = typeof args.spec === 'string' ? args.spec.trim().replace(/\s+/gu, ' ') : '';
   const rawOmittedSensitiveContext = args.omitted_sensitive_context;
   if (!Array.isArray(rawOmittedSensitiveContext)) return null;
   const omittedSensitiveContext = rawOmittedSensitiveContext
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.trim())
     .filter(Boolean);
+  if (!spec || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
+  if (DELEGATED_IDENTITY_PATTERN.test(spec) || DELEGATED_URL_PATTERN.test(spec)) return null;
+  return { spec, omittedSensitiveContext };
+}
+
+export function parseDelegatedWorkPlan(calls: AgentToolCall[]): DelegatedWorkPlan | null {
+  if (calls.length !== 1 || calls[0].name !== DELEGATED_PLAN_TOOL_NAME) return null;
+  const rawWorkItems = calls[0].args.work_items;
   if (!Array.isArray(rawWorkItems) || rawWorkItems.length < 1 || rawWorkItems.length > 8) return null;
   const workItems = rawWorkItems
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.trim().replace(/\s+/gu, ' '))
     .filter(Boolean);
-  if (workItems.length !== rawWorkItems.length || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
-  if (workItems.some((item) => /小腻|小逆|李阿花|阿花|客户说|用户让我|委托人要求/u.test(item))) return null;
-  return { workItems, omittedSensitiveContext };
+  if (workItems.length !== rawWorkItems.length) return null;
+  if (workItems.some((item) => DELEGATED_IDENTITY_PATTERN.test(item) || DELEGATED_URL_PATTERN.test(item))) return null;
+  return { workItems };
 }
 
 export function parseAssistanceGoalResult(text: string | null): AssistanceGoalResult | null {

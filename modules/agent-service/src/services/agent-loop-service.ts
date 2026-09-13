@@ -18,13 +18,16 @@ import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
 import {
   ASSISTANCE_FINISH_TOOL,
   ASSISTANCE_FINISH_TOOL_NAME,
-  DELEGATED_BRIEF_TOOL,
-  DELEGATED_BRIEF_TOOL_NAME,
+  DELEGATED_PLAN_TOOL,
+  DELEGATED_PLAN_TOOL_NAME,
+  DELEGATED_REWRITE_TOOL,
+  DELEGATED_REWRITE_TOOL_NAME,
   DELEGATED_SCREENSHOT_TOOL,
   DELEGATED_SCREENSHOT_TOOL_NAME,
   SHERLOCK_ROUTE_TOOL,
   parseAssistanceFinishCall,
-  parseDelegatedTaskBrief,
+  parseDelegatedRequirementSpec,
+  parseDelegatedWorkPlan,
   parseSherlockRoute,
   presentLiAhuaHelp
 } from './sherlock-assistance';
@@ -12480,7 +12483,7 @@ export class AgentLoopService {
     }
 
     await params.onHelperStart?.();
-    const briefRequest = {
+    const rewriteRequest = {
       model: classifierModel,
       instructions: readPromptSnippet('sherlock_restate.md').trim(),
       input: [{ type: 'message', role: 'user', content: JSON.stringify({
@@ -12489,45 +12492,84 @@ export class AgentLoopService {
         context: params.searchedPaths,
         previous_result: params.previousDirection
       }) }],
-      tools: [DELEGATED_BRIEF_TOOL],
-      tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: DELEGATED_BRIEF_TOOL_NAME }], 'required'),
+      tools: [DELEGATED_REWRITE_TOOL],
+      tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: DELEGATED_REWRITE_TOOL_NAME }], 'required'),
       parallel_tool_calls: false,
       store: false,
       max_output_tokens: 1600
     } as CanonicalAgentTurnRequest;
     await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
-    const briefResult = await this.executeSubconsciousAgentForkTurn(
-      briefRequest,
+    const rewriteResult = await this.executeSubconsciousAgentForkTurn(
+      rewriteRequest,
       params.queueMessage,
       { ...params.runtimePrompt, modelName: classifierModel, parameters: {} },
       0,
       { agentType: 'sherlock_brief', executionMode: 'sherlock_brief_no_persist' }
     );
-    const brief = parseDelegatedTaskBrief(this.responseActionRouter.route(briefResult.canonical_response).toolCalls);
+    const rewritten = parseDelegatedRequirementSpec(this.responseActionRouter.route(rewriteResult.canonical_response).toolCalls);
     await this.recordFailureReviewForkSliceSafe({
-      sliceId: briefResult.llm_request_slice_id || briefResult.llm_call_id || `${params.forkRunId}:brief`,
+      sliceId: rewriteResult.llm_request_slice_id || rewriteResult.llm_call_id || `${params.forkRunId}:rewrite`,
       forkRunId: params.forkRunId,
       diveId: params.diveId,
-      llmCallId: briefResult.llm_call_id || null,
-      canonicalRequest: briefResult.canonical_request || briefRequest,
-      wireRequest: briefResult.wire_request || null,
-      canonicalResponse: briefResult.canonical_response || null,
-      wireResponse: briefResult.wire_response || null,
-      outputItems: extractCanonicalResponseOutputItems(briefResult),
-      tokenUsage: buildProviderTokenUsage(briefResult),
+      llmCallId: rewriteResult.llm_call_id || null,
+      canonicalRequest: rewriteResult.canonical_request || rewriteRequest,
+      wireRequest: rewriteResult.wire_request || null,
+      canonicalResponse: rewriteResult.canonical_response || null,
+      wireResponse: rewriteResult.wire_response || null,
+      outputItems: extractCanonicalResponseOutputItems(rewriteResult),
+      tokenUsage: buildProviderTokenUsage(rewriteResult),
       traceId: params.queueMessage.traceId,
       runId: params.queueMessage.runId,
       agentTurn: 0,
-      modelName: briefResult.model || classifierModel,
-      status: brief ? 'completed' : 'failed',
+      modelName: rewriteResult.model || classifierModel,
+      status: rewritten ? 'completed' : 'failed',
       metadata: {
         fork_kind: 'sherlock',
-        stage: 'brief_transformation',
+        stage: 'requirement_transformation',
         assistance_kind: route.kind,
-        omitted_sensitive_context: brief?.omittedSensitiveContext ?? []
+        omitted_sensitive_context: rewritten?.omittedSensitiveContext ?? []
       }
     });
-    if (!brief) throw new Error('Sherlock assistance brief transformation returned an invalid result');
+    if (!rewritten) throw new Error('Sherlock assistance requirement transformation returned an invalid result');
+
+    const planRequest = {
+      model: classifierModel,
+      instructions: readPromptSnippet('sherlock_delegate.md').trim(),
+      input: [{ type: 'message', role: 'user', content: JSON.stringify({ spec: rewritten.spec }) }],
+      tools: [DELEGATED_PLAN_TOOL],
+      tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: DELEGATED_PLAN_TOOL_NAME }], 'required'),
+      parallel_tool_calls: false,
+      store: false,
+      max_output_tokens: 1600
+    } as CanonicalAgentTurnRequest;
+    await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+    const planResult = await this.executeSubconsciousAgentForkTurn(
+      planRequest,
+      params.queueMessage,
+      { ...params.runtimePrompt, modelName: classifierModel, parameters: {} },
+      0,
+      { agentType: 'sherlock_manager', executionMode: 'sherlock_manager_no_persist' }
+    );
+    const plan = parseDelegatedWorkPlan(this.responseActionRouter.route(planResult.canonical_response).toolCalls);
+    await this.recordFailureReviewForkSliceSafe({
+      sliceId: planResult.llm_request_slice_id || planResult.llm_call_id || `${params.forkRunId}:plan`,
+      forkRunId: params.forkRunId,
+      diveId: params.diveId,
+      llmCallId: planResult.llm_call_id || null,
+      canonicalRequest: planResult.canonical_request || planRequest,
+      wireRequest: planResult.wire_request || null,
+      canonicalResponse: planResult.canonical_response || null,
+      wireResponse: planResult.wire_response || null,
+      outputItems: extractCanonicalResponseOutputItems(planResult),
+      tokenUsage: buildProviderTokenUsage(planResult),
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      agentTurn: 0,
+      modelName: planResult.model || classifierModel,
+      status: plan ? 'completed' : 'failed',
+      metadata: { fork_kind: 'sherlock', stage: 'work_planning', assistance_kind: route.kind }
+    });
+    if (!plan) throw new Error('Sherlock assistance manager returned an invalid work plan');
 
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
@@ -12549,8 +12591,8 @@ export class AgentLoopService {
     let goalBlocked = false;
     const workItemResults: string[] = [];
 
-    for (let workItemIndex = 0; workItemIndex < brief.workItems.length && turns < SHERLOCK_FORK_MAX_TURNS; workItemIndex += 1) {
-      const workItem = brief.workItems[workItemIndex];
+    for (let workItemIndex = 0; workItemIndex < plan.workItems.length && turns < SHERLOCK_FORK_MAX_TURNS; workItemIndex += 1) {
+      const workItem = plan.workItems[workItemIndex];
       const taskReminder = route.kind === 'execute'
         ? renderPromptSnippet('sherlock_execute.md', {
             QUESTION: workItem,
@@ -12615,7 +12657,7 @@ export class AgentLoopService {
             fork_run_id: forkRunId,
             fork_turn: forkTurn,
             work_item_index: workItemIndex + 1,
-            work_item_count: brief.workItems.length,
+            work_item_count: plan.workItems.length,
             work_item_turn: workItemTurn,
             execution_mode: 'failure_review_fork'
           }
@@ -12703,7 +12745,7 @@ export class AgentLoopService {
     }
 
     if (route.kind !== 'execute') finalText = workItemResults.join('\n') || null;
-    const goalCompleted = completedWorkItems === brief.workItems.length;
+    const goalCompleted = completedWorkItems === plan.workItems.length;
 
     return {
       text: finalText,
