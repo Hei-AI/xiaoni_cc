@@ -1084,17 +1084,17 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
       </SectionPanel>
 
       <SectionPanel
-        title="xiaoni_os 请求隔离"
-        description="打开后，回灌给模型的请求里会清空 xiaoni_os（工具调用参数、工具结果回显，以及睡醒提醒里的睡前备注）；小腻本人读不到自己写的 os 备注，但备注照常持久化（含 recovery session），管理端照常可见，只作运维观察。"
+        title="工具 OS 字段隔离"
+        description="控制新产生的工具调用参数、结构化工具结果中的 xiaoni_os 字段是否回传给模型。原始备注仍保存在记录中。此开关不控制 Assistant 文本，文本是否进入上下文由下方的准入开关控制。"
         icon={<EyeOff className="h-4 w-4 text-primary" />}
       >
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
-            <div className="text-sm font-medium text-foreground">从模型请求中隔离 xiaoni_os</div>
+            <div className="text-sm font-medium text-foreground">隔离工具中的 OS 字段</div>
             <div className="text-sm text-muted-foreground">
               {stripXiaoniOsFromRequests
-                ? '已隔离：新产生的工具 os 备注会被冻结标记，之后回放/请求里一律不回灌给模型。'
-                : '未隔离：和现在一样，os 备注会随工具调用回灌回她的上下文。'}
+                ? '已开启：新产生的工具 OS 字段不回传；已准入的 Assistant 文本仍可进入上下文。'
+                : '已关闭：新产生的工具 OS 字段随工具调用和结果回传。'}
             </div>
             <div className="text-xs text-muted-foreground">
               历史按发出时的开关状态冻结，拨开关只影响之后新产生的内容，不改写历史、不击穿前缀缓存。
@@ -1106,27 +1106,27 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               checked={stripXiaoniOsFromRequests}
               disabled={controlQuery.isLoading || mutation.isPending}
               onCheckedChange={(checked) => mutation.mutate({ stripXiaoniOsFromRequests: Boolean(checked) })}
-              aria-label="从模型请求中隔离 xiaoni_os"
+              aria-label="隔离工具中的 OS 字段"
             />
           </div>
         </div>
       </SectionPanel>
 
       <SectionPanel
-        title="心理评估门控"
-        description="打开后，小腻每产出一段 assistant 文本（她的 xiaoni_os OS 通道），都会同步跑一个心理评估 fork 判 KEEP/EVICT；判为消极/怠工/摸鱼的那一 turn，其 xiaoni_os 不会进入下一次上下文（防污染，fail-closed）。fork 骑主热前缀，判定与请求全量落 psych_assessment_fork_slices，管理端可见。"
+        title="Assistant 文本准入与改写"
+        description="原“心理评估门控”。当前控制 Assistant 文本（含 OS）的分类、润色和上下文复核，并决定是否准入后续请求。已不使用旧的 KEEP/EVICT 心理评估流程；它不是“开启即隔离全部 OS”的开关。"
         icon={<Brain className="h-4 w-4 text-primary" />}
       >
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
-            <div className="text-sm font-medium text-foreground">对 assistant 文本跑心理评估门控</div>
+            <div className="text-sm font-medium text-foreground">处理并准入新产生的 Assistant 文本</div>
             <div className="text-sm text-muted-foreground">
               {psychAssessmentGateEnabled
-                ? '已开启：每次文本产出跑心理评估 fork，消极的那一 turn 的 xiaoni_os 不进下一上下文。'
-                : '已关闭：不跑心理评估 fork，文本产出的 xiaoni_os 照常进入下一上下文（当前默认）。'}
+                ? '已开启：按处理结果保留原文或改写后准入；部分辅助处理失败也会保留原文。两个开关同时开启时，Assistant 文本仍可进入上下文。'
+                : '已关闭：不运行文本处理，新产生的 Assistant 文本不获准入，不进入后续主请求。已准入的历史文本仍按原决定回放。'}
             </div>
             <div className="text-xs text-muted-foreground">
-              开启会给每个有文本产出的 turn 加一次同步 fork 请求（多一份 cache_read 计费）；翻 ON 前建议先在活动流确认 fork 的 cache_read 暖读正常。历史按发出时的开关状态冻结，不改写历史、不击穿前缀缓存。
+              开启会增加同步分类，以及按需运行的润色或上下文复核请求。此开关不控制 Plan、自驱动唤醒或工具 OS 字段。准入结果在首次写入时冻结，切换不重新处理历史。
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -1135,7 +1135,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               checked={psychAssessmentGateEnabled}
               disabled={controlQuery.isLoading || mutation.isPending}
               onCheckedChange={(checked) => mutation.mutate({ psychAssessmentGateEnabled: Boolean(checked) })}
-              aria-label="对 assistant 文本跑心理评估门控"
+              aria-label="处理并准入新产生的 Assistant 文本"
             />
           </div>
         </div>

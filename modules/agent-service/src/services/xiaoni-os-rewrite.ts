@@ -503,7 +503,8 @@ export async function runXiaoniOsRewriteLeg(params: {
     return finish();
   }
 
-  // ③ 判为空转 → 潜意识填充 fork 改写(有 fetchFill 时);fork 没产出 / 挂了 / 超长 / 剔空 → 不进上下文。
+  // ③ 有完整上下文的复核 fork。辅助调用失败不能证明原始 OS 无效：保留原文，
+  // 避免拒答 / 超时 / 格式错误静默删除她的经历。决定仍在首次入栈前冻结。
   if (params.fetchFill) {
     result.rewriteStage = 'fill';
     let fill: XiaoniOsFillResult | null = null;
@@ -519,14 +520,18 @@ export async function runXiaoniOsRewriteLeg(params: {
     }
     const filled = fill ? normalizeXiaoniOsFillText(fill.text) : null;
     if (filled === null) {
-      result.outcome = 'evicted';
+      result.outcome = 'failed_open';
       result.errorMessage = result.errorMessage || 'fill: empty or over-length output';
+      return finish();
+    }
+    if (filled === params.text.trim()) {
+      result.outcome = 'kept';
       return finish();
     }
     // fork 看得到她全部上下文,人际依据在它那边,这里不跑人际触发器;填充句机械兜底照跑。
     const guarded = stripFillerSentences(filled);
     if (guarded === null) {
-      result.outcome = 'evicted';
+      result.outcome = 'failed_open';
       result.errorMessage = 'fill: only filler sentences left';
       return finish();
     }

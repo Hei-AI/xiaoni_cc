@@ -189,8 +189,9 @@ notify 被主 agent claim。
 `lease_release`、`lease_release_reason`、token usage、runtime frame yield detail 等字段
 只属于工程审计和 trace 解释，不能投影成 prompt-facing assistant commentary。历史上
 曾经把无可见发言的 lease detail 包装成 `<xiaoni_os>`；当前契约禁止这类合成。
-后续 request 里能出现的 `<xiaoni_os>` 只能来自模型显式写入的
-`raw_response.xiaoni_os`，并且仍要经过 spoken-turn / tactical-state 过滤。
+Assistant 文本（含 OS）由 `text_admit` 冻结准入，工具 JSON 中的 `xiaoni_os` 则由独立的
+字段隔离开关控制；原文、复核后正文和真实 wire 的区别及当前开关契约统一看
+[OS 准入与隔离](specs/xiaoni-os-rewrite.md)。不要以管理面显示或原始响应有正文推断已经回放。
 
 当前 prompt-facing reminder 模板只维护在 `docs/xiaoni_prompt/`，索引看
 `docs/remind.md`。不要在本文、README 或其它文档复制模板正文。
@@ -231,12 +232,10 @@ fork 只允许执行 `exec_command`；如果模型请求其它业务工具，工
 追加 `docs/xiaoni_prompt/self_continuation_reminder.md` 作为 developer message。普通主
 agent 不再直接看到这个 reminder。
 
-fork 可以是多轮：模型可先调用受限 `exec_command`（最多 5 次；以及配置开启时的
-`web_search`）去查看当前仓库、运行时痕迹或待办线索，再把工具结果带回下一轮 fork 请求。
-内部 provider slice 安全上限是 6，只是为了允许最多 5 次工具试探后还有一次
-`final_answer` 收口；这不是主 agent 的 turn 上限。
-fork 不因普通 commentary 完成；runtime 等到第一个 assistant `final_answer` 后立刻结束
-fork，并把这个 `final_answer` 的自然语言作为产品输出。fork 输出契约仍然只是自然语言，
+fork 可以是多轮，但不具备浏览/搜索外界的执行权限。`idle_plan_skill_submission_enabled=true`
+时只放行 `exec_command`，命令层再限制为既有 Plan 提交命令；提交成功即为交付点。
+关闭该开关时从文本提取 Plan，普通业务工具均不执行。达到安全轮数上限仍未交付时记失败/无刺激，
+不把“可调用工具定义存在”当成有执行权限。fork 输出契约仍然只是自然语言，
 不是 JSON schema。`source`、`kind`、`metadata`、`forkRunId`、`traceId`、`sliceId`
 只能作为 DB row / trace / Raw Trace 的隐藏审计字段，不得进入模型必须遵守的输出格式。
 输出非空时，工程用 `docs/xiaoni_prompt/subconscious_agent_notify.md` 渲染 prompt-facing

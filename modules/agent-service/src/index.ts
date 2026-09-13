@@ -414,9 +414,9 @@ async function isRuntimeEnabled() {
     // a live request inconsistent with its own replay; frozen per-item flags keep cross-run replay
     // byte-identical. Flipping rewrites no history.
     setStripXiaoniOsFromRequests(control.stripXiaoniOsFromRequests);
-    // Step3 心理评估门控总开关(默认 OFF)。管理端「心理评估门控」开关写 agent_runtime_control
-    // .psych_assessment_gate_enabled,这里每 poll 热下发(一迭代延迟,无重启)。live 栈验过 fork
-    // cache_read 暖读后再由运营打开翻转行为。非 boolean 被 setter 忽略 → 保持 OFF。
+    // Assistant 文本分类/改写/准入总开关，沿用 psych_assessment_gate_enabled 字段。
+    // ON 按结果打 text_admit；OFF 不处理且不给新文本准入。不再调用旧心理评估 fork。
+    // 每 poll 热下发，已冻结的历史准入决定不变。
     setPsychAssessmentGateEnabled(control.psychAssessmentGateEnabled);
     // 自驱动 fork 空转升级(默认 OFF)。ON 时连续空转达阈值,在【fork 尾部追加段】告知潜意识
     // 「上一份 plan 连着 N 轮没被执行」并回贴原文。升级信号只进 fork 私有输入,不进主 agent

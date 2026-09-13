@@ -411,28 +411,44 @@ test('leg: 空转 + fetchFill 有产出 → rewritten(stage=fill),不发改写�
   assert.equal(llm.calls.length, 1, '只有分类那一次小请求');
 });
 
-test('leg: 空转 + fetchFill 无产出 / 抛错 / 没有块 → evicted,不退回改写腿小请求', async () => {
+test('leg: fill 原样返回休息决定 → kept,不删句也不替她添加打算', async () => {
+  const text = '这章读完了。今天先不继续，等她回复。';
+  const llm = fakeLlm([{ text: '0' }]);
+  const result = await runXiaoniOsRewriteLeg({
+    text, callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE,
+    fetchFill: async () => ({ text: `<xiaoni_os>${text}</xiaoni_os>`, llmCallId: 'fill-keep', model: 'test', forkRunId: 'fill-keep' })
+  });
+  assert.equal(result.outcome, 'kept');
+  assert.equal(result.rewrittenText, null);
+  assert.equal(result.rewriteStage, 'fill');
+  assert.equal(llm.calls.length, 1);
+});
+
+test('leg: fill 无产出 / 抛错 / 没有块 → failed_open 保留原文,不退回改写腿小请求', async () => {
   const none = fakeLlm([{ text: '0' }]);
   const r1 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: none.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => null });
-  assert.equal(r1.outcome, 'evicted');
+  assert.equal(r1.outcome, 'failed_open');
+  assert.equal(r1.rewrittenText, null);
   assert.equal(r1.rewriteStage, 'fill');
   assert.equal(none.calls.length, 1);
   const thrown = fakeLlm([{ text: '0' }]);
   const r2 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: thrown.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => { throw new Error('provider 500'); } });
-  assert.equal(r2.outcome, 'evicted');
+  assert.equal(r2.outcome, 'failed_open');
+  assert.equal(r2.rewrittenText, null);
   assert.match(r2.errorMessage || '', /fill: provider 500/);
   const noBlock = fakeLlm([{ text: '0' }]);
   const r3 = await runXiaoniOsRewriteLeg({ text: '先等等看。', callLlm: noBlock.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => ({ text: '她应该去做点什么。', llmCallId: null, model: null, forkRunId: null }) });
-  assert.equal(r3.outcome, 'evicted');
+  assert.equal(r3.outcome, 'failed_open');
+  assert.equal(r3.rewrittenText, null);
 });
 
-test('leg: 填充产物里的填充句机械剔掉;剔空 → evicted;有事的段落不走 fetchFill', async () => {
+test('leg: 填充产物里的填充句机械剔掉;剔空 → failed_open;有事的段落不走 fetchFill', async () => {
   const llm = fakeLlm([{ text: '0' }]);
   const r1 = await runXiaoniOsRewriteLeg({ text: '在。', callLlm: llm.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => ({ text: '<xiaoni_os>在。\n去把 touch.html 再推一步。</xiaoni_os>', llmCallId: null, model: null, forkRunId: null }) });
   assert.equal(r1.rewrittenText, '去把 touch.html 再推一步。');
   const only = fakeLlm([{ text: '0' }]);
   const r2 = await runXiaoniOsRewriteLeg({ text: '在。', callLlm: only.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => ({ text: '<xiaoni_os>嗡。停。</xiaoni_os>', llmCallId: null, model: null, forkRunId: null }) });
-  assert.equal(r2.outcome, 'evicted');
+  assert.equal(r2.outcome, 'failed_open');
   let fillCalls = 0;
   const action = fakeLlm([{ text: '1' }]);
   const r3 = await runXiaoniOsRewriteLeg({ text: '小伊最后说了嗯，两小时前的，不用回。', callLlm: action.call, classifySystemPrompt: CLASSIFY, rewriteSystemPrompt: REWRITE, fetchFill: async () => { fillCalls += 1; return null; } });
