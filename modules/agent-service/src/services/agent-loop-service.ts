@@ -3336,6 +3336,13 @@ export function buildSherlockForkRequest(
   if (allowFinishTool) {
     tools.push(ASSISTANCE_FINISH_TOOL);
   }
+  const forcedToolChoice = allowFinishTool
+    ? buildAllowedToolsToolChoice([
+        { type: 'function', name: TOOL_NAMES.execCommand },
+        ...(agentConfig.computerUseEnabled ? [{ type: 'computer_use' } as const] : []),
+        { type: 'function', name: ASSISTANCE_FINISH_TOOL_NAME }
+      ], 'required')
+    : undefined;
   return {
     model: modelName,
     instructions: reminderText,
@@ -3343,7 +3350,8 @@ export function buildSherlockForkRequest(
       accumulatedInput.length > 0 ? accumulatedInput : [buildDeveloperInputItem(['开始。'])]
     ),
     tools,
-    parallel_tool_calls: true,
+    ...(forcedToolChoice ? { tool_choice: forcedToolChoice } : {}),
+    parallel_tool_calls: !allowFinishTool,
     store: false,
     max_output_tokens: SHERLOCK_FORK_MAX_OUTPUT_TOKENS,
     metadata: {

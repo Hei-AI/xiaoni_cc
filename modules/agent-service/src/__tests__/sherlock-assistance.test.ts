@@ -107,6 +107,13 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[2].instructions, /127\.0\.0\.1:9977/);
   assert.match(h.requests[2].instructions, /不能只给操作建议/);
   assert.deepEqual(h.requests[2].tools.map((tool: any) => tool.function.name), ['exec_command', 'finish_task']);
+  assert.deepEqual(h.requests[2].tool_choice, {
+    type: 'allowed_tools', mode: 'required', tools: [
+      { type: 'function', name: 'exec_command' },
+      { type: 'function', name: 'finish_task' }
+    ]
+  });
+  assert.equal(h.requests[2].parallel_tool_calls, false);
 });
 
 test('execution route keeps going after an unmarked partial final', async () => {
@@ -236,6 +243,14 @@ test('execution worker receives native computer vision when the runtime enables 
       h.requests[2].tools.map((tool: any) => tool.type === 'computer_use' ? 'computer' : tool.function.name),
       ['exec_command', 'computer', 'finish_task']
     );
+    assert.deepEqual(h.requests[2].tool_choice, {
+      type: 'allowed_tools', mode: 'required', tools: [
+        { type: 'function', name: 'exec_command' },
+        { type: 'computer_use' },
+        { type: 'function', name: 'finish_task' }
+      ]
+    });
+    assert.equal(h.requests[2].parallel_tool_calls, false);
     assert.equal(h.commands[0].name, 'computer');
   } finally {
     agentConfig.computerUseEnabled = previous;
