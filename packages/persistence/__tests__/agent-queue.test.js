@@ -441,7 +441,8 @@ test('claimNextAgentQueueMessage folds non-window rows once a window-opening row
   assert.equal(executes.length, 1);
   // latest-wins 槽在消费时轮换成历史唯一值,普通键不动
   assert.ok(executes[0].sql.includes("dedupe_key LIKE 'lw:%'"));
-  assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ?"));
+  // 后缀带行 id:同一槽在同一 run 里 claim + fold 两次不能轮换成同一个值(唯一索引)
+  assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ? || ':' || id"));
   assert.equal(executes[0].params[5], claimed.id);
 });
 
@@ -471,8 +472,71 @@ test('foldPendingNotifyMessagesIntoRun rotates latest-wins keys on consume', asy
   });
   const folded = await persistence.foldPendingNotifyMessagesIntoRun({ workerId: 'w', parentRunId: 'run_parent', parentBatchId: 'batch_parent' });
   assert.ok(folded);
-  assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ?"));
+  assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ? || ':' || id"));
   assert.equal(executes[0].params[4], 'run_parent');
+});
+
+test('enqueueAgentQueueMessage latest-wins: slot consumed between findUnique and updateMany → re-INSERT, never drop', async () => {
+  let createCalls = 0;
+  const prisma = {
+    agentQueueMessage: {
+      create: async (args) => {
+        createCalls += 1;
+        if (createCalls === 1) { const e = new Error('unique'); e.code = 'P2002'; throw e; }
+        return { id: 99, ...args.data };
+      },
+      findUnique: async () => ({ id: 40, dedupe_key: 'lw:phone_notification:direct:s:p', status: 'pending', payload: {}, raw_payload: {}, available_at: new Date() }),
+      updateMany: async () => ({ count: 0 })
+    }
+  };
+  const persistence = createAgentQueuePersistence({ getPrismaClient: () => prisma, createSqlAdapter: () => undefined });
+  const result = await persistence.enqueueAgentQueueMessage({
+    message: { traceId: 't', source: 'phone_notification', messageSid: 'x', dedupeKey: 'lw:phone_notification:direct:s:p', chatType: 'direct', sessionKey: 's', peerId: 'p', senderId: 'a', accountId: '1', bodyForAgent: 'b' },
+    payload: {}
+  });
+  assert.equal(createCalls, 2);
+  assert.equal(result.created, true);
+  assert.equal(result.queueId, 99);
+});
+
+test('enqueueAgentQueueMessage latest-wins: slot rotated before findUnique (null) → re-INSERT', async () => {
+  let createCalls = 0;
+  const prisma = {
+    agentQueueMessage: {
+      create: async (args) => {
+        createCalls += 1;
+        if (createCalls === 1) { const e = new Error('unique'); e.code = 'P2002'; throw e; }
+        return { id: 100, ...args.data };
+      },
+      findUnique: async () => null,
+      updateMany: async () => { throw new Error('must not be called'); }
+    }
+  };
+  const persistence = createAgentQueuePersistence({ getPrismaClient: () => prisma, createSqlAdapter: () => undefined });
+  const result = await persistence.enqueueAgentQueueMessage({
+    message: { traceId: 't', source: 'system_reminder', messageSid: 'x', dedupeKey: 'lw:subconscious-agent:s', chatType: 'direct', sessionKey: 's', peerId: 'p', senderId: 'a', accountId: '1', bodyForAgent: 'b' },
+    payload: {}
+  });
+  assert.equal(createCalls, 2);
+  assert.equal(result.created, true);
+});
+
+test('enqueueAgentQueueMessage latest-wins: group @ merge accumulates directMentions and stays window-opening', async () => {
+  const calls = [];
+  const existing = {
+    id: 41, dedupe_key: 'lw:phone_notification:group_mention:qq:group:100:100:20001', status: 'pending', available_at: new Date(),
+    raw_payload: { unread_delta: 1, direct_mentions: 1 },
+    payload: { messageId: 1, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
+  };
+  const persistence = createAgentQueuePersistence({ getPrismaClient: () => createEnqueuePrisma(existing, calls), createSqlAdapter: () => undefined });
+  await persistence.enqueueAgentQueueMessage({
+    message: { traceId: 't', source: 'phone_notification', messageSid: 'y', dedupeKey: existing.dedupe_key, chatType: 'group', sessionKey: 'qq:group:100', peerId: '100', senderId: 'qq', accountId: '1', bodyForAgent: '@小腻 又一条', rawPayload: { unread_delta: 1, direct_mentions: 1 } },
+    payload: { messageId: 2, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
+  });
+  assert.equal(calls[0].data.payload.phoneNotification.directMentions, 2);
+  assert.equal(calls[0].data.raw_payload.direct_mentions, 2);
+  const merged = { source: 'phone_notification', chat_type: 'group', dedupe_key: existing.dedupe_key, payload: calls[0].data.payload, raw_payload: calls[0].data.raw_payload };
+  assert.equal(persistence.isWindowOpeningQueueRow(merged), true);
 });
 
 function createEnqueuePrisma(existingRow, calls) {

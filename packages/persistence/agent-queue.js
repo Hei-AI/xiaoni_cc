@@ -225,8 +225,10 @@ function isWindowOpeningQueueRow(row) {
 }
 
 // 消费时把 latest-wins 槽轮换成历史唯一值（dedupe_key 是簿记字段、从不进模型，轮换不违反上下文不可变）。
+// 后缀带上行自己的 id:同一个槽在同一个 run 里被消费两次(开窗 claim 一次 + 后续 fold 一次)时,
+// 两行不能轮换成同一个值,否则撞 dedupe_key 唯一索引、fold 事务回滚、主 run 被判 failed。
 const ROTATE_LATEST_WINS_KEY_SQL = `dedupe_key = CASE
-                  WHEN dedupe_key LIKE '${LATEST_WINS_DEDUPE_PREFIX}%' THEN dedupe_key || ':run:' || ?
+                  WHEN dedupe_key LIKE '${LATEST_WINS_DEDUPE_PREFIX}%' THEN dedupe_key || ':run:' || ? || ':' || id
                   ELSE dedupe_key
                 END`;
 
@@ -301,8 +303,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     const resolvedTraceId = normalizeOptionalString(message.traceId || message.trace_id)
       || `runtrace_${Date.now()}_${randomUUID().slice(0, 8)}`;
 
-    try {
-      const created = await prisma.agentQueueMessage.create({
+    const createRow = () => prisma.agentQueueMessage.create({
         data: {
           trace_id: resolvedTraceId,
           source: String(message.source || 'provider'),
@@ -323,6 +324,12 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           available_at: availableAt
         }
       });
+    // lw: 槽的 supersede 与 claim/fold 不是原子的:create 撞键 → findUnique 看到 pending → 这期间
+    // claim 事务把那行消费并轮换了 key → updateMany 命中 0 行。此时稳定槽已经空出,再 INSERT 一次
+    // 即可,绝不能退回「返回既有行」——那等于把这条新门铃静默丢掉(旧实现每条一个唯一键,没有这条丢失路径)。
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const created = await createRow();
       // created:true 只在真的新插了一行时为真。撞唯一索引返回既有行时是 false ——
       // 调用方(如被动浮现投递闸)靠它区分「这次投出去了」和「早就投过了」,
       // 光看 status 区分不了(既有行没被消费时同样是 pending)。
@@ -334,6 +341,10 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
       const existing = await prisma.agentQueueMessage.findUnique({
         where: { dedupe_key: dedupeKey }
       });
+      if (dedupeKey.startsWith(LATEST_WINS_DEDUPE_PREFIX) && !existing && attempt === 0) {
+        // 撞键之后槽已被轮换走 → 再插一次。
+        continue;
+      }
       // latest-wins 槽：既有行还没进过上下文（pending）→ 新内容就地覆盖，未读增量累加。
       // 已进上下文的行（consumed/settled…）冻结不动：它的 key 在消费时已轮换走，正常情况下
       // 不会撞到这里；撞到了就是并发窗口，退回 first-wins 返回既有行。
@@ -373,6 +384,10 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           const refreshed = await prisma.agentQueueMessage.findUnique({ where: { id: existing.id } });
           return { ...normalizeQueueRow(refreshed || existing, mergedPayload), created: false, superseded: true };
         }
+        if (attempt === 0) {
+          // 既有行在 findUnique 与 updateMany 之间被消费(key 已轮换)→ 槽空了,再插一次。
+          continue;
+        }
       }
       const normalized = normalizeQueueRow(existing, payload) || {
         queueId: 0,
@@ -385,6 +400,8 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
       };
       return { ...normalized, created: false };
     }
+    }
+    throw new Error('enqueueAgentQueueMessage: unreachable');
   }
 
   // 按 dedupe_key 前缀列最近的入队键(新→旧)。入队记录本身就是投递账本(行自 2026-03 起
