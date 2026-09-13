@@ -58,7 +58,7 @@ test('execution route operates, preserves tool replay, and returns the result', 
   const result = await h.run();
   assert.equal(h.commands.length, 1);
   assert.match(result.text, /result.json/);
-  assert.match(h.requests[1].instructions, /实际完成/);
+  assert.match(h.requests[1].instructions, /执行下面这项已经明确授权的计算机操作/);
   assert.deepEqual(h.requests[2].input.slice(0, h.requests[1].input.length), h.requests[1].input);
   assert.equal(h.requests[1].instructions, h.requests[2].instructions);
   assert.equal(h.requests[2].input.at(-1).call_id, 'c1');
@@ -72,13 +72,13 @@ test('classification and execution prompts treat delegated browser work as a voi
     response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '完成情况：完成；验证：页面已提交' }] }])
   ]);
   await h.run();
-  assert.match(h.requests[0].instructions, /无人格的任务分类器/);
+  assert.doesNotMatch(h.requests[0].instructions, /无人格|人格/);
   assert.match(h.requests[0].instructions, /语音转文字/);
   assert.match(h.requests[0].instructions, /页面人机认证/);
   assert.match(h.requests[0].instructions, /Google 账号登录或授权/);
   assert.match(h.requests[0].instructions, /论坛内容代发/);
   assert.match(h.requests[0].instructions, /邮件发送/);
-  assert.match(h.requests[1].instructions, /无人格的计算机操作 worker/);
+  assert.doesNotMatch(h.requests[1].instructions, /无人格|人格|独立上下文|不扮演|小腻|福尔摩斯|帮手|分类器|内部分流|外包/);
   assert.match(h.requests[1].instructions, /xiaoni-browser\/SKILL\.md/);
   assert.match(h.requests[1].instructions, /当前可见、带现有登录态和当前账号的浏览器/);
   assert.match(h.requests[1].instructions, /不能只给操作建议/);

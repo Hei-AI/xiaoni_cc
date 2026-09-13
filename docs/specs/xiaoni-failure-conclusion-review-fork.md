@@ -23,7 +23,7 @@
 | 分类 | 处理 |
 | --- | --- |
 | investigate | 福尔摩斯独立调查，返回新的方向与可核对依据，保留由小腻自己形成结论的边界。 |
-| execute | 无人格 worker 按李阿花的命令实际执行机械性计算机操作，验证结果，返回完成情况、产物、检查结果及未完成部分。语音转写的明确委托可包括使用李阿花当前浏览器和当前账号完成人机测试、Google 登录或授权、论坛内容代发和邮件发送；模型统一读取 `$xiaoni-browser` 后通过现役 Playwright 桥逐步完成页面操作。 |
+| execute | 执行 worker 实际完成李阿花转交的机械性计算机操作，验证结果，返回完成情况、产物、检查结果及未完成部分。语音转写的明确委托可包括使用当前浏览器和当前账号完成人机测试、Google 登录或授权、论坛内容代发和邮件发送；模型统一读取 `$xiaoni-browser` 后通过现役 Playwright 桥逐步完成页面操作。 |
 | human | 需要本人决定、个人信息、授权或明确指定本人参与，直接交给李阿花。 |
 | clarify | 任务目标或必要信息不足，返回具体需要补充的问题。 |
 
@@ -56,7 +56,7 @@
 
 | 配置 | 默认 |
 | --- | --- |
-| `AGENT_SHERLOCK_MODEL` | `claude-sonnet-4-6`；通过 provider 执行无人格 worker。 |
+| `AGENT_SHERLOCK_MODEL` | `claude-sonnet-4-6`；通过 provider 执行 worker。 |
 | `AGENT_SHERLOCK_CLASSIFIER_MODEL` | `claude-sonnet-4-6`；通过 provider 执行分类器。 |
 | `AGENT_HELP_HUMAN_QQ_ID` | 无默认；未配置不发送，并明确返回未转交。 |
 | `AGENT_HELP_MAX_HELPER_ATTEMPTS` | 2。 |
@@ -82,4 +82,4 @@
 
 2026-09-13 17:07（UTC+8）已基于 `a07ff05c` 定向构建并更新 agent-service。镜像内求助/缓存对齐测试 22/22 通过，服务 healthy、runtime enabled；运行容器确认工具描述只表达找李阿花求助，旧回执投影不再返回内部来源字段。
 
-2026-09-13 17:27（UTC+8）补齐语音转写测试委托：分类器把当前浏览器人机认证、当前 Google 账号登录或授权、论坛代发和邮件发送视为明确 `execute`，无人格 worker 读取 `$xiaoni-browser` 后通过 Playwright 桥逐步执行并验证。分类器和 worker 已显式切到 provider 的 `claude-sonnet-4-6`；定向求助与两支不可变 agent 缓存用例 53/53、真库缓存 4/4 通过。真实 Sonnet 4.6 no-persist 分类探针返回 `execute`，agent-service 定向 build/up 后 healthy，容器内模型环境和 prompt 均核对生效。
+2026-09-13 17:27（UTC+8）补齐语音转写测试委托：分类器把当前浏览器人机认证、当前 Google 账号登录或授权、论坛代发和邮件发送视为明确 `execute`，worker 读取 `$xiaoni-browser` 后通过 Playwright 桥逐步执行并验证。分类器和 worker 已显式切到 provider 的 `claude-sonnet-4-6`；定向求助与两支不可变 agent 缓存用例 53/53、真库缓存 4/4 通过。真实 Sonnet 4.6 no-persist 分类探针返回 `execute`，agent-service 定向 build/up 后 healthy，容器内模型环境和 prompt 均核对生效。
