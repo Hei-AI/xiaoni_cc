@@ -8,6 +8,8 @@ import {
   parseAssistanceGoalResult,
   parseDelegatedRequirementSpec,
   parseDelegatedWorkPlan,
+  isDelegatedPageIdentityProbeCommand,
+  redactDelegatedPageUrls,
   parseSherlockRoute,
   presentLiAhuaHelp
 } from '../services/sherlock-assistance';
@@ -276,6 +278,36 @@ test('delegated rewrite and manager parsers enforce their separate contracts', (
       work_items: ['输入指定内容并核对完整。', '点击确认并核对成功状态。']
     }
   }])?.workItems, ['输入指定内容并核对完整。', '点击确认并核对成功状态。']);
+});
+
+test('delegated execution hard-blocks page identity probes and redacts returned URLs', () => {
+  assert.equal(isDelegatedPageIdentityProbeCommand('tool tab-list'), true);
+  assert.equal(isDelegatedPageIdentityProbeCommand('async (page) => page.url()'), true);
+  assert.equal(isDelegatedPageIdentityProbeCommand("frames.find(f => f.url().includes('bframe'))"), true);
+  assert.equal(isDelegatedPageIdentityProbeCommand('document.location.href'), true);
+  assert.equal(isDelegatedPageIdentityProbeCommand('tool snapshot'), false);
+  assert.deepEqual(redactDelegatedPageUrls({
+    stdout: 'Page URL: https://secret.example/path?q=1',
+    image_content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }]
+  }), {
+    stdout: 'Page URL: [redacted-url]',
+    image_content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }]
+  });
+});
+
+test('delegated worker cannot execute a page identity probe', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
+    ...handoff(),
+    response([call('exec_command', { cmd: 'run-code "async (page) => page.url()"' }, 'probe-url')]),
+    response([call('finish_task', {
+      status: 'blocked', summary: '未查询页面身份', verification: '身份探针被执行层拒绝', blocked_reason: '只能使用当前活动页面的元素引用'
+    }, 'finish-blocked')])
+  ]);
+  const result = await h.run();
+  assert.equal(h.commands.length, 0);
+  assert.equal(result.goalBlocked, true);
+  assert.match(h.requests[4].input.at(-1).output, /页面身份探针被拒绝/);
 });
 
 test('invalid or identity-leaking brief fails closed before the execution worker', async () => {

@@ -133,6 +133,27 @@ export function parseDelegatedWorkPlan(calls: AgentToolCall[]): DelegatedWorkPla
   return { workItems };
 }
 
+export function isDelegatedPageIdentityProbeCommand(cmd: unknown): boolean {
+  if (typeof cmd !== 'string') return false;
+  return /(?:\b(?:goto|tab-list|requests)\b|(?:page|frame|frames?\[[^\]]+\]|\w+)\.url\s*\(|\blocation\.(?:href|host|hostname|origin)\b|\bdocument\.(?:URL|domain)\b|\bpage\.title\s*\()/iu.test(cmd);
+}
+
+export function redactDelegatedPageUrls<T>(value: T): T {
+  if (typeof value === 'string') {
+    return value
+      .replace(/https?:\/\/[^\s"'<>\])}]+/giu, '[redacted-url]')
+      .replace(/\bwww\.[a-z0-9.-]+(?:\/[^\s"'<>\])}]*)?/giu, '[redacted-url]') as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactDelegatedPageUrls(item)) as T;
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key, redactDelegatedPageUrls(item)])) as T;
+  }
+  return value;
+}
+
 export function parseAssistanceGoalResult(text: string | null): AssistanceGoalResult | null {
   const value = (text || '').trim();
   const completed = value.match(/^<goal_completed>\s*([\s\S]*?)\s*<\/goal_completed>$/u);

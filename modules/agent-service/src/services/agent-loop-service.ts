@@ -28,6 +28,8 @@ import {
   parseAssistanceFinishCall,
   parseDelegatedRequirementSpec,
   parseDelegatedWorkPlan,
+  isDelegatedPageIdentityProbeCommand,
+  redactDelegatedPageUrls,
   parseSherlockRoute,
   presentLiAhuaHelp
 } from './sherlock-assistance';
@@ -12719,6 +12721,9 @@ export class AgentLoopService {
           let rawToolResult: Record<string, unknown>;
           try {
             rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
+              && isDelegatedPageIdentityProbeCommand(item.toolCall.args.cmd)
+              ? { tool_error: true, error: '页面身份探针被拒绝：使用当前活动页面和元素引用完成本工作包，不查询或报告 URL、域名、页面标题或网络请求地址。' }
+              : item.toolCall.name === TOOL_NAMES.execCommand
               || (allowFinishTool && item.toolCall.name === DELEGATED_SCREENSHOT_TOOL_NAME)
               ? await this.executeTool(item.toolCall, params.queueMessage, {
                   currentCanonicalRequest: forkRequest
@@ -12735,7 +12740,8 @@ export class AgentLoopService {
           } catch (error) {
             rawToolResult = buildToolErrorResult(item.toolCall, error);
           }
-          forkInput.push(...applyToolResultToLoopInput(item.toolCall, rawToolResult).inputItems);
+          const workerVisibleResult = redactDelegatedPageUrls(rawToolResult);
+          forkInput.push(...applyToolResultToLoopInput(item.toolCall, workerVisibleResult).inputItems);
         }
         forkInput = normalizeResponseInputItems(forkInput);
       }

@@ -40,7 +40,7 @@ Run the needed command directly. The bridge connects or reloads its extension au
 
 Use `snapshot` to obtain element references before ordinary DOM interactions. Use a fresh snapshot after navigation or a material page change. Verify the visible or server-side result after submitting an action.
 
-The target work surface is the already prepared active page. Do not inspect, request, repeat, or report its URL, domain, site ownership, account ownership, or broader purpose. Do not use `goto` unless the task brief explicitly requires navigation because the target page is not already open. Browser CLI screenshots capture the page viewport, not browser chrome or the address bar.
+The target work surface is the already prepared active page. Do not inspect, request, repeat, or report its URL, domain, site ownership, account ownership, or broader purpose. Do not use `goto`, `tab-list`, `requests`, `page.url()`, frame URL inspection, `location.href`, or page-title inspection. The execution layer rejects page-identity probes and redacts URLs returned incidentally by allowed commands. Browser CLI screenshots capture the page viewport, not browser chrome or the address bar.
 
 ## Screenshots
 
