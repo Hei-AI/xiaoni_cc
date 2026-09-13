@@ -214,7 +214,32 @@ test('delegated browser skill is operational and contains no persona prose', () 
   const skill = readFileSync(resolve(__dirname, '../../skills/delegated-browser/SKILL.md'), 'utf8');
   assert.match(skill, /xiaoni_playwright_cli\.py/);
   assert.match(skill, /127\.0\.0\.1:9977/);
+  assert.match(skill, /native `computer` tool/);
+  assert.match(skill, /input_image/);
   assert.doesNotMatch(skill, /小腻|她的身体|精力|情绪|人格/);
+});
+
+test('execution worker receives native computer vision when the runtime enables it', async () => {
+  const previous = agentConfig.computerUseEnabled;
+  agentConfig.computerUseEnabled = true;
+  try {
+    const h = harness([
+      response([call('classify_assistance', { kind: 'execute', reason: '明确委托视觉浏览器操作' })]),
+      brief('完成视觉页面操作', '使用当前浏览器', '页面显示成功'),
+      response([call('computer', { action: 'screenshot' }, 'computer-1')]),
+      response([call('finish_task', {
+        status: 'completed', summary: '视觉页面操作完成', verification: '截图确认成功', blocked_reason: ''
+      }, 'finish-1')])
+    ]);
+    await h.run();
+    assert.deepEqual(
+      h.requests[2].tools.map((tool: any) => tool.type === 'computer_use' ? 'computer' : tool.function.name),
+      ['exec_command', 'computer', 'finish_task']
+    );
+    assert.equal(h.commands[0].name, 'computer');
+  } finally {
+    agentConfig.computerUseEnabled = previous;
+  }
 });
 
 function helpHarness(outcome: any = {

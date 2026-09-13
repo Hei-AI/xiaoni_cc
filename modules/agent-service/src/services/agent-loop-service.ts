@@ -3329,13 +3329,20 @@ export function buildSherlockForkRequest(
   reminderText: string,
   allowFinishTool = false
 ): CanonicalAgentTurnRequest {
+  const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL];
+  if (allowFinishTool && agentConfig.computerUseEnabled) {
+    tools.push(COMPUTER_USE_TOOL);
+  }
+  if (allowFinishTool) {
+    tools.push(ASSISTANCE_FINISH_TOOL);
+  }
   return {
     model: modelName,
     instructions: reminderText,
     input: normalizeResponseInputItems(
       accumulatedInput.length > 0 ? accumulatedInput : [buildDeveloperInputItem(['开始。'])]
     ),
-    tools: allowFinishTool ? [EXEC_COMMAND_TOOL, ASSISTANCE_FINISH_TOOL] : [EXEC_COMMAND_TOOL],
+    tools,
     parallel_tool_calls: true,
     store: false,
     max_output_tokens: SHERLOCK_FORK_MAX_OUTPUT_TOKENS,
@@ -12676,9 +12683,13 @@ export class AgentLoopService {
         toolCallsUsed += 1;
         let rawToolResult: Record<string, unknown>;
         try {
-          // finish_task 已在上方作为无副作用终态处理；其它调用只放行 exec_command。
+          // finish_task 已在上方作为无副作用终态处理；执行型 worker 另放行原生
+          // computer，使每次浏览器动作的截图作为 input_image 回灌给多模态模型。
           // 说话/发图/深挖工具在这里一律被拒。
           rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
+            || (allowFinishTool
+              && agentConfig.computerUseEnabled
+              && item.toolCall.name === TOOL_NAMES.computerUse)
             ? await this.executeTool(item.toolCall, params.queueMessage, {
                 currentCanonicalRequest: forkRequest
               })
@@ -12686,7 +12697,9 @@ export class AgentLoopService {
                 item.toolCall,
                 renderPromptSnippet('fork_tool_rejected_output.md', {
                   TOOL_NAME: item.toolCall.name,
-                  ALLOWED_TOOLS: TOOL_NAMES.execCommand
+                  ALLOWED_TOOLS: allowFinishTool && agentConfig.computerUseEnabled
+                    ? `${TOOL_NAMES.execCommand}, ${TOOL_NAMES.computerUse}`
+                    : TOOL_NAMES.execCommand
                 })
               );
         } catch (error) {

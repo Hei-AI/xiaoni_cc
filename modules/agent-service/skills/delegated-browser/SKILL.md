@@ -45,6 +45,19 @@ Use `snapshot` to obtain element references before ordinary DOM interactions. Us
 
 After `screenshot`, use the copied `/xiaoni-runtime/picture/xiaoni-browser-...png` path printed under `### Xiaoni runtime artifacts`. The host-side `.playwright-cli/...png` path is not the shared artifact path.
 
+The `exec_command` screenshot path is an artifact reference, not a visual frame in the model input. For any task that requires seeing pixels—image challenges, canvas content, drag targets, or visually locating an element—use the native `computer` tool. Do not infer image content from an iframe, DOM nodes, filenames, or placeholder text.
+
+## Visual Computer Use
+
+When the `computer` tool is available, it controls the same visible host Chrome and returns a fresh screenshot as an `input_image` after every action.
+
+- The visual surface is 1024×506. Use coordinates from the latest returned screenshot.
+- Supported actions include `screenshot`, `left_click`, `right_click`, `middle_click`, `double_click`, `triple_click`, `mouse_move`, `left_click_drag`, `left_mouse_down`, `left_mouse_up`, `key`, `hold_key`, `type`, `scroll`, `wait`, and `zoom`.
+- Start a visually driven step with `computer(action="screenshot")`; continue with coordinate actions against the returned frame.
+- Use `zoom` with `region: [x1, y1, x2, y2]` when a small area needs closer inspection.
+- Prefer DOM `snapshot` and ref clicks for ordinary controls, but switch to `computer` whenever the task depends on visual pixels.
+- A bare `computer` screenshot also returns a persisted `saved_path` under `/xiaoni-runtime/picture/` for evidence or later sending.
+
 ## Uploads
 
 The browser runs on the host. Upload only files visible through a shared mount:
