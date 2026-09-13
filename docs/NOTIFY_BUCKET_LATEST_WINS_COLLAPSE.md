@@ -184,3 +184,7 @@ phantom-run fold 修复（本设计的前置）：
 - 谁标：provider-service 给 QQ 私聊、群里 @ 她的 `phone_notification` 标；她自己的 notify 脚本显式传 `--wake`（`/api/internal/runtime/notify` 的 `wake` 字段）。其它一律不标：自驱动 plan、报时、被动召回、外部通知默认留在 pending，等下一个窗打开时折叠消费。
 - 谁读：睡眠期间 `listAgentRecoveryWakeNotifications` 只取 `(payload->>'wakesXiaoni')='true'` 的行累计唤醒次数；醒着-空闲时 `isWindowOpeningQueueRow` 只认同一字段。原来按 dedupe 前缀放行 plan / 报时 / 注意力租约 / 深挖的白名单已删除。
 - 后果：她纯文本收工后若没人找她，不会再被自己的 plan 或报时叫起来，直到有人私聊 / @ 她、或她自然醒来（睡醒续帧 `windowOpen:true` 把积压的全部折进来）。
+
+### 2026-09-13 16:40 纠正（12444949，已部署）：`wakesXiaoni` 只管睡眠中的唤醒累计
+用户纠正逻辑：所有 Notify 事件每一轮 agent loop 都会被自然消费，这是大前提；只有睡眠时 loop 被 wait 住，带 `wakesXiaoni` 的事件累计到独立唤醒窗口的阈值才解除 wait。属性不负责其它任何事。
+09-11 加在 `claimNextAgentQueueMessage` 上的「只有开窗行才起 run」是多做的（会让她纯文本收工后没人找就一直空闲），已整个删除：claim 不再区分来源，pending 全部一次折进 run；`isWindowOpeningQueueRow` / `windowOpen` 参数删除。保留：latest-wins 槽与消费时轮换 key、睡眠侧按 `payload.wakesXiaoni` 累计唤醒、notify 脚本的 `--wake`。上文「开窗纪律」「B. 开窗纪律」两节作废，留作记录。
