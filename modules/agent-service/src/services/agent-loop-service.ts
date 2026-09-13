@@ -1685,8 +1685,8 @@ const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOO
 // 才不熔断。部署顺序:prompt 走目录 watcher 热加载先上、观察分布落到 p99 < 800,再上这一条。
 // 复核 fork 的三个预算。都是从一次受控实验(22 次工具调用)外推的,**只有一个样本**。
 // 上线后按真实分布调,别当成经过验证的常数。
-const SHERLOCK_FORK_MAX_TOOL_CALLS = 30;
-const SHERLOCK_FORK_MAX_TURNS = 32;
+const SHERLOCK_FORK_MAX_TOOL_CALLS = 100;
+const SHERLOCK_FORK_MAX_TURNS = 100;
 const SHERLOCK_FORK_MAX_OUTPUT_TOKENS = 4000;
 // 福尔摩斯跑在全新上下文上,模型名不继承主 agent —— 由调用方按运行时 prompt 传入。
 const SHERLOCK_MODEL_PLACEHOLDER = '';
