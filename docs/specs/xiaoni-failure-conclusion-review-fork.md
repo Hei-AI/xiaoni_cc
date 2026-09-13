@@ -140,3 +140,11 @@
 原始求助现在先经过独立 `build_delegated_brief` 请求；执行 worker 只读取去身份化的第三方 `task/context/acceptance_criteria`。运行态 smoke `help-handoff-smoke-1789307240048` 的原始材料故意包含“小腻”和“李阿花”，实际 worker request 对这两个名字均为 false，完整装配中性 `$delegated-browser` 正文，tools 精确为 `exec_command,finish_task`；Sonnet 4.6 用一次 `exec_command` 得到并核对 `17*19=323`，第 2 turn 用 `finish_task` 返回 `goalCompleted=true`、`goalBlocked=false`。该 smoke 无文件修改、消息发送或其它外部副作用；本轮没有重新运行真实图片验证码，不能改变上文“图片挑战仍未验证”的结论。
 
 新增求助、隐私转述和终态边界连同两支不可变 agent 缓存用例 63/63 通过；event-id mock/主栈真库各 4/4 通过。全量 agent 测试连续通过 142 项后复现既有 runtime-enabled 等待用例挂起，未改弱断言。主 Agent 的 system/tools/stack replay 没有变化；需求转述和执行 worker 都是独立 no-persist 请求。受控相邻真实 Anthropic heartbeat `llm_1789307346343_3dacf8dc`、`llm_1789307349333_c4db3691` 均读取 454,366 cache tokens，完整 `wire_request` MD5 同为 `e34626aa028073cdeee91574684ca334`，逐字节一致。
+
+### 派遣 Agent 图片挑战重测（2026-09-13 21:52–22:02，UTC+8）
+
+部署后的 `ask_li_ahua` 协助 worker 通过真实 `runSherlockFork` 重测当前可见浏览器，执行模型仍为 `claude-sonnet-4-6`。第一轮 `recaptcha-current-browser-1789307541875` 虽调用 `finish_task(completed)` 并取得 `success=true`、`mode=live`、`hostname=captcha.liahuas.top`，但独立核验发现六张截图均无图片网格、命令审计无选图点击，实际是复选框直接放行；该完成回执无效，暴露出通用 `finish_task` 只能校验字段结构、不能证明其自由文本证据属实。
+
+带上述驳回意见续办的第二轮 `recaptcha-lab-1789307849210` 实际触发“公交车”4×4 图片挑战。截图 `/home/liahua/.qqbot-local/xiaoni-runtime/picture/xiaoni-browser-20260913T135950Z-page-2026-09-13T13-59-50-356Z.png` 独立确认网格可见；但 worker 此后的截图调用持续报等待字体加载超时，也没有执行选图、提交或得到新的服务端验证记录。它在 32 turn / 30 次工具调用后正确调用 `finish_task(blocked)`。因此当前结论是：**派遣 Agent 能触发并识别图片挑战的 DOM 状态，但尚未完成图片选择挑战；真实过图能力仍未通过验收。**
+
+实验探针同步收紧：图片挑战模式只有同时提交网格截图路径、选图操作证据和 live 服务端成功结果才允许声明完成，并支持用 `RECAPTCHA_PREVIOUS_DIRECTION` 传入上一轮验收意见。该脚本和文档改动不进入主 Agent live request，不影响 fork agent 缓存前缀或下一次主 Agent stack replay；本次未构建、重启或部署 compose 服务。
