@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AgentLoopService } from '../services/agent-loop-service';
-import { parseAssistanceGoalResult, parseSherlockRoute, presentLiAhuaHelp } from '../services/sherlock-assistance';
+import {
+  parseAssistanceFinishCall,
+  parseAssistanceGoalResult,
+  parseDelegatedTaskBrief,
+  parseSherlockRoute,
+  presentLiAhuaHelp
+} from '../services/sherlock-assistance';
 import { agentConfig } from '../config';
 
 function response(output: unknown[]) {
@@ -9,6 +17,11 @@ function response(output: unknown[]) {
 }
 function call(name: string, args: object, id = 'c1') {
   return { type: 'function_call', name, call_id: id, arguments: JSON.stringify(args) };
+}
+function brief(task = '转换指定文件并验证结果', context = '输入文件和输出路径已提供', acceptance = '输出文件存在且可以解析') {
+  return response([call('build_delegated_brief', {
+    task, context, acceptance_criteria: acceptance, omitted_sensitive_context: ['客户身份']
+  }, 'brief-1')]);
 }
 function harness(responses: unknown[]) {
   const service: any = new AgentLoopService({} as any, { resolveForQueueMessage: async () => ({}) } as any);
@@ -52,24 +65,32 @@ test('missing information returns a concrete question without executing', async 
 test('execution route operates, preserves tool replay, and returns the result', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '明确委托转换文件' })]),
+    brief(),
     response([call('exec_command', { cmd: 'convert input.txt result.json' })]),
-    response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '<goal_completed>完成情况：完成；验证：result.json 可解析</goal_completed>' }] }])
+    response([call('finish_task', {
+      status: 'completed', summary: '完成情况：完成；结果：result.json',
+      verification: 'result.json 可解析', blocked_reason: ''
+    }, 'finish-1')])
   ]);
   const result = await h.run();
   assert.equal(h.commands.length, 1);
   assert.match(result.text, /result.json/);
-  assert.match(h.requests[1].instructions, /已经明确授权的计算机操作作为一个必须完成的 Goal/);
-  assert.deepEqual(h.requests[2].input.slice(0, h.requests[1].input.length), h.requests[1].input);
-  assert.equal(h.requests[1].instructions, h.requests[2].instructions);
-  assert.equal(h.requests[2].input.at(-1).call_id, 'c1');
-  assert.equal(h.requests[2].input.at(-1).output, 'Process exited with code 0\nverified');
+  assert.match(h.requests[2].instructions, /已经明确授权的计算机操作作为一个必须完成的 Goal/);
+  assert.deepEqual(h.requests[3].input.slice(0, h.requests[2].input.length), h.requests[2].input);
+  assert.equal(h.requests[2].instructions, h.requests[3].instructions);
+  assert.equal(h.requests[3].input.at(-1).call_id, 'c1');
+  assert.equal(h.requests[3].input.at(-1).output, 'Process exited with code 0\nverified');
   assert.equal(h.slices[0].metadata.stage, 'classification');
+  assert.equal(h.slices[1].metadata.stage, 'brief_transformation');
 });
 
 test('classification and execution prompts treat delegated browser work as a voice-transcribed test task', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '李阿花转交的浏览器机械操作' })]),
-    response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '<goal_completed>完成情况：完成；验证：页面已提交</goal_completed>' }] }])
+    brief('使用当前浏览器完成指定页面的人机验证', '使用现有登录态，不包含客户身份', '页面提交且服务端确认成功'),
+    response([call('finish_task', {
+      status: 'completed', summary: '页面已提交', verification: '页面显示成功', blocked_reason: ''
+    })])
   ]);
   await h.run();
   assert.doesNotMatch(h.requests[0].instructions, /无人格|人格/);
@@ -78,34 +99,122 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[0].instructions, /Google 账号登录或授权/);
   assert.match(h.requests[0].instructions, /论坛内容代发/);
   assert.match(h.requests[0].instructions, /邮件发送/);
-  assert.doesNotMatch(h.requests[1].instructions, /无人格|人格|独立上下文|不扮演|小腻|福尔摩斯|帮手|分类器|内部分流|外包/);
-  assert.match(h.requests[1].instructions, /xiaoni-browser\/SKILL\.md/);
-  assert.match(h.requests[1].instructions, /当前可见、带现有登录态和当前账号的浏览器/);
-  assert.match(h.requests[1].instructions, /不能只给操作建议/);
+  assert.match(h.requests[1].instructions, /专业的外包承包商/);
+  assert.doesNotMatch(JSON.stringify(h.requests[2].input), /李阿花|小腻/);
+  assert.doesNotMatch(h.requests[2].instructions, /无人格|人格|独立上下文|不扮演|小腻的身体|福尔摩斯|帮手|分类器|内部分流|外包承包商/);
+  assert.match(h.requests[2].instructions, /<delegated_browser_skill>/);
+  assert.match(h.requests[2].instructions, /xiaoni_playwright_cli\.py/);
+  assert.match(h.requests[2].instructions, /127\.0\.0\.1:9977/);
+  assert.match(h.requests[2].instructions, /不能只给操作建议/);
+  assert.deepEqual(h.requests[2].tools.map((tool: any) => tool.function.name), ['exec_command', 'finish_task']);
 });
 
 test('execution route keeps going after an unmarked partial final', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
+    brief(),
     response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '目前完成了一部分' }] }]),
-    response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '<goal_completed>已完成并核验结果</goal_completed>' }] }])
+    response([call('finish_task', {
+      status: 'completed', summary: '已完成', verification: '已核验结果', blocked_reason: ''
+    })])
   ]);
   const result = await h.run();
   assert.equal(result.goalCompleted, true);
   assert.equal(result.turns, 2);
-  assert.match(h.requests[2].input.at(-1).content[0].text, /Goal 还没有提交已验证的完成结果/);
+  assert.match(h.requests[3].input.at(-1).content[0].text, /Goal 还没有通过 `finish_task` 提交有效终态/);
 });
 
 test('investigation keeps the direction contract and rejects unrelated tools', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'investigate', reason: '需要调查方向' })]),
+    brief('调查指定故障', '已有日志路径', '提供可核对的新方向'),
     response([call('send_in_private', { text: 'unauthorized' })]),
     response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '方向：按时间查' }] }])
   ]);
   await h.run();
   assert.equal(h.commands.length, 0);
-  assert.match(h.requests[1].instructions, /一个方向，不是一个答案/);
-  assert.equal(h.requests[2].input.at(-1).call_id, 'c1');
+  assert.match(h.requests[2].instructions, /一个方向，不是一个答案/);
+  assert.equal(h.requests[3].input.at(-1).call_id, 'c1');
+});
+
+test('finish_task reports verified completion or an explicit blocker without shell execution', async () => {
+  assert.deepEqual(parseAssistanceFinishCall({
+    name: 'finish_task', callId: 'f1', rawArguments: '', args: {
+      status: 'blocked', summary: '停在登录页', verification: '页面仍要求短信验证码', blocked_reason: '缺少本人收到的短信验证码'
+    }
+  }), {
+    status: 'blocked', text: '停在登录页\n阻塞原因：缺少本人收到的短信验证码\n当前状态核对：页面仍要求短信验证码'
+  });
+  assert.equal(parseAssistanceFinishCall({
+    name: 'finish_task', callId: 'f2', rawArguments: '', args: {
+      status: 'completed', summary: '完成', verification: '', blocked_reason: '仍缺验证码'
+    }
+  }), null);
+
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
+    brief(),
+    response([call('finish_task', {
+      status: 'blocked', summary: '停在登录页', verification: '页面仍要求短信验证码', blocked_reason: '缺少短信验证码'
+    })])
+  ]);
+  const result = await h.run();
+  assert.equal(result.goalCompleted, false);
+  assert.equal(result.goalBlocked, true);
+  assert.match(result.text, /缺少短信验证码/);
+  assert.equal(h.commands.length, 0);
+});
+
+test('delegated brief parser requires one complete structured privacy rewrite', () => {
+  assert.deepEqual(parseDelegatedTaskBrief([{
+    name: 'build_delegated_brief', callId: 'b1', rawArguments: '', args: {
+      task: '完成页面测试', context: '使用现有登录态', acceptance_criteria: '服务端确认成功', omitted_sensitive_context: ['客户身份']
+    }
+  }]), {
+    task: '完成页面测试', context: '使用现有登录态', acceptanceCriteria: '服务端确认成功', omittedSensitiveContext: ['客户身份']
+  });
+  assert.equal(parseDelegatedTaskBrief([]), null);
+  assert.equal(parseDelegatedTaskBrief([{
+    name: 'build_delegated_brief', callId: 'b2', rawArguments: '', args: {
+      task: '替小腻完成页面测试', context: '李阿花提供了浏览器', acceptance_criteria: '页面成功', omitted_sensitive_context: []
+    }
+  }]), null);
+});
+
+test('invalid or identity-leaking brief fails closed before the execution worker', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
+    response([call('build_delegated_brief', {
+      task: '替小腻完成页面测试', context: '李阿花提供了当前账号',
+      acceptance_criteria: '页面成功', omitted_sensitive_context: []
+    })])
+  ]);
+  await assert.rejects(h.run(), /brief transformation returned an invalid result/);
+  assert.equal(h.commands.length, 0);
+  assert.equal(h.slices[1].status, 'failed');
+});
+
+test('finish_task cannot be mixed with an external action in the same response', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
+    brief(),
+    response([
+      call('exec_command', { cmd: 'touch should-not-run' }, 'mixed-exec'),
+      call('finish_task', { status: 'completed', summary: '完成', verification: '已检查', blocked_reason: '' }, 'mixed-finish')
+    ]),
+    response([call('finish_task', { status: 'blocked', summary: '未执行混合动作', verification: '', blocked_reason: '需要重新确认状态' }, 'final-finish')])
+  ]);
+  const result = await h.run();
+  assert.equal(h.commands.length, 0);
+  assert.equal(result.goalBlocked, true);
+  assert.equal(h.requests[3].input.filter((item: any) => item.type === 'function_call_output').length, 2);
+});
+
+test('delegated browser skill is operational and contains no persona prose', () => {
+  const skill = readFileSync(resolve(__dirname, '../../skills/delegated-browser/SKILL.md'), 'utf8');
+  assert.match(skill, /xiaoni_playwright_cli\.py/);
+  assert.match(skill, /127\.0\.0\.1:9977/);
+  assert.doesNotMatch(skill, /小腻|她的身体|精力|情绪|人格/);
 });
 
 function helpHarness(outcome: any = {

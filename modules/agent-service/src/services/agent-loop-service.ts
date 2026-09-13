@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import {
   lstat as fsLstat,
   mkdir as fsMkdir,
@@ -15,7 +15,18 @@ import {
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
-import { SHERLOCK_ROUTE_TOOL, parseAssistanceGoalResult, parseSherlockRoute, presentLiAhuaHelp } from './sherlock-assistance';
+import {
+  ASSISTANCE_FINISH_TOOL,
+  ASSISTANCE_FINISH_TOOL_NAME,
+  DELEGATED_BRIEF_TOOL,
+  DELEGATED_BRIEF_TOOL_NAME,
+  SHERLOCK_ROUTE_TOOL,
+  parseAssistanceFinishCall,
+  parseAssistanceGoalResult,
+  parseDelegatedTaskBrief,
+  parseSherlockRoute,
+  presentLiAhuaHelp
+} from './sherlock-assistance';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
@@ -2676,6 +2687,10 @@ function readPromptSnippet(fileName: string) {
   return readXiaoniPromptFile(fileName).trimEnd();
 }
 
+function readDelegatedBrowserSkill() {
+  return readFileSync(nodePath.resolve(__dirname, '../../skills/delegated-browser/SKILL.md'), 'utf8').trim();
+}
+
 function renderPromptSnippet(fileName: string, variables: Record<string, string | number | null | undefined> = {}) {
   return renderXiaoniPromptTemplate(fileName, variables).trimEnd();
 }
@@ -3300,8 +3315,8 @@ export function renderSherlockReminder(
   ).trim();
 }
 
-export function seedSherlockForkInput(reminderText: string): OpenResponseInputItem[] {
-  return buildSherlockForkRequest(SHERLOCK_MODEL_PLACEHOLDER, [], 1, reminderText).input;
+export function seedSherlockForkInput(reminderText: string, allowFinishTool = false): OpenResponseInputItem[] {
+  return buildSherlockForkRequest(SHERLOCK_MODEL_PLACEHOLDER, [], 1, reminderText, allowFinishTool).input;
 }
 
 // 自拼请求,不克隆。provider-service 的 /api/internal/llm/debug 本来就是
@@ -3311,7 +3326,8 @@ export function buildSherlockForkRequest(
   modelName: string,
   accumulatedInput: OpenResponseInputItem[],
   forkTurn: number,
-  reminderText: string
+  reminderText: string,
+  allowFinishTool = false
 ): CanonicalAgentTurnRequest {
   return {
     model: modelName,
@@ -3319,7 +3335,7 @@ export function buildSherlockForkRequest(
     input: normalizeResponseInputItems(
       accumulatedInput.length > 0 ? accumulatedInput : [buildDeveloperInputItem(['开始。'])]
     ),
-    tools: [EXEC_COMMAND_TOOL],
+    tools: allowFinishTool ? [EXEC_COMMAND_TOOL, ASSISTANCE_FINISH_TOOL] : [EXEC_COMMAND_TOOL],
     parallel_tool_calls: true,
     store: false,
     max_output_tokens: SHERLOCK_FORK_MAX_OUTPUT_TOKENS,
@@ -12447,14 +12463,69 @@ export class AgentLoopService {
         assistanceKind: route.kind
       };
     }
+
     await params.onHelperStart?.();
+    const briefRequest = {
+      model: classifierModel,
+      instructions: readPromptSnippet('sherlock_restate.md').trim(),
+      input: [{ type: 'message', role: 'user', content: JSON.stringify({
+        task_kind: route.kind,
+        request: params.question,
+        context: params.searchedPaths,
+        previous_result: params.previousDirection
+      }) }],
+      tools: [DELEGATED_BRIEF_TOOL],
+      tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: DELEGATED_BRIEF_TOOL_NAME }], 'required'),
+      parallel_tool_calls: false,
+      store: false,
+      max_output_tokens: 1600
+    } as CanonicalAgentTurnRequest;
+    await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+    const briefResult = await this.executeSubconsciousAgentForkTurn(
+      briefRequest,
+      params.queueMessage,
+      { ...params.runtimePrompt, modelName: classifierModel, parameters: {} },
+      0,
+      { agentType: 'sherlock_brief', executionMode: 'sherlock_brief_no_persist' }
+    );
+    const brief = parseDelegatedTaskBrief(this.responseActionRouter.route(briefResult.canonical_response).toolCalls);
+    await this.recordFailureReviewForkSliceSafe({
+      sliceId: briefResult.llm_request_slice_id || briefResult.llm_call_id || `${params.forkRunId}:brief`,
+      forkRunId: params.forkRunId,
+      diveId: params.diveId,
+      llmCallId: briefResult.llm_call_id || null,
+      canonicalRequest: briefResult.canonical_request || briefRequest,
+      wireRequest: briefResult.wire_request || null,
+      canonicalResponse: briefResult.canonical_response || null,
+      wireResponse: briefResult.wire_response || null,
+      outputItems: extractCanonicalResponseOutputItems(briefResult),
+      tokenUsage: buildProviderTokenUsage(briefResult),
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      agentTurn: 0,
+      modelName: briefResult.model || classifierModel,
+      status: brief ? 'completed' : 'failed',
+      metadata: {
+        fork_kind: 'sherlock',
+        stage: 'brief_transformation',
+        assistance_kind: route.kind,
+        omitted_sensitive_context: brief?.omittedSensitiveContext ?? []
+      }
+    });
+    if (!brief) throw new Error('Sherlock assistance brief transformation returned an invalid result');
+
+    const delegatedContext = JSON.stringify({
+      context: brief.context,
+      acceptance_criteria: brief.acceptanceCriteria
+    });
     const taskReminder = route.kind === 'execute'
       ? renderPromptSnippet('sherlock_execute.md', {
-          QUESTION: params.question,
-          SEARCHED_PATHS: params.searchedPaths,
-          PREVIOUS_DIRECTION: params.previousDirection ?? ''
+          QUESTION: brief.task,
+          SEARCHED_PATHS: delegatedContext,
+          PREVIOUS_DIRECTION: '',
+          BROWSER_SKILL: readDelegatedBrowserSkill()
         }).trim()
-      : renderSherlockReminder(params.question, params.searchedPaths, params.previousDirection);
+      : renderSherlockReminder(brief.task, delegatedContext, null);
     const reminderText = `${taskReminder}\n\n${readPromptSnippet('help_result_style.md').trim()}`;
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
@@ -12476,7 +12547,8 @@ export class AgentLoopService {
     // 那样 turn-1 写的条目是 [base, R],turn-2 的请求却是 [base, A1, T1.., R] ——
     // 第 len(base) 块从 R 变成 A1,最长前缀只能匹配到 base,turn≥2 每轮都要把已累积的
     // exec 输出全部冷读一遍(上限 30 次 exec × 32 turn,越往后越贵)。
-    let forkInput = seedSherlockForkInput(reminderText);
+    const allowFinishTool = route.kind === 'execute';
+    let forkInput = seedSherlockForkInput(reminderText, allowFinishTool);
     let toolCallsUsed = 0;
     let turns = 0;
     let finalText: string | null = null;
@@ -12489,7 +12561,8 @@ export class AgentLoopService {
         helperModel,
         forkInput,
         forkTurn,
-        reminderText
+        reminderText,
+        allowFinishTool
       );
       // 请求体用累积链,不用 builder 拼出来的那份(它只提供 metadata / 采样参数)。
       forkRequest.input = normalizeResponseInputItems(forkInput);
@@ -12545,6 +12618,26 @@ export class AgentLoopService {
         forkInput.push(replayItem.inputItem as OpenResponseInputItem);
       }
 
+      const finishCalls = toolCalls.filter((item) => item.toolCall.name === ASSISTANCE_FINISH_TOOL_NAME);
+      if (finishCalls.length > 0) {
+        const goalResult = toolCalls.length === 1 ? parseAssistanceFinishCall(finishCalls[0].toolCall) : null;
+        if (goalResult) {
+          finalText = goalResult.text;
+          goalCompleted = goalResult.status === 'completed';
+          goalBlocked = goalResult.status === 'blocked';
+          break;
+        }
+        for (const item of toolCalls) {
+          forkInput.push({
+            type: 'function_call_output',
+            call_id: item.toolCall.callId,
+            output: '[finish_task 无效：必须单独调用；completed 需要非空 summary 和 verification 且 blocked_reason 为空，blocked 需要非空 summary 和 blocked_reason。继续推进或重新提交有效终态。]'
+          } as unknown as OpenResponseInputItem);
+        }
+        forkInput = normalizeResponseInputItems(forkInput);
+        continue;
+      }
+
       if (toolCalls.length === 0) {
         const naturalText = extractSubconsciousNaturalLanguage(outputItems);
         if (route.kind === 'execute') {
@@ -12583,8 +12676,8 @@ export class AgentLoopService {
         toolCallsUsed += 1;
         let rawToolResult: Record<string, unknown>;
         try {
-          // 执行层限制(Layer 2):只放行 exec_command。说话/发图/深挖工具在这里一律被拒 ——
-          // tools 与 tool_choice 一个字没改(Layer 1 的缓存对齐不能碰)。
+          // finish_task 已在上方作为无副作用终态处理；其它调用只放行 exec_command。
+          // 说话/发图/深挖工具在这里一律被拒。
           rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
             ? await this.executeTool(item.toolCall, params.queueMessage, {
                 currentCanonicalRequest: forkRequest

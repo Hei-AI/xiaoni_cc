@@ -34,6 +34,7 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 | `$local-image-visibility` | `/xiaoni-runtime/picture` 下有 PNG，但 `inspect_image_placeholder` 看不到或没有 image id。 | 只能做文件存在、尺寸、缩略图和粗略颜色/ascii 检查；不能替代语义视觉。 |
 | `$executor-container` | 准备用 `exec_command` 保存文件或确认持久化路径。 | 长期数据只放 `/xiaoni-runtime` 或 `/workspace/qq_bot` / `/app`。 |
 | `$xiaoni-browser` | 控制宿主机可见 Chrome 做网页浏览、截图、交互、网络/console 检查。 | 走 host bridge 和 patched Playwright Extension；`ensure-extension --restart` 会重启可见 Chrome，需谨慎。 |
+| `$delegated-browser` | `ask_li_ahua` 的执行 worker 操作宿主机可见 Chrome；完整正文直接装配进 worker 请求。 | 从 `$xiaoni-browser` 提炼同一桥接方案，去掉人格化描述；只在明确委托范围内操作，不自行重启 host bridge。 |
 | `$xiaoni-site` | 构建、运行或调试 `https://xiaoni.liahuas.top`。 | 公网页面由 executor 内 `0.0.0.0:3458` 提供，不指向 executor API `8093`。 |
 | `$site-publish-check` | 发布或修改 `xiaoni.liahuas.top` 页面后做上线前检查。 | 校验 dist 文件、公开 URL、首页链接、私有路径泄漏和同站资源 200。 |
 | `$forever-archive` | 页面、文章、图片或玩具值得长期保留，尤其是发布前后。 | `dist` 是展示输出，不是记忆源；归档副本落 `/xiaoni-runtime/forever/...`。 |
@@ -55,7 +56,7 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 | QQ/attention | `phone_notification` 只表示状态栏未读短摘要；完整正文必须通过 `$qq-usage` 主动打开。群聊 `mentions_only` 模式下普通群消息只进 inbox，不敲状态栏；`set_group_notification_delay` 可以把普通群消息聚合成一条延迟提醒，群 @ 仍立即提醒。`attention_lease` 是短期余光提醒，不续期所有 inbox。 |
 | Self continuation | 只有 no-notify 且候选 requestInput 尾项仍是 `assistant final_answer` 时追加；不是 queue trigger。 |
 | Image tasks | `image_task_pending` 防止盲猜成品路径；`image_task_notification` 只在任务完成后提供 task id、图片 id/path 和目标说明。 |
-| Help tasks | `ask_li_ahua` 立即返回 task id 与 pending；独立 worker 持续推进 Goal，完成或需要补充输入时通过 Notify Bucket 唤醒小腻。 |
+| Help tasks | `ask_li_ahua` 立即返回 task id 与 pending；原始材料先由独立需求转述阶段生成去身份化的第三方 brief，执行 worker 直接获得 `$delegated-browser` 正文，并用结构化 `finish_task` 提交已验证完成或明确阻塞；随后通过 Notify Bucket 唤醒小腻。 |
 | Recovery | 模型主动 `recover_energy` 的成功、被打断、clock、clock deferred 和拒绝都作为同一个 tool call 的 callback；强制休息醒来走 runtime input。 |
 | Core memory pressure | 后台 compression fork 的当前输入；工程用 `allowed_tools` 限制为 `exec_command` + `compress_core_memory`。 |
 
