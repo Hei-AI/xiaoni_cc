@@ -99,6 +99,14 @@
 
 实验探针可用 `RECAPTCHA_LAB_URL=https://captcha.liahuas.top RECAPTCHA_REQUIRE_IMAGE_CHALLENGE=true` 明确要求区分图片题与直接放行。两组结果证明网站已接入并能触发真实图片题；**当前目标 Agent 通过图片挑战仍未验证**。
 
+### 独立 Input 的分阶段 Goal 实验（2026-09-13）
+
+用户进一步要求用新 Input 的独立 worker，不写“忘掉历史”，目标为完成页面中的真实图片挑战，成功返回 `10`。实验实现见 [scripts/README.md](../../scripts/README.md#recaptcha-自有站点实验)：观察只读取当前截图及题目，决策只读取本帧结构化观察，执行器落实合法动作，验收独立读取本次真实服务端结果。没有主 Agent 历史、旧推理或跨阶段聊天 replay。每个 stage 的模型仍是 `claude-sonnet-4-6`；所有格子判断由模型产生，Codex 不提供选格答案。
+
+`recaptcha-isolated-1789302629657` 实际执行了 25 个画面步骤、50 次独立 Sonnet 调用，没有通过。首条 `llm_1789302635724_7936e122` 的真实 wire 包含 image，canonical input 仅 1 项，后续每阶段同样为新 Input。日志揭示动态换图未完成时被错误标记为 ready，以及局部目标存在但布尔值为 false；据此收紧观察 Prompt，同时修正加载等待与点击前图片版本校验。失败不能用“已经选了图片”替代最终验收。
+
+站点与阶段契约共 9 项测试通过，覆盖测试/正式密钥边界、Google 拒绝、域名不匹配、重复/越界格子、未加载完禁止动作、模型返回 10 但缺真实证据时拒绝完成。当前只新增实验脚本和 Prompt，未修改主 Agent 请求、fork 克隆前缀或下一 run replay，未部署或重启任何 compose 服务。**生产求助 worker 的改造与真实图片挑战成功验收仍未完成。**
+
 - 新增求助回归 13/13 通过，覆盖分类、执行输出回传、人工分流、重复调用、并发领取、发送结果不确定与重启后转人工。
 - 真实帮手验收 `help-smoke-fixed-20260913` 通过现有 provider → xiaoni-executor 执行 `python3 -c "print(17*19)"`：1 次工具调用、2 个执行 turn；下一次 canonical request 的工具回传确认为 `323\n`。该验收未向 QQ 发送测试消息。
 - 缓存与深挖相关 agent 回归 93/93 通过；不可变缓存真库测试在主栈 Postgres 的 `qqbot_cache_test` 上 4/4 通过，无跳过。
