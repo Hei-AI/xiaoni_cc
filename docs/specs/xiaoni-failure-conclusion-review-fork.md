@@ -87,3 +87,7 @@
 ### 异步 Goal worker
 
 `ask_li_ahua` 改为与图片任务相同的入队/完成通知边界：调用当轮只写 `xiaoni_help` task 并立即返回 pending；独立 help task worker 领取并持续执行，完成后写 completion notify 唤醒小腻。执行结果必须使用明确完成标签，未完成与普通异常重新排队，缺输入则保留同一 Goal 等待补充。主 agent 不轮询，也不占用原 run 等待 worker。
+
+2026-09-13 17:52（UTC+8）基于 `5ac0c841` 定向 build/up `agent-service`，服务 healthy、runtime enabled，`help_worker_busy` 健康字段生效；executor 和 embedding 容器未重建。异步求助回归 15/15、持久层求助回归 7/7、两支 agent 缓存契约 43/43、持久层 event-id mock/真库各 4/4 通过。全量 agent 测试执行到既有 runtime-enabled 等待用例前 142 项均通过；全量 persistence 的 runtime-control 旧断言漂移在未修改的 main 同样复现，不属于本变更。
+
+部署切换后的首次 heartbeat 预期冷读，随后两次真实 Anthropic heartbeat 均读取 382,253 / 382,256 input tokens。受控相邻持久 slice `llm_1789293377372_40674028`、`llm_1789293392098_f9f79a82` 均读取 382,253 / 382,256；完整 `wire_request` MD5 同为 `8e0f25764e468b8e918f55b6375b140a`，system/tools MD5 分别同为 `8b31d4f0155d80db0947135304719ffd`、`214f44a7204d95fca355071ccdda8116`。这验证了工具描述切换后 fork 前缀重新稳定，也验证了下一主 run 所依赖的冻结 request 前缀没有随 run 或时间漂移。
