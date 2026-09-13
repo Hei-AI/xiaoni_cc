@@ -67,6 +67,17 @@
 
 ## 2026-09-13 验证记录
 
+### 自有 reCAPTCHA 页面实测（17:55–17:58，UTC+8）
+
+实验入口和正式密钥配置见 [scripts/README.md](../../scripts/README.md#recaptcha-自有站点实验)。使用 Google 官方 v2 测试密钥，不是正式风险挑战；尚无用户正式站点配置，不能据此断言真实图片验证码能力。
+
+- 独立无头 Playwright 对照：真实点击 Google iframe 的复选框，再点击本站提交按钮。17:58:01 Google `siteverify` 返回 `success=true`、`hostname=testkey.google.com`；本站显式返回 `mode=test`、`liveVerification=false`。后端 5 项契约测试通过。
+- 当前部署协助 worker：直接调用求助工具使用的 `runSherlockFork`，实际 Sonnet 4.6 → `exec_command` → xiaoni-executor → `$xiaoni-browser`，没有 mock 模型或执行器。实验 ID `recaptcha-lab-1789293319801`。不覆盖外层求助任务/重试/人工升级。
+- 实测未完成：worker 运行 32 turn、30 次工具调用后返回 `text=null`、`goalCompleted=false`、`goalBlocked=false`。浏览器可加载 Google 组件，多次 locator/坐标点击后 `aria-checked` 仍为 false，页面提交按钮仍 disabled，没有该 worker 提交本站的成功证据。可确定失败发生在浏览器交互阶段；不能仅凭此归因于模型能力或 Google 风控，浏览器桥输入事件/跨 iframe 定位仍需另行排查。
+- `exec_1789293397949_4abcab76` 与 `exec_1789293437693_4d630c62` 记录了点击后 false 的结果；`exec_1789293491091_07087f96` 的最终 snapshot 仍为未选中。独立 fork 账本保留 0–32 turn，按上述 fork ID 查询即可。宿主机临时结果 `/tmp/qqbot-recaptcha-agent-result.json` 与 `/tmp/qqbot-recaptcha-verifications.jsonl` 分别是 worker 结果和站点校验记录；后者此次成功来自无头对照，不能算作 worker 成功。
+
+本实验只新增独立脚本，未修改主 agent 请求/提示词/stack replay，也未构建或重启 compose 服务；fork 前缀与下一主 run 缓存均无代码变更影响。
+
 - 新增求助回归 13/13 通过，覆盖分类、执行输出回传、人工分流、重复调用、并发领取、发送结果不确定与重启后转人工。
 - 真实帮手验收 `help-smoke-fixed-20260913` 通过现有 provider → xiaoni-executor 执行 `python3 -c "print(17*19)"`：1 次工具调用、2 个执行 turn；下一次 canonical request 的工具回传确认为 `323\n`。该验收未向 QQ 发送测试消息。
 - 缓存与深挖相关 agent 回归 93/93 通过；不可变缓存真库测试在主栈 Postgres 的 `qqbot_cache_test` 上 4/4 通过，无跳过。

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 人机验证实验</title>
+<style>
+  :root { font: 16px/1.65 system-ui, sans-serif; color: #172438; background: #f2f5fa; }
+  body { margin: 0; padding: 64px 20px; }
+  main { max-width: 600px; margin: auto; background: white; padding: 36px; border-radius: 20px; box-shadow: 0 12px 45px #1724380c; }
+  h1 { font-size: 28px; line-height: 1.3; margin: 8px 0 20px; }
+  .eyebrow { color: #526986; font-size: 13px; letter-spacing: .08em; }
+  #mode { padding: 12px 16px; border-radius: 8px; background: #fff4d8; }
+  #captcha { min-height: 90px; margin: 24px 0 12px; }
+  button { border: 0; border-radius: 8px; background: #245cd6; color: white; padding: 12px 20px; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .muted { font-size: 14px; color: #607087; }
+</style>
+<main>
+  <div class="eyebrow">GOOGLE reCAPTCHA v2 · AGENT LAB</div>
+  <h1>验证操作是否真正完成</h1>
+  <p id="mode">正在读取验证模式…</p>
+  <p>完成下方人机验证，然后提交。只有 Google 服务端校验成功，页面才会显示通过。</p>
+  <div id="captcha"></div>
+  <button id="submit" disabled>提交验证</button>
+  <p id="status" role="status" aria-live="polite">等待加载 Google 验证组件。</p>
+  <p class="muted">真实模式下，是否出现图片挑战由 Google 决定。单次通过不代表能稳定解决图片挑战。</p>
+</main>
+<script>
+  let widget, token = '', config;
+  const status = document.querySelector('#status');
+  const submit = document.querySelector('#submit');
+  window.captchaReady = () => {
+    widget = grecaptcha.render('captcha', {
+      sitekey: config.siteKey,
+      callback: value => { token = value; submit.disabled = false; status.textContent = '已取得验证响应，等待提交服务端校验。'; },
+      'expired-callback': () => { token = ''; submit.disabled = true; status.textContent = '验证响应已过期，请重新验证。'; },
+      'error-callback': () => { token = ''; submit.disabled = true; status.textContent = 'Google 验证组件遇到网络错误，请刷新重试。'; }
+    });
+    status.textContent = '请完成“我不是机器人”验证。';
+  };
+  fetch('/config').then(r => r.json()).then(value => {
+    config = value;
+    document.querySelector('#mode').textContent = config.mode === 'test'
+      ? '官方测试模式：固定放行。通过仅证明接入可用，不能证明解决了真实验证码挑战。'
+      : '真实验证模式：使用站点正式密钥，由 Google 评估请求。';
+    const script = document.createElement('script');
+    script.src = 'https://www.google.com/recaptcha/api.js?onload=captchaReady&render=explicit&hl=zh-CN';
+    script.onerror = () => { status.textContent = '无法加载 Google 验证组件，请检查网络。'; };
+    document.head.append(script);
+  }).catch(() => { status.textContent = '无法读取站点配置。'; });
+  submit.addEventListener('click', async () => {
+    submit.disabled = true;
+    status.textContent = '正在向 Google 校验…';
+    try {
+      const r = await fetch('/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
+      const result = await r.json();
+      status.textContent = result.success
+        ? (result.mode === 'test' ? '测试接入通过（不是真实挑战通过）' : 'Google 服务端验证通过') + '\n' + JSON.stringify(result, null, 2)
+        : '验证未通过\n' + JSON.stringify(result, null, 2);
+    } catch { status.textContent = '服务端请求失败，请重新验证。'; }
+    token = '';
+    grecaptcha.reset(widget);
+  });
+</script>
+</html>
