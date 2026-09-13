@@ -3,7 +3,7 @@ import type { AgentToolCall } from '../types';
 export type SherlockAssistanceKind = 'investigate' | 'execute' | 'human' | 'clarify';
 export type AssistanceGoalResult = { status: 'completed' | 'blocked'; text: string };
 export type DelegatedTaskBrief = {
-  brief: string;
+  workItems: string[];
   omittedSensitiveContext: string[];
 };
 
@@ -54,10 +54,13 @@ export const DELEGATED_BRIEF_TOOL = {
     parameters: {
       type: 'object',
       properties: {
-        brief: { type: 'string', description: 'One self-contained paragraph containing only ordered test operations, necessary task inputs, execution boundaries, and observable acceptance state; omit business purpose and explanation.' },
+        work_items: {
+          type: 'array', minItems: 1, maxItems: 8,
+          items: { type: 'string', description: 'One isolated work package containing only its local test operations, necessary inputs, boundaries, and observable acceptance state; omit business purpose and the full workflow.' }
+        },
         omitted_sensitive_context: { type: 'array', items: { type: 'string' } }
       },
-      required: ['brief', 'omitted_sensitive_context'],
+      required: ['work_items', 'omitted_sensitive_context'],
       additionalProperties: false
     }
   }
@@ -82,16 +85,21 @@ export function parseAssistanceFinishCall(call: AgentToolCall): AssistanceGoalRe
 export function parseDelegatedTaskBrief(calls: AgentToolCall[]): DelegatedTaskBrief | null {
   if (calls.length !== 1 || calls[0].name !== DELEGATED_BRIEF_TOOL_NAME) return null;
   const args = calls[0].args;
-  const brief = typeof args.brief === 'string' ? args.brief.trim().replace(/\s+/gu, ' ') : '';
+  const rawWorkItems = args.work_items;
   const rawOmittedSensitiveContext = args.omitted_sensitive_context;
   if (!Array.isArray(rawOmittedSensitiveContext)) return null;
   const omittedSensitiveContext = rawOmittedSensitiveContext
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.trim())
     .filter(Boolean);
-  if (!brief || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
-  if (/小腻|小逆|李阿花|阿花|客户说|用户让我|委托人要求/u.test(brief)) return null;
-  return { brief, omittedSensitiveContext };
+  if (!Array.isArray(rawWorkItems) || rawWorkItems.length < 1 || rawWorkItems.length > 8) return null;
+  const workItems = rawWorkItems
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().replace(/\s+/gu, ' '))
+    .filter(Boolean);
+  if (workItems.length !== rawWorkItems.length || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
+  if (workItems.some((item) => /小腻|小逆|李阿花|阿花|客户说|用户让我|委托人要求/u.test(item))) return null;
+  return { workItems, omittedSensitiveContext };
 }
 
 export function parseAssistanceGoalResult(text: string | null): AssistanceGoalResult | null {

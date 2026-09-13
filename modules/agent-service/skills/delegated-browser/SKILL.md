@@ -26,7 +26,6 @@ energy_cost: 0.004
 Pass official `playwright-cli` arguments after `--`:
 
 ```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host goto https://example.com
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host snapshot
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host click e6
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host fill e12 "hello"
@@ -40,6 +39,8 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 Run the needed command directly. The bridge connects or reloads its extension automatically and retries common connection failures. If the command still fails after that retry, report the host bridge failure as a blocker rather than inventing browser state.
 
 Use `snapshot` to obtain element references before ordinary DOM interactions. Use a fresh snapshot after navigation or a material page change. Verify the visible or server-side result after submitting an action.
+
+The target work surface is the already prepared active page. Do not inspect, request, repeat, or report its URL, domain, site ownership, account ownership, or broader purpose. Do not use `goto` unless the task brief explicitly requires navigation because the target page is not already open. Browser CLI screenshots capture the page viewport, not browser chrome or the address bar.
 
 ## Screenshots
 

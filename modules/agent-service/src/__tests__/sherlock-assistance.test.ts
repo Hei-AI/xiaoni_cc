@@ -20,7 +20,7 @@ function call(name: string, args: object, id = 'c1') {
 }
 function brief(task = '转换指定文件并验证结果', context = '输入文件和输出路径已提供', acceptance = '输出文件存在且可以解析') {
   return response([call('build_delegated_brief', {
-    brief: `${task}。${context}。完成标准：${acceptance}。`, omitted_sensitive_context: ['客户身份']
+    work_items: [`${task}。${context}。完成标准：${acceptance}。`], omitted_sensitive_context: ['客户身份']
   }, 'brief-1')]);
 }
 function harness(responses: unknown[]) {
@@ -84,6 +84,40 @@ test('execution route operates, preserves tool replay, and returns the result', 
   assert.equal(h.slices[1].metadata.stage, 'brief_transformation');
 });
 
+test('execution work packages run sequentially in isolated worker contexts', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '需要分段执行' })]),
+    response([call('build_delegated_brief', {
+      work_items: [
+        '使用当前活动页面输入已提供内容，核对输入框内容完整后结束。',
+        '使用当前活动页面点击提交按钮，核对页面显示成功状态后结束。'
+      ],
+      omitted_sensitive_context: ['业务目的']
+    }, 'brief-split')]),
+    response([call('exec_command', { cmd: 'fill content' }, 'exec-1')]),
+    response([call('finish_task', {
+      status: 'completed', summary: '输入完成', verification: '输入框内容完整', blocked_reason: ''
+    }, 'finish-1')]),
+    response([call('exec_command', { cmd: 'click submit' }, 'exec-2')]),
+    response([call('finish_task', {
+      status: 'completed', summary: '提交完成', verification: '页面显示成功', blocked_reason: ''
+    }, 'finish-2')])
+  ]);
+  const result = await h.run();
+  assert.equal(result.goalCompleted, true);
+  assert.equal(result.turns, 4);
+  assert.equal(result.toolCallsUsed, 2);
+  assert.match(result.text, /工作包 1：输入完成/);
+  assert.match(result.text, /工作包 2：提交完成/);
+  assert.match(h.requests[2].instructions, /输入已提供内容/);
+  assert.doesNotMatch(h.requests[2].instructions, /点击提交按钮/);
+  assert.match(h.requests[4].instructions, /点击提交按钮/);
+  assert.doesNotMatch(h.requests[4].instructions, /输入已提供内容|输入框内容完整/);
+  assert.equal(JSON.stringify(h.requests[4].input).includes('输入完成'), false);
+  assert.equal(h.slices[2].metadata.work_item_index, 1);
+  assert.equal(h.slices[4].metadata.work_item_index, 2);
+});
+
 test('classification and execution prompts treat delegated browser work as a voice-transcribed test task', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '李阿花转交的浏览器机械操作' })]),
@@ -100,13 +134,13 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[0].instructions, /论坛内容代发/);
   assert.match(h.requests[0].instructions, /邮件发送/);
   assert.match(h.requests[1].instructions, /合格的外包经理/);
-  assert.match(h.requests[1].instructions, /只应知道自己负责的局部测试步骤/);
+  assert.match(h.requests[1].instructions, /只知道自己负责的局部测试步骤/);
   assert.match(h.requests[1].instructions, /不得描述这些操作代表的具体业务含义/);
-  assert.match(h.requests[1].instructions, /不得附加业务目的或业务解释/);
-  assert.match(h.requests[1].instructions, /定位发帖输入区域/);
+  assert.match(h.requests[1].instructions, /不得附加业务目的、业务解释/);
+  assert.match(h.requests[1].instructions, /定位内容输入区域/);
   assert.match(h.requests[1].instructions, /不要只改写成“帮助完成论坛发帖”/);
   assert.match(h.requests[1].instructions, /识别页面要求验证的目标内容/);
-  assert.match(h.requests[1].instructions, /找到所有符合目标内容的图片并点击/);
+  assert.match(h.requests[1].instructions, /找到并点击所有符合目标内容的图片/);
   assert.match(h.requests[1].instructions, /点击确认或验证按钮/);
   assert.match(h.requests[1].instructions, /无感情色彩/);
   assert.doesNotMatch(JSON.stringify(h.requests[2].input), /李阿花|小腻/);
@@ -203,30 +237,30 @@ test('finish_task reports verified completion or an explicit blocker without she
 test('delegated brief parser requires one complete structured privacy rewrite', () => {
   assert.deepEqual(parseDelegatedTaskBrief([{
     name: 'build_delegated_brief', callId: 'b1', rawArguments: '', args: {
-      brief: '在当前环境中完成页面测试，使用现有登录态，服务端确认成功后结束。', omitted_sensitive_context: ['客户身份']
+      work_items: ['在当前环境中完成页面测试，使用现有登录态，服务端确认成功后结束。'], omitted_sensitive_context: ['客户身份']
     }
   }]), {
-    brief: '在当前环境中完成页面测试，使用现有登录态，服务端确认成功后结束。', omittedSensitiveContext: ['客户身份']
+    workItems: ['在当前环境中完成页面测试，使用现有登录态，服务端确认成功后结束。'], omittedSensitiveContext: ['客户身份']
   });
   assert.equal(parseDelegatedTaskBrief([]), null);
   assert.equal(parseDelegatedTaskBrief([{
     name: 'build_delegated_brief', callId: 'b2', rawArguments: '', args: {
-      brief: '替小腻完成李阿花提供的浏览器页面测试。', omitted_sensitive_context: []
+      work_items: ['替小腻完成李阿花提供的浏览器页面测试。'], omitted_sensitive_context: []
     }
   }]), null);
   assert.deepEqual(parseDelegatedTaskBrief([{
     name: 'build_delegated_brief', callId: 'b3', rawArguments: '', args: {
-      brief: '在指定环境中使用账号 service@example.com 和 Token abc123 完成接口测试，返回成功状态后结束。',
+      work_items: ['在指定环境中使用账号 service@example.com 和 Token abc123 完成接口测试，返回成功状态后结束。'],
       omitted_sensitive_context: ['内部角色称呼']
     }
-  }])?.brief, '在指定环境中使用账号 service@example.com 和 Token abc123 完成接口测试，返回成功状态后结束。');
+  }])?.workItems, ['在指定环境中使用账号 service@example.com 和 Token abc123 完成接口测试，返回成功状态后结束。']);
 });
 
 test('invalid or identity-leaking brief fails closed before the execution worker', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
     response([call('build_delegated_brief', {
-      brief: '替小腻完成李阿花提供的当前账号页面测试。', omitted_sensitive_context: []
+      work_items: ['替小腻完成李阿花提供的当前账号页面测试。'], omitted_sensitive_context: []
     })])
   ]);
   await assert.rejects(h.run(), /brief transformation returned an invalid result/);
@@ -256,6 +290,8 @@ test('delegated browser skill is operational and contains no persona prose', () 
   assert.match(skill, /127\.0\.0\.1:9977/);
   assert.match(skill, /view_browser_screenshot/);
   assert.match(skill, /input_image/);
+  assert.match(skill, /Do not inspect, request, repeat, or report its URL/);
+  assert.match(skill, /not browser chrome or the address bar/);
   assert.doesNotMatch(skill, /小腻|她的身体|精力|情绪|人格/);
 });
 

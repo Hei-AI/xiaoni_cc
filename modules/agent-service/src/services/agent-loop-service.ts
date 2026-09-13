@@ -12529,15 +12529,6 @@ export class AgentLoopService {
     });
     if (!brief) throw new Error('Sherlock assistance brief transformation returned an invalid result');
 
-    const taskReminder = route.kind === 'execute'
-      ? renderPromptSnippet('sherlock_execute.md', {
-          QUESTION: brief.brief,
-          SEARCHED_PATHS: '',
-          PREVIOUS_DIRECTION: '',
-          BROWSER_SKILL: readDelegatedBrowserSkill()
-        }).trim()
-      : renderSherlockReminder(brief.brief, '', null);
-    const reminderText = `${taskReminder}\n\n${readPromptSnippet('help_result_style.md').trim()}`;
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
     // 每次都是独立一跑,按深挖归组会把多次复核的 slice 混成一堆(而且没有硬上界可取)。
@@ -12550,156 +12541,169 @@ export class AgentLoopService {
       no_main_stack_persist: true,
       no_traffic_persist: true
     };
-    // 【缓存链】reminder 必须从 turn-1 起就留在 forkInput 里,之后逐轮在它后面追加 ——
-    // 这样 turn N 的请求就是 turn N-1 请求的严格延长,滑窗才能把上一轮的真·末块当作本轮的
-    // prevBoundary(docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」)。
-    //
-    // 曾经写错过一次:forkInput 从裸 base 起,每轮把 reminder 拼进一个**副本**的尾部。
-    // 那样 turn-1 写的条目是 [base, R],turn-2 的请求却是 [base, A1, T1.., R] ——
-    // 第 len(base) 块从 R 变成 A1,最长前缀只能匹配到 base,turn≥2 每轮都要把已累积的
-    // exec 输出全部冷读一遍(上限 30 次 exec × 32 turn,越往后越贵)。
     const allowFinishTool = route.kind === 'execute';
-    let forkInput = seedSherlockForkInput(reminderText, allowFinishTool);
     let toolCallsUsed = 0;
     let turns = 0;
     let finalText: string | null = null;
-    let goalCompleted = route.kind !== 'execute';
+    let completedWorkItems = 0;
     let goalBlocked = false;
+    const workItemResults: string[] = [];
 
-    for (let forkTurn = 1; forkTurn <= SHERLOCK_FORK_MAX_TURNS; forkTurn += 1) {
-      turns = forkTurn;
-      const forkRequest = buildSherlockForkRequest(
-        helperModel,
-        forkInput,
-        forkTurn,
-        reminderText,
-        allowFinishTool
-      );
-      // 请求体用累积链,不用 builder 拼出来的那份(它只提供 metadata / 采样参数)。
-      forkRequest.input = normalizeResponseInputItems(forkInput);
-      await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
-      const modelResult = await this.executeSubconsciousAgentForkTurn(
-        forkRequest,
-        params.queueMessage,
-        { ...params.runtimePrompt, modelName: helperModel, parameters: {} },
-        forkTurn,
-        { agentType: 'sherlock', executionMode: 'sherlock_fork_no_persist' }
-      );
-      const outputItems = extractCanonicalResponseOutputItems(modelResult);
-      const forkSliceId = modelResult.llm_request_slice_id
-        || modelResult.llm_call_id
-        || `sherlock-slice:${forkRunId}:${forkTurn}`;
-      await this.recordFailureReviewForkSliceSafe({
-        sliceId: forkSliceId,
-        forkRunId,
-        diveId: params.diveId,
-        llmCallId: modelResult.llm_call_id || null,
-        canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
-        wireRequest: modelResult.wire_request || null,
-        canonicalResponse: modelResult.canonical_response || null,
-        wireResponse: modelResult.wire_response || null,
-        rawResponse: modelResult.raw_response || null,
-        outputItems,
-        status: modelResult.success ? 'completed' : 'failed',
-        tokenUsage: buildProviderTokenUsage(modelResult),
-        traceId: params.queueMessage.traceId,
-        runId: params.queueMessage.runId,
-        agentTurn: forkTurn,
-        modelName: modelResult.model || params.runtimePrompt.modelName,
-        modelProvider: modelResult.provider || null,
-        requestFormatVersion: modelResult.request_format_version || null,
-        wireProviderFormat: modelResult.wire_provider_format || null,
-        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
-        metadata: {
-          ...baseForkMetadata,
-          ...buildProviderWireMetadata(modelResult),
-          fork_run_id: forkRunId,
-          fork_turn: forkTurn,
-          execution_mode: 'failure_review_fork'
+    for (let workItemIndex = 0; workItemIndex < brief.workItems.length && turns < SHERLOCK_FORK_MAX_TURNS; workItemIndex += 1) {
+      const workItem = brief.workItems[workItemIndex];
+      const taskReminder = route.kind === 'execute'
+        ? renderPromptSnippet('sherlock_execute.md', {
+            QUESTION: workItem,
+            SEARCHED_PATHS: '',
+            PREVIOUS_DIRECTION: '',
+            BROWSER_SKILL: readDelegatedBrowserSkill()
+          }).trim()
+        : renderSherlockReminder(workItem, '', null);
+      const reminderText = `${taskReminder}\n\n${readPromptSnippet('help_result_style.md').trim()}`;
+      // Each work item starts a fresh no-persist worker context. Within that item,
+      // the reminder remains at the stable head and every turn only appends.
+      let forkInput = seedSherlockForkInput(reminderText, allowFinishTool);
+      let workItemFinished = false;
+
+      for (let workItemTurn = 1; turns < SHERLOCK_FORK_MAX_TURNS; workItemTurn += 1) {
+        turns += 1;
+        const forkTurn = turns;
+        const forkRequest = buildSherlockForkRequest(
+          helperModel,
+          forkInput,
+          workItemTurn,
+          reminderText,
+          allowFinishTool
+        );
+        forkRequest.input = normalizeResponseInputItems(forkInput);
+        await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+        const modelResult = await this.executeSubconsciousAgentForkTurn(
+          forkRequest,
+          params.queueMessage,
+          { ...params.runtimePrompt, modelName: helperModel, parameters: {} },
+          forkTurn,
+          { agentType: 'sherlock', executionMode: 'sherlock_fork_no_persist' }
+        );
+        const outputItems = extractCanonicalResponseOutputItems(modelResult);
+        const forkSliceId = modelResult.llm_request_slice_id
+          || modelResult.llm_call_id
+          || `sherlock-slice:${forkRunId}:${forkTurn}`;
+        await this.recordFailureReviewForkSliceSafe({
+          sliceId: forkSliceId,
+          forkRunId,
+          diveId: params.diveId,
+          llmCallId: modelResult.llm_call_id || null,
+          canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
+          wireRequest: modelResult.wire_request || null,
+          canonicalResponse: modelResult.canonical_response || null,
+          wireResponse: modelResult.wire_response || null,
+          rawResponse: modelResult.raw_response || null,
+          outputItems,
+          status: modelResult.success ? 'completed' : 'failed',
+          tokenUsage: buildProviderTokenUsage(modelResult),
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          agentTurn: forkTurn,
+          modelName: modelResult.model || params.runtimePrompt.modelName,
+          modelProvider: modelResult.provider || null,
+          requestFormatVersion: modelResult.request_format_version || null,
+          wireProviderFormat: modelResult.wire_provider_format || null,
+          processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+          metadata: {
+            ...baseForkMetadata,
+            ...buildProviderWireMetadata(modelResult),
+            fork_run_id: forkRunId,
+            fork_turn: forkTurn,
+            work_item_index: workItemIndex + 1,
+            work_item_count: brief.workItems.length,
+            work_item_turn: workItemTurn,
+            execution_mode: 'failure_review_fork'
+          }
+        });
+        if (outputItems.length === 0) break;
+
+        const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
+        const toolCalls = actionPlan.replayableOutputs.filter(isReplayableToolCall);
+        for (const replayItem of actionPlan.replayableOutputs) {
+          forkInput.push(replayItem.inputItem as OpenResponseInputItem);
         }
-      });
-      if (outputItems.length === 0) {
-        break;
-      }
 
-      const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
-      const toolCalls = actionPlan.replayableOutputs.filter(isReplayableToolCall);
-      // fork 自己的血缘线:每轮把这一轮的输出追加进去,前缀逐轮延长(append-only)。
-      for (const replayItem of actionPlan.replayableOutputs) {
-        forkInput.push(replayItem.inputItem as OpenResponseInputItem);
-      }
-
-      const finishCalls = toolCalls.filter((item) => item.toolCall.name === ASSISTANCE_FINISH_TOOL_NAME);
-      if (finishCalls.length > 0) {
-        const goalResult = toolCalls.length === 1 ? parseAssistanceFinishCall(finishCalls[0].toolCall) : null;
-        if (goalResult) {
-          finalText = goalResult.text;
-          goalCompleted = goalResult.status === 'completed';
-          goalBlocked = goalResult.status === 'blocked';
-          break;
-        }
-        for (const item of toolCalls) {
-          forkInput.push({
-            type: 'function_call_output',
-            call_id: item.toolCall.callId,
-            output: '[finish_task 无效：必须单独调用；completed 需要非空 summary 和 verification 且 blocked_reason 为空，blocked 需要非空 summary 和 blocked_reason。继续推进或重新提交有效终态。]'
-          } as unknown as OpenResponseInputItem);
-        }
-        forkInput = normalizeResponseInputItems(forkInput);
-        continue;
-      }
-
-      if (toolCalls.length === 0) {
-        const naturalText = extractSubconsciousNaturalLanguage(outputItems);
-        if (route.kind === 'execute') {
-          forkInput.push(buildDeveloperInputItem([readPromptSnippet('sherlock_goal_continue.md').trim()]));
+        const finishCalls = toolCalls.filter((item) => item.toolCall.name === ASSISTANCE_FINISH_TOOL_NAME);
+        if (finishCalls.length > 0) {
+          const goalResult = toolCalls.length === 1 ? parseAssistanceFinishCall(finishCalls[0].toolCall) : null;
+          if (goalResult) {
+            workItemResults.push(`工作包 ${workItemIndex + 1}：${goalResult.text}`);
+            finalText = workItemResults.join('\n');
+            workItemFinished = goalResult.status === 'completed';
+            goalBlocked = goalResult.status === 'blocked';
+            break;
+          }
+          for (const item of toolCalls) {
+            forkInput.push({
+              type: 'function_call_output',
+              call_id: item.toolCall.callId,
+              output: '[finish_task 无效：必须单独调用；completed 需要非空 summary 和 verification 且 blocked_reason 为空，blocked 需要非空 summary 和 blocked_reason。继续推进或重新提交有效终态。]'
+            } as unknown as OpenResponseInputItem);
+          }
           forkInput = normalizeResponseInputItems(forkInput);
           continue;
         }
-        finalText = naturalText;
-        if (finalText) break;
-        continue;
-      }
 
-      for (const item of toolCalls) {
-        // 预算用尽也**必须**给每个 function_call 配一个 function_call_output:
-        // 少一个,下一轮请求里就有孤儿 tool_use,provider 直接 400,整个 fork 死掉。
-        // (潜意识 fork 在同一位置是 throw;这里选择回一条明确的拒绝,让它自己收口成文字。)
-        if (toolCallsUsed >= SHERLOCK_FORK_MAX_TOOL_CALLS) {
-          forkInput.push({
-            type: 'function_call_output',
-            call_id: item.toolCall.callId,
-            output: '[复核预算已用尽:不再执行工具。把已经查到的东西写出来收口,查不到就回 NO_FINDING。]'
-          } as unknown as OpenResponseInputItem);
+        if (toolCalls.length === 0) {
+          const naturalText = extractSubconsciousNaturalLanguage(outputItems);
+          if (route.kind === 'execute') {
+            forkInput.push(buildDeveloperInputItem([readPromptSnippet('sherlock_goal_continue.md').trim()]));
+            forkInput = normalizeResponseInputItems(forkInput);
+            continue;
+          }
+          if (naturalText) {
+            workItemResults.push(naturalText);
+            workItemFinished = true;
+            break;
+          }
           continue;
         }
-        toolCallsUsed += 1;
-        let rawToolResult: Record<string, unknown>;
-        try {
-          // finish_task 已在上方作为无副作用终态处理；执行型 worker 通过专用
-          // screenshot viewer 把浏览器桥注册的图片作为 input_image 回灌给同一模型。
-          // 说话/发图/深挖工具在这里一律被拒。
-          rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
-            || (allowFinishTool && item.toolCall.name === DELEGATED_SCREENSHOT_TOOL_NAME)
-            ? await this.executeTool(item.toolCall, params.queueMessage, {
-                currentCanonicalRequest: forkRequest
-              })
-            : buildToolRejectedResult(
-                item.toolCall,
-                renderPromptSnippet('fork_tool_rejected_output.md', {
-                  TOOL_NAME: item.toolCall.name,
-                  ALLOWED_TOOLS: allowFinishTool
-                    ? `${TOOL_NAMES.execCommand}, ${DELEGATED_SCREENSHOT_TOOL_NAME}`
-                    : TOOL_NAMES.execCommand
+
+        for (const item of toolCalls) {
+          if (toolCallsUsed >= SHERLOCK_FORK_MAX_TOOL_CALLS) {
+            forkInput.push({
+              type: 'function_call_output',
+              call_id: item.toolCall.callId,
+              output: '[工作预算已用尽：不再执行动作。请调用 finish_task(status=blocked) 并说明当前可核对状态。]'
+            } as unknown as OpenResponseInputItem);
+            continue;
+          }
+          toolCallsUsed += 1;
+          let rawToolResult: Record<string, unknown>;
+          try {
+            rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
+              || (allowFinishTool && item.toolCall.name === DELEGATED_SCREENSHOT_TOOL_NAME)
+              ? await this.executeTool(item.toolCall, params.queueMessage, {
+                  currentCanonicalRequest: forkRequest
                 })
-              );
-        } catch (error) {
-          rawToolResult = buildToolErrorResult(item.toolCall, error);
+              : buildToolRejectedResult(
+                  item.toolCall,
+                  renderPromptSnippet('fork_tool_rejected_output.md', {
+                    TOOL_NAME: item.toolCall.name,
+                    ALLOWED_TOOLS: allowFinishTool
+                      ? `${TOOL_NAMES.execCommand}, ${DELEGATED_SCREENSHOT_TOOL_NAME}`
+                      : TOOL_NAMES.execCommand
+                  })
+                );
+          } catch (error) {
+            rawToolResult = buildToolErrorResult(item.toolCall, error);
+          }
+          forkInput.push(...applyToolResultToLoopInput(item.toolCall, rawToolResult).inputItems);
         }
-        forkInput.push(...applyToolResultToLoopInput(item.toolCall, rawToolResult).inputItems);
+        forkInput = normalizeResponseInputItems(forkInput);
       }
-      forkInput = normalizeResponseInputItems(forkInput);
+
+      if (goalBlocked || !workItemFinished) break;
+      completedWorkItems += 1;
     }
+
+    if (route.kind !== 'execute') finalText = workItemResults.join('\n') || null;
+    const goalCompleted = completedWorkItems === brief.workItems.length;
 
     return {
       text: finalText,
