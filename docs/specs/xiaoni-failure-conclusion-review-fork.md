@@ -56,8 +56,8 @@
 
 | 配置 | 默认 |
 | --- | --- |
-| `AGENT_SHERLOCK_MODEL` | 当前主运行模型；可独立指定帮手模型。 |
-| `AGENT_SHERLOCK_CLASSIFIER_MODEL` | 帮手模型；可独立指定分类器模型。 |
+| `AGENT_SHERLOCK_MODEL` | `claude-sonnet-4-6`；通过 provider 执行无人格 worker。 |
+| `AGENT_SHERLOCK_CLASSIFIER_MODEL` | `claude-sonnet-4-6`；通过 provider 执行分类器。 |
 | `AGENT_HELP_HUMAN_QQ_ID` | 无默认；未配置不发送，并明确返回未转交。 |
 | `AGENT_HELP_MAX_HELPER_ATTEMPTS` | 2。 |
 
@@ -73,7 +73,7 @@
 - 受控真实 provider 请求 `help-cache-validation-20260913`：主请求 `llm_1789285308953_f2a342b3` 建立 17,783 cache tokens；克隆 heartbeat `llm_1789285312397_3f112dec` 与追加主输出历史后的请求 `llm_1789285314251_ad3597fc` 均读取 17,783 cache tokens。三者 wire tools/system 相同，后续主请求保留原消息字节。此为独立受控缓存验收，不冒充线上自然 run 的观测。
 - 较广回归中，原有 `runtime frame waits before its single model slice when runtime control is disabled` 在任务 worktree 与未改动主工作区均超时；未改弱其断言。其余测试中两项依赖模块工作目录的图片脚本测试，改从模块目录运行后通过。
 - 15:52（UTC+8）基于 `2a3a9716` 定向 build/up `agent-service`，未重启其它服务；容器与 `/health` 均健康，runtime 保持 enabled。合入同期主分支后相关回归 102/102，真库缓存再次 4/4；镜像中 50 项通过，网络隔离下跳过的真库项已由主栈真库验证覆盖。
-- 运行容器确认 `ask_li_ahua` 已注册，QQ 本人收件配置已加载，尝试上限 2；未覆盖模型时，帮手和分类器当前均跟随 `claude-opus-4-6`。
+- 运行容器确认 `ask_li_ahua` 已注册，QQ 本人收件配置已加载，尝试上限 2；帮手和分类器默认均通过 provider 使用 `claude-sonnet-4-6`，仍可分别用环境变量覆盖。
 - 部署后首次全上下文 heartbeat 冷读，随后 `llm_1789286007056_e1a31bcb` 在 `xiaoni:global` 读取 365,359 / 365,362 input tokens 的缓存。两个真实 provider usage 事件的 wire tools/system 相同。此为线上完整上下文 heartbeat 验证，不是自然下一 run 的冒充记录。
 
 ### 求助入口表述收敛

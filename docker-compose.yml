@@ -208,6 +208,8 @@ services:
       - XIAONI_IMAGE_TASK_ENABLED=true
       - AI_MODEL_NAME=gpt-5-mini
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-opus-4-6}
+      - AGENT_SHERLOCK_MODEL=${AGENT_SHERLOCK_MODEL:-claude-sonnet-4-6}
+      - AGENT_SHERLOCK_CLASSIFIER_MODEL=${AGENT_SHERLOCK_CLASSIFIER_MODEL:-claude-sonnet-4-6}
       # api.anthropic.com from this host is ~50% reliable + ~5s/attempt; allow the
       # provider's connection retries room before the heartbeat gives up.
       - AGENT_CACHE_HEARTBEAT_TIMEOUT_MS=${AGENT_CACHE_HEARTBEAT_TIMEOUT_MS:-60000}
