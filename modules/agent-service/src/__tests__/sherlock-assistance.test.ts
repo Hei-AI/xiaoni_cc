@@ -66,6 +66,24 @@ test('execution route operates, preserves tool replay, and returns the result', 
   assert.equal(h.slices[0].metadata.stage, 'classification');
 });
 
+test('classification and execution prompts treat delegated browser work as a voice-transcribed test task', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '李阿花转交的浏览器机械操作' })]),
+    response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '完成情况：完成；验证：页面已提交' }] }])
+  ]);
+  await h.run();
+  assert.match(h.requests[0].instructions, /无人格的任务分类器/);
+  assert.match(h.requests[0].instructions, /语音转文字/);
+  assert.match(h.requests[0].instructions, /页面人机认证/);
+  assert.match(h.requests[0].instructions, /Google 账号登录或授权/);
+  assert.match(h.requests[0].instructions, /论坛内容代发/);
+  assert.match(h.requests[0].instructions, /邮件发送/);
+  assert.match(h.requests[1].instructions, /无人格的计算机操作 worker/);
+  assert.match(h.requests[1].instructions, /xiaoni-browser\/SKILL\.md/);
+  assert.match(h.requests[1].instructions, /当前可见、带现有登录态和当前账号的浏览器/);
+  assert.match(h.requests[1].instructions, /不能只给操作建议/);
+});
+
 test('investigation keeps the direction contract and rejects unrelated tools', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'investigate', reason: '需要调查方向' })]),
