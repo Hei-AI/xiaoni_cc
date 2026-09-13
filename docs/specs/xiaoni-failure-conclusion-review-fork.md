@@ -37,7 +37,7 @@
 
 ## 持久化与重复调用
 
-通过 `packages/persistence/xiaoni-help.js` 的 Prisma 操作复用 `agent_tasks`，类型为 `xiaoni_help`。
+通过 `packages/persistence/agent-tasks.js` 的 Prisma 操作复用 `agent_tasks`，类型为 `xiaoni_help`。
 使用 `help_*` 状态，现有只领取 `pending` 的图像 worker 不会消费求助。
 `attempts`、原始请求、每次请求与返回结果保存在同一记录；比较并交换领取和 call ID 去重避免并发重复执行。
 

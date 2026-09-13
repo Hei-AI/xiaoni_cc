@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createXiaoniHelpPersistence } = require('../xiaoni-help');
+const { createXiaoniHelpPersistence } = require('../agent-tasks');
 
 function harness() {
   let row = null;
