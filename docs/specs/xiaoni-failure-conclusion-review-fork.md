@@ -78,6 +78,27 @@
 
 本实验只新增独立脚本，未修改主 agent 请求/提示词/stack replay，也未构建或重启 compose 服务；fork 前缀与下一主 run 缓存均无代码变更影响。
 
+### 正式密钥复测（2026-09-13 20:12，UTC+8）
+
+用户完成 Google 登录后，已注册 `qqbot-recaptcha-lab`（v2 复选框，控制台 site ID `767122017`）。按用户纠正，允许域名包含 `liahuas.top`，另保留 `localhost` 供本机实验；保存后重新打开设置页验证两者均存在。真实密钥只保存在 `/home/liahua/.qqbot-local/recaptcha-lab.env`（0600），不进入仓库。当前正式模式入口为 `http://localhost:18765`；本机对 `https://liahuas.top` 的请求 TLS 失败，不能把域名注册成功说成公网网站已上线。
+
+本次仍通过部署的协助 worker 实际执行，fork ID `recaptcha-lab-1789301506513`。20:12:17 实际勾选并提交后，本站 Google `siteverify` 返回 `success=true`、`mode=live`、`liveVerification=true`、`hostname=localhost`。浏览器工具 snapshot 与站点审计 `/tmp/qqbot-recaptcha-live-verifications.jsonl` 一致；这是 worker 自身完成的正式验证，不是独立无头对照。证据：`exec_1789301536850_08880e15` 提交、`exec_1789301539853_6693becb` 读取成功结果、`exec_1789301543031_6ff7b954` 截图，截图副本 `/tmp/qqbot-recaptcha-live-success.png`。
+
+本轮没有出现图片选择题，故结论仅为当前工具成功完成一次正式 reCAPTCHA 复选框验证；不能据此宣称能解图片验证码，也不能从前后两次结果推导旧点击问题已修复。没有改主 agent 代码或提示词，没有重启 compose 服务。
+
+### 公网图片挑战实验及执行者边界（2026-09-13 20:18，UTC+8）
+
+用户指定保留 `liahuas.top` 原有 AAAA 记录，改用 `https://captcha.liahuas.top`。已创建专用 Cloudflare Tunnel `qqbot-recaptcha-lab`（`b6952377-4c6e-4c3f-be92-8428122ec78c`）及该子域的 proxied CNAME；通过 Cloudflare API 核对根域记录保持不变。站点进程只在 `127.0.0.1:18766` 监听，Google 服务端 hostname 精确校验为 `captcha.liahuas.top`。Google 端允许 `liahuas.top` 及其子域，已移除 localhost，安全偏好为最高值 3。公网 `/config` 已验证为 live。
+
+运行进程由本机临时 user systemd units `qqbot-recaptcha-lab`、`qqbot-recaptcha-tunnel` 管理（Restart=on-failure，不承诺重启机器后自动恢复）。私有配置分别为 `/home/liahua/.qqbot-local/recaptcha-lab.env` 和 `recaptcha-tunnel.yml`；原共享 tunnel 与 compose 服务均未重启。
+
+**不能混淆两组执行者：**
+
+- 目标是 `ask_li_ahua` 的协助 worker，模型 **claude-sonnet-4-6**，不是小腻主 Agent。本次从 worker 入口调用真实 `runSherlockFork`；公网 fork ID `recaptcha-lab-1789301883303`。20:18:41 Google 返回 `success=true`、`hostname=captcha.liahuas.top`，但本轮被直接放行，未证明图片解题能力。该 worker 最终仍在 32 turn / 30 次工具调用后返回空结果，不能把网页成功等同于 Goal 正确收口。
+- **Codex 独立对照**使用全新未登录的无头 Chromium，触发了消防栓、自行车等真实图片题。截图识别及自行车、公交车图片点击由 Codex 执行，不是上述 Sonnet worker；自行车提交后 Google 显示“请重试”，随后出现公交车、红绿灯题，未取得图片挑战后的最终成功验证。用户询问执行者后停止 Codex 代选并关闭该独立浏览器。不得把这组操作计入目标 Agent 成绩。
+
+实验探针可用 `RECAPTCHA_LAB_URL=https://captcha.liahuas.top RECAPTCHA_REQUIRE_IMAGE_CHALLENGE=true` 明确要求区分图片题与直接放行。两组结果证明网站已接入并能触发真实图片题；**当前目标 Agent 通过图片挑战仍未验证**。
+
 - 新增求助回归 13/13 通过，覆盖分类、执行输出回传、人工分流、重复调用、并发领取、发送结果不确定与重启后转人工。
 - 真实帮手验收 `help-smoke-fixed-20260913` 通过现有 provider → xiaoni-executor 执行 `python3 -c "print(17*19)"`：1 次工具调用、2 个执行 turn；下一次 canonical request 的工具回传确认为 `323\n`。该验收未向 QQ 发送测试消息。
 - 缓存与深挖相关 agent 回归 93/93 通过；不可变缓存真库测试在主栈 Postgres 的 `qqbot_cache_test` 上 4/4 通过，无跳过。
