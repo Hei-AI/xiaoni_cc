@@ -402,60 +402,27 @@ function createClaimHarness(rows) {
   return { persistence, executes, inserts };
 }
 
-test('isWindowOpeningQueueRow: only rows whose payload carries wakesXiaoni:true open a window', () => {
-  const { isWindowOpeningQueueRow } = createAgentQueuePersistence({ getPrismaClient: () => undefined, createSqlAdapter: () => undefined });
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'direct', wakesXiaoni: true })), true);
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 1, wakesXiaoni: true })), true);
-  // 私聊 / 群消息本身不算:标记由入站方按「私聊 or 被 @」打,这里只认标记
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'direct' })), false);
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 1 })), false);
-  assert.equal(isWindowOpeningQueueRow(createRecallRow()), false);
-  // 她自己的驱动(plan / 报时 / 深挖)与外部通知不再开窗,除非事件显式带标记
-  for (const key of ['lw:subconscious-agent:xiaoni:global', 'clock-ping:s:1', 'attention_lease:s:1', 'deep-dive-round:1:2', 'external-notify:image:uuid']) {
-    assert.equal(isWindowOpeningQueueRow(createRecallRow({ dedupe_key: key })), false, key);
-  }
-  const flaggedExternal = createRecallRow({ dedupe_key: 'external-notify:check-email:uuid' });
-  flaggedExternal.payload = JSON.stringify({ ...JSON.parse(flaggedExternal.payload), wakesXiaoni: true });
-  assert.equal(isWindowOpeningQueueRow(flaggedExternal), true);
-  const stringFlag = createRecallRow(); stringFlag.payload = JSON.stringify({ wakesXiaoni: 'true' });
-  assert.equal(isWindowOpeningQueueRow(stringFlag), true);
-  assert.equal(isWindowOpeningQueueRow(null), false);
-});
-
-test('claimNextAgentQueueMessage leaves non-window rows pending when nothing opens a window', async () => {
+test('claimNextAgentQueueMessage drains every pending row regardless of wakesXiaoni (awake side has no gate)', async () => {
   const rows = [
     createRecallRow({ id: 20 }),
-    createQueueRow({ id: 21, chat_type: 'group', directMentions: 0, dedupe_key: 'phone_notification:g-21' }),
-    createRecallRow({ id: 22, dedupe_key: 'external-notify:image:1' })
-  ];
-  const { persistence, executes, inserts } = createClaimHarness(rows);
-  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
-  assert.equal(claimed, null);
-  assert.equal(executes.length, 0, 'no row may be consumed');
-  assert.equal(inserts.length, 0, 'no run/batch may be minted');
-});
-
-test('claimNextAgentQueueMessage folds non-window rows once a window-opening row is present', async () => {
-  const rows = [
-    createRecallRow({ id: 20 }),
+    createRecallRow({ id: 22, dedupe_key: 'external-notify:image:1' }),
     createQueueRow({ id: 23, chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200', dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200', wakesXiaoni: true })
   ];
   const { persistence, executes } = createClaimHarness(rows);
   const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
   assert.ok(claimed);
-  assert.deepEqual(claimed.queueMessageIds, [20, 23]);
+  assert.deepEqual(claimed.queueMessageIds, [20, 22, 23]);
   assert.equal(executes.length, 1);
-  // latest-wins 槽在消费时轮换成历史唯一值,普通键不动
+  // latest-wins 槽在消费时轮换成历史唯一值(后缀带行 id),普通键不动
   assert.ok(executes[0].sql.includes("dedupe_key LIKE 'lw:%'"));
-  // 后缀带行 id:同一槽在同一 run 里 claim + fold 两次不能轮换成同一个值(唯一索引)
   assert.ok(executes[0].sql.includes("dedupe_key || ':run:' || ? || ':' || id"));
   assert.equal(executes[0].params[5], claimed.id);
 });
 
-test('claimNextAgentQueueMessage with windowOpen=true drains non-window rows (wake continuation)', async () => {
+test('claimNextAgentQueueMessage drains recall-only pending rows too', async () => {
   const rows = [createRecallRow({ id: 20 }), createRecallRow({ id: 24, dedupe_key: 'open-loops-pointer:s:1' })];
   const { persistence, executes } = createClaimHarness(rows);
-  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1', windowOpen: true });
+  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
   assert.ok(claimed);
   assert.deepEqual(claimed.queueMessageIds, [20, 24]);
   assert.equal(executes.length, 1);
@@ -539,11 +506,10 @@ test('enqueueAgentQueueMessage latest-wins: group @ merge accumulates directMent
     message: { traceId: 't', source: 'phone_notification', messageSid: 'y', dedupeKey: existing.dedupe_key, chatType: 'group', sessionKey: 'qq:group:100', peerId: '100', senderId: 'qq', accountId: '1', bodyForAgent: '@小腻 又一条', rawPayload: { unread_delta: 1, direct_mentions: 1 } },
     payload: { messageId: 2, wakesXiaoni: true, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
   });
+  // 合并后仍带睡觉唤醒属性(睡眠侧按它累计),directMentions 累加
   assert.equal(calls[0].data.payload.wakesXiaoni, true);
   assert.equal(calls[0].data.payload.phoneNotification.directMentions, 2);
   assert.equal(calls[0].data.raw_payload.direct_mentions, 2);
-  const merged = { source: 'phone_notification', chat_type: 'group', dedupe_key: existing.dedupe_key, payload: calls[0].data.payload, raw_payload: calls[0].data.raw_payload };
-  assert.equal(persistence.isWindowOpeningQueueRow(merged), true);
 });
 
 function createEnqueuePrisma(existingRow, calls) {

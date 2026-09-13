@@ -2094,18 +2094,14 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   /** true 仅当 `lw:` latest-wins 槽的既有 pending 行被本次入队就地覆盖。 */
   superseded?: boolean;
 }>;
-/** 只有入队 payload 带 `wakesXiaoni: true` 的事件能叫醒她 / 开窗(QQ 私聊、群 @;或 notify 脚本显式传 wake)。 */
-export function isWindowOpeningQueueRow(row: Record<string, unknown> | null | undefined): boolean;
 export const LATEST_WINS_DEDUPE_PREFIX: string;
+/** 睡觉唤醒属性的 payload 字段名:只有带它的事件在她睡着时累计进独立唤醒窗口;醒着时所有 pending 每轮照常消费。 */
 export const WAKE_FLAG_PAYLOAD_KEY: 'wakesXiaoni';
 export function listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date | number; limit?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
 export function getLastAgentQueueEnqueuedAt(params: { prefix: string }, config?: DatabaseUrlConfig): Promise<number | null>;
 export type AgentQueueClaimInput = {
   workerId?: string;
   worker_id?: string;
-  /** true = 调用方已因别的原因开了窗(睡醒续帧等),pending 全部折进来;默认只在含开窗行时才起 run。 */
-  windowOpen?: boolean;
-  window_open?: boolean;
   sqlAdapter?: SqlAdapter;
 };
 export type AgentQueueBatchMessage = {

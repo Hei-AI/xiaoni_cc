@@ -2077,13 +2077,9 @@ export class RuntimeStore {
     return incrementXiaoniDeepDiveRequests({ diveId }, databaseConfig);
   }
 
-  async claimNextQueueMessage(
-    workerId: string,
-    options: { windowOpen?: boolean } = {}
-  ): Promise<QueueMessageRecord | null> {
+  async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {
     return claimNextAgentQueueMessage({
       workerId,
-      windowOpen: options.windowOpen === true,
       sqlAdapter: this.sql
     }, databaseConfig) as Promise<QueueMessageRecord | null>;
   }

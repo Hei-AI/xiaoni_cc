@@ -7194,12 +7194,9 @@ export class AgentLoopService {
       ? recoveryAction.inputItems
       : [];
 
-    // 开窗纪律(用户设计):她空闲时,只有 QQ 私聊 / 群 @ / 她自己的驱动能起一个新 run;
-    // 被动召回、群普通消息、外部通知等留在 pending,等下一个窗打开时一次折叠进去消费。
-    // 睡醒续帧(initialLoopContinuation 非空)本身就是一个窗 → windowOpen=true,pending 全部折进来。
-    const queueMessage = await this.store.claimNextQueueMessage(params.workerId, {
-      windowOpen: initialLoopContinuation.length > 0
-    });
+    // 大前提:醒着时所有 pending 每一轮都被 claim 一次性折进 run。睡着时上面的 reconcile 已经 wait 住、
+    // 不会走到这里;能解除那个 wait 的只有带 wakesXiaoni 的事件累计到阈值(agent-recovery-sessions.js)。
+    const queueMessage = await this.store.claimNextQueueMessage(params.workerId);
     if (!queueMessage) {
       await this.maybeRunSubconsciousAgentFork(params, initialLoopContinuation);
       await wait(params.idleIntervalMs);
