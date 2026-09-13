@@ -204,6 +204,9 @@ services:
       - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
       - XIAONI_EXECUTOR_URL=http://qqbot-xiaoni-executor:8093
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
+      # Private worker-only manuals are mounted into agent-service, never into
+      # xiaoni-executor (the main Agent's exec_command host).
+      - AGENT_DELEGATED_BROWSER_SKILL_PATH=/run/qqbot-private-agent-skills/delegated-browser/SKILL.md
       # 画图已迁到 Claude flow:image_task 走 openai-image-provider → cliproxyapi gpt-image-2(忽略 codex_base_request)
       - XIAONI_IMAGE_TASK_ENABLED=true
       - AI_MODEL_NAME=gpt-5-mini
@@ -248,6 +251,7 @@ services:
     volumes:
       - ./logs/agent-service:/app/logs
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
+      - ${HOME}/.qqbot-local/delegated-agent-skills:/run/qqbot-private-agent-skills:ro
       - ./docs/xiaoni_prompt:/app/docs/xiaoni_prompt:ro
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
 

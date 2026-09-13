@@ -34,7 +34,6 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 | `$local-image-visibility` | `/xiaoni-runtime/picture` 下有 PNG，但 `inspect_image_placeholder` 看不到或没有 image id。 | 只能做文件存在、尺寸、缩略图和粗略颜色/ascii 检查；不能替代语义视觉。 |
 | `$executor-container` | 准备用 `exec_command` 保存文件或确认持久化路径。 | 长期数据只放 `/xiaoni-runtime` 或 `/workspace/qq_bot` / `/app`。 |
 | `$xiaoni-browser` | 控制宿主机可见 Chrome 做网页浏览、截图、交互、网络/console 检查。 | 走 host bridge 和 patched Playwright Extension；`ensure-extension --restart` 会重启可见 Chrome，需谨慎。 |
-| `$delegated-browser` | `ask_li_ahua` 的执行 worker 操作宿主机可见 Chrome；完整正文直接装配进 worker 请求。 | 从 `$xiaoni-browser` 提炼同一桥接方案，去掉人格化描述；只在明确委托范围内操作，不自行重启 host bridge。 |
 | `$xiaoni-site` | 构建、运行或调试 `https://xiaoni.liahuas.top`。 | 公网页面由 executor 内 `0.0.0.0:3458` 提供，不指向 executor API `8093`。 |
 | `$site-publish-check` | 发布或修改 `xiaoni.liahuas.top` 页面后做上线前检查。 | 校验 dist 文件、公开 URL、首页链接、私有路径泄漏和同站资源 200。 |
 | `$forever-archive` | 页面、文章、图片或玩具值得长期保留，尤其是发布前后。 | `dist` 是展示输出，不是记忆源；归档副本落 `/xiaoni-runtime/forever/...`。 |
@@ -43,6 +42,12 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 
 `docs/xiaoni_prompt/skills_instructions.md` 只给模型常驻最小手册和探索方法；完整细节以各
 `SKILL.md` 为准。
+
+`$delegated-browser` 不属于小腻的本地技能库。它的真实手册只保存在宿主机
+`/home/liahua/.qqbot-local/delegated-agent-skills/`，只读挂载进 `agent-service` 的
+`/run/qqbot-private-agent-skills/`；该宿主目录和容器目录都不挂载进
+`xiaoni-executor`，也不写入主 Agent 的 skills instructions、请求或工具结果。服务端读取
+正文后只将正文装配给执行 worker，worker 也不会收到或读取其文件路径。
 
 ## Prompt-Facing Templates
 

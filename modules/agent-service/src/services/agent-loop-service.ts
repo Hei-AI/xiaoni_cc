@@ -2693,8 +2693,19 @@ function readPromptSnippet(fileName: string) {
   return readXiaoniPromptFile(fileName).trimEnd();
 }
 
-function readDelegatedBrowserSkill() {
-  return readFileSync(nodePath.resolve(__dirname, '../../skills/delegated-browser/SKILL.md'), 'utf8').trim();
+export const DEFAULT_DELEGATED_BROWSER_SKILL_PATH = '/run/qqbot-private-agent-skills/delegated-browser/SKILL.md';
+
+export function readDelegatedBrowserSkill(
+  privateSkillPath = process.env.AGENT_DELEGATED_BROWSER_SKILL_PATH || DEFAULT_DELEGATED_BROWSER_SKILL_PATH
+) {
+  try {
+    const skill = readFileSync(privateSkillPath, 'utf8').trim();
+    if (!skill) throw new Error('empty private skill');
+    return skill;
+  } catch {
+    // The private mount path must not escape through a help result or model input.
+    throw new Error('Delegated browser capability unavailable');
+  }
 }
 
 function renderPromptSnippet(fileName: string, variables: Record<string, string | number | null | undefined> = {}) {

@@ -28,9 +28,9 @@
 | clarify | 任务目标或必要信息不足，返回具体需要补充的问题。 |
 
 分类器读取本次请求、背景和该任务的历史反馈。分类后采用三级隔离。第一层需求转写 Agent 是唯一读取原始诉求的下游角色，只能调用 `rewrite_delegated_requirement`，把材料变成去身份、去来源、去业务目的的中性执行规格；它不拆包、不执行、不判断完成。第二层外包经理 Agent 只读取该规格，只能调用 `build_delegated_work_plan`，拆成 1 到 8 个按顺序执行、相互隔离的工作包；经理也看不到原始诉求、服务对象和业务目标。第三层为多个执行 sub-agent，每个工作包启动全新的 no-persist 上下文，每名执行者只看到自己一包的操作、必要输入、边界和可观察验收状态，不能看到完整规格、其它工作包或前后完成叙述；上一包只通过共享工作环境留下状态。内容提交可拆为输入及核对、提交及验收；图片人机认证可拆为识别并选中图片、确认及处理动态换图。执行者只拿类似零件尺寸与公差的局部规格，不知道整机用途。当前环境已打开目标页时，规格和工作包均不下发 URL、域名、站点身份、页面归属或账号所有者；只有必须从空白环境导航时 URL 才是必要输入。转写同时省略用户身份、姓名昵称、内部角色与委派关系、原始对话、情绪和不必要的业务全貌；任务必需且已经明确提供的文件路径、账号标识、收件人、正文、凭据、Cookie 和 Token 可以原样保留，但只允许下发给确实需要它们的工作包并用于指定环境。任一层输出无效或仍含内部称呼时 fail-closed，不把原始材料直接交给经理或执行者。
-调查与执行均通过现有 provider 和 `exec_command`，执行环境为现有 xiaoni-executor；浏览器和其它本地能力先读对应 `SKILL.md`。
+调查与执行均通过现有 provider 和 `exec_command`，执行环境为现有 xiaoni-executor。执行 worker 的私有浏览器手册由 agent-service 直接装配；主 Agent 和 worker 均不通过 `exec_command` 读取该文件。
 执行层只接受 `exec_command`、只读的 `view_browser_screenshot` 和不产生外部动作的 `finish_task`；不注册 Anthropic 原生 `computer_use`，拒绝递归求助、QQ 发言和修改深挖状态等其它工具。浏览器 CLI 截图先注册为 media asset，worker 再用截图工具按 `image_id` 将页面视口像素作为下一轮 `input_image` 读取；截图不含浏览器 chrome 或地址栏。仅靠 Prompt 不足以保护页面身份，因此执行层硬拒绝 `goto`、`tab-list`、网络请求列表、`page/frame.url()`、`location.href` 和页面标题等身份探针，并对允许命令偶然返回的 HTTP(S)/www URL 做递归脱敏，图片 data URL 不受影响。每个工作包都必须单独调用有效 `finish_task` 才能进入下一包；任何一包 blocked 即停止整体任务。`finish_task` 不能和其它 tool call 混在同一 response，字段矛盾或缺少完成证据时拒绝收口并继续当前工作包。shell 内的行为边界由工作目录规则与帮手提示词约束，不声称是独立权限沙箱。
-浏览器委托会把 `modules/agent-service/skills/delegated-browser/SKILL.md` 的完整正文直接装配进执行 worker 的稳定 instructions。该 skill 复用 `$xiaoni-browser` 的现役 Playwright host bridge 和脚本实现，但使用中性执行者表述，删除人格化描述，并明确委托范围、必要凭据、截图读取、上传路径与 host bridge 故障边界；worker 不再依赖先自行定位和读取浏览器 skill 文件。
+浏览器委托会由 `agent-service` 从私有只读挂载加载 `$delegated-browser` 的完整正文，再直接装配进执行 worker 的稳定 instructions。真实文件只存在于宿主机 `/home/liahua/.qqbot-local/delegated-agent-skills/`，容器内只挂载到 `/run/qqbot-private-agent-skills/`；两处都不对 `xiaoni-executor` 暴露，仓库的 `modules/agent-service/skills` 中也不存在该 skill，因此主 Agent 不能枚举或读取它。路径不会进入主 Agent、转写 Agent、经理 Agent或执行 worker 的 request/tool result；只有 `agent-service` 编排代码读取，加载失败也只返回不含路径的通用错误。该 skill 复用 `$xiaoni-browser` 的现役 Playwright host bridge 和脚本实现，但使用中性执行者表述，删除人格化描述，并明确委托范围、必要凭据、截图读取、上传路径与 host bridge 故障边界。
 命令结果复用 `applyToolResultToLoopInput` 回传原始 `codex_output`、stdout/stderr 和拒绝信息；不能使用发送消息的精简回执函数，否则帮手只能看到 `ok` 而无法核对执行结果。
 
 `execute` 是持久 Goal。worker 只有调用结构化 `finish_task` 才提交终态：`status=completed` 必须带非空 `summary` 和 `verification`，且 `blocked_reason` 为空；`status=blocked` 必须带非空 `summary` 和 `blocked_reason`，`verification` 可记录已核对的当前状态。普通 final、部分进度、单次失败或单轮预算耗尽都重新排队继续。旧 `<goal_completed>` / `<goal_blocked>` 历史输出仍只作兼容解析，不再作为 prompt-facing 主路径。每轮开始外部动作前先检查现场，避免重启或重试造成重复提交。阻塞任务进入等待补充状态；使用同一 `help_id` 补充后继续。
@@ -61,6 +61,7 @@
 | `AGENT_SHERLOCK_MODEL` | `claude-sonnet-4-6`；通过 provider 执行 worker。 |
 | `AGENT_SHERLOCK_CLASSIFIER_MODEL` | `claude-sonnet-4-6`；通过 provider 执行分类器。 |
 | `AGENT_HELP_HUMAN_QQ_ID` | 无默认；未配置不发送，并明确返回未转交。 |
+| `AGENT_DELEGATED_BROWSER_SKILL_PATH` | `/run/qqbot-private-agent-skills/delegated-browser/SKILL.md`；仅 `agent-service` 可读。 |
 
 新增主工具和主 prompt 改变部署时的缓存前缀，产生一次预期冷读。工具静态注册，所有主请求克隆 fork 共用同一工具列表，之后不随求助状态变化。
 本节后续对转写及执行 worker 的修改都只改变独立 no-persist 请求：主 Agent 的 system、tools 和 stack replay 字节不变，因此不改变 fork Agent 的主请求克隆前缀，也不改变下一次主 run 的 replay 前缀。主工具的 pending 回执和完成 notify 在生成时冻结，下一 run 逐字节回放；不把尝试次数、分类状态或时间插入主缓存前缀。

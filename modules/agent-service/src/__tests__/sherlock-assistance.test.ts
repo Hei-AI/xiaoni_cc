@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AgentLoopService, applyToolResultToLoopInput } from '../services/agent-loop-service';
+import {
+  AgentLoopService,
+  DEFAULT_DELEGATED_BROWSER_SKILL_PATH,
+  applyToolResultToLoopInput,
+  readDelegatedBrowserSkill
+} from '../services/agent-loop-service';
 import {
   parseAssistanceFinishCall,
   parseAssistanceGoalResult,
@@ -14,6 +19,9 @@ import {
   presentLiAhuaHelp
 } from '../services/sherlock-assistance';
 import { agentConfig } from '../config';
+
+const delegatedBrowserSkillFixture = resolve(process.cwd(), 'src/__tests__/fixtures/delegated-browser-private.md');
+process.env.AGENT_DELEGATED_BROWSER_SKILL_PATH = delegatedBrowserSkillFixture;
 
 function response(output: unknown[]) {
   return { success: true, canonical_response: { output } };
@@ -338,8 +346,11 @@ test('finish_task cannot be mixed with an external action in the same response',
   assert.equal(h.requests[4].input.filter((item: any) => item.type === 'function_call_output').length, 2);
 });
 
-test('delegated browser skill is operational and contains no persona prose', () => {
-  const skill = readFileSync(resolve(__dirname, '../../skills/delegated-browser/SKILL.md'), 'utf8');
+test('delegated browser skill is private to agent-service and contains no persona prose', () => {
+  assert.equal(existsSync(resolve(__dirname, '../../skills/delegated-browser/SKILL.md')), false);
+  assert.equal(DEFAULT_DELEGATED_BROWSER_SKILL_PATH.startsWith('/run/qqbot-private-agent-skills/'), true);
+  assert.doesNotMatch(DEFAULT_DELEGATED_BROWSER_SKILL_PATH, /\/workspace\/qq_bot|\/xiaoni-runtime|\/app\/modules\/agent-service\/skills/);
+  const skill = readFileSync(delegatedBrowserSkillFixture, 'utf8');
   assert.match(skill, /xiaoni_playwright_cli\.py/);
   assert.match(skill, /127\.0\.0\.1:9977/);
   assert.match(skill, /view_browser_screenshot/);
@@ -347,6 +358,12 @@ test('delegated browser skill is operational and contains no persona prose', () 
   assert.match(skill, /Do not inspect, request, repeat, or report its URL/);
   assert.match(skill, /not browser chrome or the address bar/);
   assert.doesNotMatch(skill, /小腻|她的身体|精力|情绪|人格/);
+  assert.throws(
+    () => readDelegatedBrowserSkill('/private/location/that-must-not-leak'),
+    (error: unknown) => error instanceof Error
+      && error.message === 'Delegated browser capability unavailable'
+      && !error.message.includes('/private/location')
+  );
 });
 
 test('execution worker loads browser screenshots without native computer use', async () => {
