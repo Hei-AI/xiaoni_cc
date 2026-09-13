@@ -131,6 +131,23 @@ test('execution route keeps going after an unmarked partial final', async () => 
   assert.match(h.requests[3].input.at(-1).content[0].text, /Goal 还没有通过 `finish_task` 提交有效终态/);
 });
 
+test('execution route ignores legacy text completion and exits only through finish_task', async () => {
+  const h = harness([
+    response([call('classify_assistance', { kind: 'execute', reason: '明确委托' })]),
+    brief(),
+    response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{
+      type: 'output_text', text: '<goal_completed>旧文本完成标记</goal_completed>'
+    }] }]),
+    response([call('finish_task', {
+      status: 'completed', summary: '已通过工具完成', verification: '已核验结果', blocked_reason: ''
+    })])
+  ]);
+  const result = await h.run();
+  assert.equal(result.goalCompleted, true);
+  assert.equal(result.turns, 2);
+  assert.match(h.requests[3].input.at(-1).content[0].text, /finish_task/);
+});
+
 test('investigation keeps the direction contract and rejects unrelated tools', async () => {
   const h = harness([
     response([call('classify_assistance', { kind: 'investigate', reason: '需要调查方向' })]),

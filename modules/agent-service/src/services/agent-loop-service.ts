@@ -22,7 +22,6 @@ import {
   DELEGATED_BRIEF_TOOL_NAME,
   SHERLOCK_ROUTE_TOOL,
   parseAssistanceFinishCall,
-  parseAssistanceGoalResult,
   parseDelegatedTaskBrief,
   parseSherlockRoute,
   presentLiAhuaHelp
@@ -12656,17 +12655,6 @@ export class AgentLoopService {
       if (toolCalls.length === 0) {
         const naturalText = extractSubconsciousNaturalLanguage(outputItems);
         if (route.kind === 'execute') {
-          const goalResult = parseAssistanceGoalResult(naturalText);
-          if (goalResult?.status === 'completed') {
-            finalText = goalResult.text;
-            goalCompleted = true;
-            break;
-          }
-          if (goalResult?.status === 'blocked') {
-            finalText = goalResult.text;
-            goalBlocked = true;
-            break;
-          }
           forkInput.push(buildDeveloperInputItem([readPromptSnippet('sherlock_goal_continue.md').trim()]));
           forkInput = normalizeResponseInputItems(forkInput);
           continue;
