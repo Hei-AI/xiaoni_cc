@@ -100,7 +100,9 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[0].instructions, /论坛内容代发/);
   assert.match(h.requests[0].instructions, /邮件发送/);
   assert.match(h.requests[1].instructions, /合格的外包经理/);
-  assert.match(h.requests[1].instructions, /只应知道自己负责的局部工作/);
+  assert.match(h.requests[1].instructions, /只应知道自己负责的局部测试步骤/);
+  assert.match(h.requests[1].instructions, /不得描述这些操作代表的具体业务含义/);
+  assert.match(h.requests[1].instructions, /不得附加业务目的或业务解释/);
   assert.match(h.requests[1].instructions, /定位发帖输入区域/);
   assert.match(h.requests[1].instructions, /不要只改写成“帮助完成论坛发帖”/);
   assert.match(h.requests[1].instructions, /识别页面要求验证的目标内容/);

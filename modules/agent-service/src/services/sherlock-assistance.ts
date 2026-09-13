@@ -54,7 +54,7 @@ export const DELEGATED_BRIEF_TOOL = {
     parameters: {
       type: 'object',
       properties: {
-        brief: { type: 'string', description: 'One self-contained paragraph containing only the worker\'s executable instructions and acceptance state.' },
+        brief: { type: 'string', description: 'One self-contained paragraph containing only ordered test operations, necessary task inputs, execution boundaries, and observable acceptance state; omit business purpose and explanation.' },
         omitted_sensitive_context: { type: 'array', items: { type: 'string' } }
       },
       required: ['brief', 'omitted_sensitive_context'],
