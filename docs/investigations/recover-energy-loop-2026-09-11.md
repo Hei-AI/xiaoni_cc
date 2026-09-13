@@ -383,6 +383,10 @@
 
 对抗审查（并发视角）找出两条 blocker 并已修（d69275a7）：lw 槽轮换后缀带行 id（同一槽同一 run 内 claim + fold 两次不再撞唯一索引）；supersede 撞上 claim 时重插而不是丢门铃。上线的是 C 组四个 commit：开窗纪律、私聊/群 @ latest-wins、claim windowOpen + plan latest-wins、并发修复。冻结缓存用例 30/30、13/13、8/8；队列 17/17；入站 17/17；runtime-loop 10/10。
 
+### 8.1b 09-13 16:00 追加部署：睡觉唤醒属性 `wakesXiaoni`（eb8e935f）
+
+用户拍板：给 Notify 事件加一个睡觉唤醒属性，只有 QQ 私聊与群 @ 的事件带；唤醒计数与开窗只读它。自驱动 plan、报时、召回、外部通知都不再开窗（她的 notify 脚本可显式 `--wake`）。首个真实 run（15:35）已验证：私聊门铃以 `lw:phone_notification:direct:…` 键开窗，相邻 slice cache_read 36.2 万未塌，被拒 0。
+
 ### 8.2 暂缓（分支 d6b500ac，未合 main）
 
 试睡收帧=settle + 被拒文案三件事 + rest-available 推送。原因：§4.5 实验证明文案里的 plan 行会被她系统性跳过，且审查指出 rest-available 每次 settle 都会重挂一条开窗行、没有节流（settle → run → settle 自激）。等外源刺激库（§9.4）与节流一起改完再上。

@@ -178,3 +178,9 @@ phantom-run fold 修复（本设计的前置）：
 - lw 槽轮换后缀改为 `:run:<runId>:<row id>`：同一槽在同一 run 内 claim + fold 两次不再撞唯一索引（原来会让 fold 事务回滚、主 run 判 failed）。
 - enqueue 的 supersede 分支：updateMany 命中 0 行或 findUnique 为 null（槽刚被消费并轮换）时再 INSERT 一次，最多两轮；不再退回「返回既有行」静默丢门铃。
 - 已知未处理：两条同槽消息并发 supersede 是读-改-写，unreadDelta 可能少计一次；未读真相在 `agent_inbound_messages`，只影响门铃显示。
+
+### 2026-09-13 16:00 「睡觉唤醒属性」（eb8e935f，已部署）
+用户拍板把「能不能叫醒她 / 开窗」做成事件自身的一个属性：入队 payload 里的 `wakesXiaoni: true`。
+- 谁标：provider-service 给 QQ 私聊、群里 @ 她的 `phone_notification` 标；她自己的 notify 脚本显式传 `--wake`（`/api/internal/runtime/notify` 的 `wake` 字段）。其它一律不标：自驱动 plan、报时、被动召回、外部通知默认留在 pending，等下一个窗打开时折叠消费。
+- 谁读：睡眠期间 `listAgentRecoveryWakeNotifications` 只取 `(payload->>'wakesXiaoni')='true'` 的行累计唤醒次数；醒着-空闲时 `isWindowOpeningQueueRow` 只认同一字段。原来按 dedupe 前缀放行 plan / 报时 / 注意力租约 / 深挖的白名单已删除。
+- 后果：她纯文本收工后若没人找她，不会再被自己的 plan 或报时叫起来，直到有人私聊 / @ 她、或她自然醒来（睡醒续帧 `windowOpen:true` 把积压的全部折进来）。
