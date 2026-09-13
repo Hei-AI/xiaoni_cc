@@ -2,6 +2,87 @@ import type { AgentToolCall } from '../types';
 
 export type SherlockAssistanceKind = 'investigate' | 'execute' | 'human' | 'clarify';
 export type AssistanceGoalResult = { status: 'completed' | 'blocked'; text: string };
+export type DelegatedTaskBrief = {
+  task: string;
+  context: string;
+  acceptanceCriteria: string;
+  omittedSensitiveContext: string[];
+};
+
+export const ASSISTANCE_FINISH_TOOL_NAME = 'finish_task';
+export const DELEGATED_BRIEF_TOOL_NAME = 'build_delegated_brief';
+
+export const ASSISTANCE_FINISH_TOOL = {
+  type: 'function',
+  function: {
+    name: ASSISTANCE_FINISH_TOOL_NAME,
+    description: 'Finish the delegated Goal only after verifying completion, or when required information or an unavailable personal action genuinely blocks further progress.',
+    parameters: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['completed', 'blocked'] },
+        summary: { type: 'string', description: 'What was done and the resulting state, or progress made before the blocker.' },
+        verification: { type: 'string', description: 'The concrete check and evidence used to verify the result or current state. Use an empty string only when blocked and no verification is available.' },
+        blocked_reason: { type: 'string', description: 'The exact missing information or unavailable personal action. Must be empty when completed.' }
+      },
+      required: ['status', 'summary', 'verification', 'blocked_reason'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+export const DELEGATED_BRIEF_TOOL = {
+  type: 'function',
+  function: {
+    name: DELEGATED_BRIEF_TOOL_NAME,
+    description: 'Return a privacy-minimized third-person task brief for the execution worker.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task: { type: 'string' },
+        context: { type: 'string' },
+        acceptance_criteria: { type: 'string' },
+        omitted_sensitive_context: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['task', 'context', 'acceptance_criteria', 'omitted_sensitive_context'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+export function parseAssistanceFinishCall(call: AgentToolCall): AssistanceGoalResult | null {
+  if (call.name !== ASSISTANCE_FINISH_TOOL_NAME) return null;
+  const status = call.args.status;
+  const summary = typeof call.args.summary === 'string' ? call.args.summary.trim() : '';
+  const verification = typeof call.args.verification === 'string' ? call.args.verification.trim() : '';
+  const blockedReason = typeof call.args.blocked_reason === 'string' ? call.args.blocked_reason.trim() : '';
+  if (!summary) return null;
+  if (status === 'completed' && verification && !blockedReason) {
+    return { status, text: `${summary}\n验证：${verification}` };
+  }
+  if (status === 'blocked' && blockedReason) {
+    return { status, text: `${summary}\n阻塞原因：${blockedReason}${verification ? `\n当前状态核对：${verification}` : ''}` };
+  }
+  return null;
+}
+
+export function parseDelegatedTaskBrief(calls: AgentToolCall[]): DelegatedTaskBrief | null {
+  if (calls.length !== 1 || calls[0].name !== DELEGATED_BRIEF_TOOL_NAME) return null;
+  const args = calls[0].args;
+  const task = typeof args.task === 'string' ? args.task.trim() : '';
+  const context = typeof args.context === 'string' ? args.context.trim() : '';
+  const acceptanceCriteria = typeof args.acceptance_criteria === 'string' ? args.acceptance_criteria.trim() : '';
+  const rawOmittedSensitiveContext = args.omitted_sensitive_context;
+  if (!Array.isArray(rawOmittedSensitiveContext)) return null;
+  const omittedSensitiveContext = rawOmittedSensitiveContext
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const workerVisibleText = `${task}\n${context}\n${acceptanceCriteria}`;
+  if (!task || !acceptanceCriteria || omittedSensitiveContext.length !== rawOmittedSensitiveContext.length) return null;
+  if (workerVisibleText.includes('小腻') || workerVisibleText.includes('李阿花')) return null;
+  return { task, context, acceptanceCriteria, omittedSensitiveContext };
+}
 
 export function parseAssistanceGoalResult(text: string | null): AssistanceGoalResult | null {
   const value = (text || '').trim();

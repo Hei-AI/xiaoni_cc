@@ -27,12 +27,13 @@
 | human | 需要本人决定、个人信息、授权或明确指定本人参与，直接交给李阿花。 |
 | clarify | 任务目标或必要信息不足，返回具体需要补充的问题。 |
 
-分类器读取本次请求、背景和该任务的历史反馈。worker 的输入只组装完成当前 Goal 所需的任务材料。
+分类器读取本次请求、背景和该任务的历史反馈。分类后、worker 启动前，独立需求转述请求以“专业外包承包商”视角调用 `build_delegated_brief`，把原始材料改写成第三方口吻的 `task`、最少必要 `context` 和 `acceptance_criteria`。它省略客户身份、内部角色关系、私聊措辞、无关个人背景和非执行必需的标识；任务不可缺少且已经明确提供的 URL、文件路径、收件人或正文仍可保留。转述无效时 fail-closed，不把原始材料直接交给 worker。worker 只读取转述后的 brief，不读取原始问题、原始背景或历史反馈。
 调查与执行均通过现有 provider 和 `exec_command`，执行环境为现有 xiaoni-executor；浏览器和其它本地能力先读对应 `SKILL.md`。
-执行层拒绝其它工具，包括递归求助、QQ 发言和修改深挖状态；shell 内的行为边界由工作目录规则与帮手提示词约束，不声称是独立权限沙箱。
+执行层只接受 `exec_command` 和不产生外部动作的 `finish_task`；拒绝其它工具，包括递归求助、QQ 发言和修改深挖状态。`finish_task` 不能和其它 tool call 混在同一 response，字段矛盾或缺少完成证据时拒绝收口并继续 Goal。shell 内的行为边界由工作目录规则与帮手提示词约束，不声称是独立权限沙箱。
+浏览器委托会把 `modules/agent-service/skills/delegated-browser/SKILL.md` 的完整正文直接装配进执行 worker 的稳定 instructions。该 skill 复用 `$xiaoni-browser` 的现役 Playwright host bridge 和脚本实现，但使用中性执行者表述，删除人格化描述，并明确委托范围、凭据、上传路径与 host bridge 故障边界；worker 不再依赖先自行定位和读取浏览器 skill 文件。
 命令结果复用 `applyToolResultToLoopInput` 回传原始 `codex_output`、stdout/stderr 和拒绝信息；不能使用发送消息的精简回执函数，否则帮手只能看到 `ok` 而无法核对执行结果。
 
-`execute` 是持久 Goal。worker 只有收到完整的 `<goal_completed>...</goal_completed>` 并取得可核对结果才结束；普通 final、部分进度、单次失败或单轮预算耗尽都重新排队继续。每轮开始外部动作前先检查现场，避免重启或重试造成重复提交。确实缺少必要输入时返回 `<goal_blocked>...</goal_blocked>`，任务进入等待补充状态；使用同一 `help_id` 补充后继续。
+`execute` 是持久 Goal。worker 只有调用结构化 `finish_task` 才提交终态：`status=completed` 必须带非空 `summary` 和 `verification`，且 `blocked_reason` 为空；`status=blocked` 必须带非空 `summary` 和 `blocked_reason`，`verification` 可记录已核对的当前状态。普通 final、部分进度、单次失败或单轮预算耗尽都重新排队继续。旧 `<goal_completed>` / `<goal_blocked>` 历史输出仍只作兼容解析，不再作为 prompt-facing 主路径。每轮开始外部动作前先检查现场，避免重启或重试造成重复提交。阻塞任务进入等待补充状态；使用同一 `help_id` 补充后继续。
 明确需要本人参与直接转人工。单次 worker 沿用 32 个模型 turn / 30 次工具调用的安全阀，达到安全阀只结束本轮，不结束 Goal。
 
 ## 持久化与重复调用
