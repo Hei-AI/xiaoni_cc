@@ -3351,7 +3351,7 @@ export function buildSherlockForkRequest(
     ),
     tools,
     ...(forcedToolChoice ? { tool_choice: forcedToolChoice } : {}),
-    parallel_tool_calls: !allowFinishTool,
+    parallel_tool_calls: true,
     store: false,
     max_output_tokens: SHERLOCK_FORK_MAX_OUTPUT_TOKENS,
     metadata: {

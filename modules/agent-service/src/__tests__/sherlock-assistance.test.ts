@@ -113,7 +113,7 @@ test('classification and execution prompts treat delegated browser work as a voi
       { type: 'function', name: 'finish_task' }
     ]
   });
-  assert.equal(h.requests[2].parallel_tool_calls, false);
+  assert.equal(h.requests[2].parallel_tool_calls, true);
 });
 
 test('execution route keeps going after an unmarked partial final', async () => {
@@ -250,7 +250,7 @@ test('execution worker receives native computer vision when the runtime enables 
         { type: 'function', name: 'finish_task' }
       ]
     });
-    assert.equal(h.requests[2].parallel_tool_calls, false);
+    assert.equal(h.requests[2].parallel_tool_calls, true);
     assert.equal(h.commands[0].name, 'computer');
   } finally {
     agentConfig.computerUseEnabled = previous;
