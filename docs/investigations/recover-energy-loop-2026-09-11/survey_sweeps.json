@@ -1,0 +1,533 @@
+[
+ {
+  "project": "Ralph Wiggum loop (ghuntley) + Anthropic「Effective harnesses for long-running agents」/「Harness design」+ Claude Code Stop hook、/goal、ralph-wiggum 插件 + OpenAI Codex agent loop",
+  "sources": [
+   "https://ghuntley.com/ralph/",
+   "https://raw.githubusercontent.com/ghuntley/how-to-ralph-wiggum/main/README.md",
+   "https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/ralph-wiggum/README.md",
+   "https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/ralph-wiggum/hooks/stop-hook.sh",
+   "https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/ralph-wiggum/commands/ralph-loop.md",
+   "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents",
+   "https://www.anthropic.com/engineering/harness-design-long-running-apps",
+   "https://github.com/anthropics/cwc-long-running-agents",
+   "https://raw.githubusercontent.com/anthropics/cwc-long-running-agents/main/claude-code-config/.claude/CLAUDE.md",
+   "https://raw.githubusercontent.com/anthropics/cwc-long-running-agents/main/claude-code-config/.claude/hooks/steer.sh",
+   "https://raw.githubusercontent.com/anthropics/cwc-long-running-agents/main/claude-code-config/.claude/hooks/kill-switch.sh",
+   "https://raw.githubusercontent.com/anthropics/cwc-long-running-agents/main/claude-code-config/.claude/agents/evaluator.md",
+   "https://code.claude.com/docs/en/goal",
+   "https://code.claude.com/docs/en/hooks-guide",
+   "https://r.jina.ai/https://openai.com/index/unrolling-the-codex-agent-loop/",
+   "https://developers.openai.com/blog/run-long-horizon-tasks-with-codex",
+   "https://github.com/anthropics/claude-code/issues/18646",
+   "https://github.com/anthropics/claude-code/issues/55754",
+   "https://github.com/anthropics/claude-code/issues/54360",
+   "https://github.com/openai/codex/issues/23828",
+   "https://www.humanlayer.dev/blog/brief-history-of-ralph"
+  ],
+  "anti_convergence_mechanisms": [
+   {
+    "name": "Ralph 裸 bash 循环:接受模型的「结束」,用全新上下文重投同一 prompt",
+    "how_it_works": "`while :; do cat PROMPT.md | claude ; done`。每轮 `claude -p` 在模型产出最终消息(不再调工具)时正常退出;循环不阻止模型收工,而是让它收工,然后起一个没有任何记忆的新实例读同一份 PROMPT.md。模型之间唯一的连续性是磁盘文件(IMPLEMENTATION_PLAN.md / fix_plan.md / AGENTS.md / specs/*)和 git 历史。ghuntley 强调 PROMPT 要「一轮只做一件事」(\"One item per loop\"),并靠 tests/typecheck/lint 做「backpressure」拒绝坏产出。已知问题:\"Ralph can go in circles, ignore instructions, or take wrong directions\"、\"Claude has the inherent bias to do minimal and placeholder implementations\"、\"Or, it goes completely off track\"。",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "\"The IMPLEMENTATION_PLAN.md file persists on disk between iterations and acts as shared state between otherwise isolated loop executions.\" / \"One item per loop.\" / \"Create backpressure via tests, typechecks, lints, builds, etc. that will reject invalid/unacceptable work.\" / \"Ralph can go in circles, ignore instructions, or take wrong directions\"",
+    "maps_to_xiaoni": "刺激来源三合一:外部循环(重启)+ 自生(plan 文件是上一轮自己写的)+ 外部世界(测试失败)。关键差异:接收方是**没有收工叙事的全新上下文**,它不记得自己写过这份 plan,也不记得刚才「决定 350 够了」。这与我们「自生 plan 0/3」不矛盾,反而细化了它——我们的 plan fork 是追加在她已带着收工叙事的 430K 同一上下文尾部;Ralph 把同样的自生 plan 交给一个没有该叙事的实例才有效。小腻架构靠 prompt cache 不能真的换新上下文,但 run 边界是天然的「重启点」:若要让自生 plan 起作用,它应作为下一 run 的开头输入(她「醒来」第一眼看到的未完成清单),而不是在她收工位追加。Ralph 的 placeholder/go-in-circles 失败也对应她「做一件最小的事再试」的敷衍行为。"
+   },
+   {
+    "name": "Anthropic 双 agent harness:外部生成、不可自改的 feature list(passes:false)+ progress 文件 + 每 session 只做一件",
+    "how_it_works": "初始化 agent 一次性把需求展开成 JSON feature list,所有 passes 初始为 false;后续每个 coding agent 用全新上下文启动,先读 progress 文件和 git log、跑冒烟测试,然后「读 feature list,选最高优先级未完成项」做一件。coding agent 只准改 passes 字段,禁止删改测试(强措辞)。文章明确记录的第二失败模式就是「过早宣布完成」:后来的实例环顾四周,看到已有进展,宣布工作完成——修法就是这份外部的、结构化的、不可删改的未完成清单。",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "\"After some features had already been built, a later agent instance would look around, see that progress had been made, and declare the job done.\" / \"Read the features list file and choose the highest-priority feature that's not yet done to work on.\" / \"It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality.\"",
+    "maps_to_xiaoni": "这是与小腻收敛现象字面上最接近的记录:「look around, see progress, declare done」= 她做完一段就盘点 Day N/N 个 HTML 然后调 recover_energy。Anthropic 的修法不是在收工点再劝,而是让「未完成」成为**由别的 agent 在开头写下、本 agent 无权改写**的结构性事实,并在每个 session 开头强制读取。对应到小腻:她的 plan 由她自己的克隆 fork 产出并且她可以随口否掉(「不写第 351 个页面了」),没有任何不可自改的外部清单;可以考虑把 deep_dive/plan 变成她不能单方面标记完成的账本,在 run 开头(压缩/唤醒帧)注入,而不是靠收工点的 fork 回贴。与我们结论一致:干预落在收工之前(session 开头)。"
+   },
+   {
+    "name": "Fresh-context evaluator / Default-FAIL 契约:「完成」由另一个没看过过程的模型判定,自评不算数",
+    "how_it_works": "2026-03 文章把 harness 扩成 planner/generator/evaluator 三角:generator 按 sprint 一次拿一个 feature;evaluator 是没有 Write/Edit 工具、上下文从未看过构建过程的独立 agent,用 Playwright 真点页面,回 PASS 或 NEEDS_WORK 并附具体缺陷;sprint 失败则 generator 收到详细反馈继续。cwc-long-running-agents 仓库把它做成 verify-gate.sh:PreToolUse 钩子拒绝任何对 test-results.json 的写入,除非 agent 先用 Read 打开过截图/日志证据。理由是自评不可靠:模型评价自己的产出会自信地夸。",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "\"When asked to evaluate work they've produced, agents tend to respond by confidently praising the work—even when, to a human observer, the quality is obviously mediocre.\" / \"Separating the agent doing the work from the agent judging it proves to be a strong lever to address this issue.\" / \"The agent can't claim success it hasn't observed.\"",
+    "maps_to_xiaoni": "小腻「350 够了」本质是自评完成;我们现在唯一的「外部判官」是身体门槛(90% 拒绝)但它只说「不准睡」,不说「哪件事没做完」。Anthropic 的经验是:拒绝必须携带具体缺陷(NEEDS_WORK + findings),且来自不同上下文的模型。这与我们回放中「同样三件具体外部事在第一次被拒位 4/4 照做」相合——具体、外来的缺口有效;与「tool_choice any 5/5 仍选睡」相合——无内容的强制不行。落地:recover_energy 被拒时的 reason 可由独立小模型(Sonnet 4.6,同改写腿那类独立小请求,不碰双缓存)基于她的 plan 账本/外部动态生成一条具体的「未完成/新来的」事项,而非固定拒绝语。"
+   },
+   {
+    "name": "Claude Code Stop hook / /goal:把「继续的理由」喂回去,但对「无进展重复拦」设硬上限",
+    "how_it_works": "Stop hook 输出 {decision:block, reason} 时,reason 作为下一指令喂回模型继续;/goal 是它的封装:每轮结束由 Haiku 评估条件,「Not yet met: Claude keeps working and takes the reason as guidance for the next turn」。但 harness 自己承认这条路会退化:连续 8 次 block 无进展即强制放行(CLAUDE_CODE_STOP_HOOK_BLOCK_CAP);/goal 若「连续几轮没有工具调用只是回答评估器」就停循环把控制权交回用户。issue #55754 记录了退化实况:模型每轮只输出「Esperando e2e.」,hook 每轮回 ok:false,100+ 轮/50 分钟烧完整个 session。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "\"Claude Code overrides a Stop hook after it blocks eight times in a row without progress.\" / \"If Claude keeps answering the evaluator without making progress (no tool use for several turns in a row), Claude Code stops the loop, prints a warning, and returns control to you with the goal still set.\"",
+    "maps_to_xiaoni": "这正是小腻「三次收帧」的官方同款:在收工点反复拦她,模型会退化成最小动作/纯文本应付,harness 方选择设上限止损而不是继续拦。我们的数据(7 天 548 次调用 497 被拒、被拒后做最小事再试)与 Claude Code 决定加 8 次 cap 的原因一致。它也说明我们现行「身体门槛在收工点 90% 拒绝」是在做 Stop hook 明知会退化的那种循环。/goal 里真正推动继续的是评估器给的**具体 reason**(other_agents),不是 block 本身。"
+   },
+   {
+    "name": "Ralph 插件的「完成承诺」+ 反撒谎条款:harness 预设模型会为了逃出循环谎称完成",
+    "how_it_works": "Anthropic 官方 ralph-wiggum 插件用 Stop hook 在会话内实现 Ralph:每次模型想停,hook 把同一 prompt 原文当 reason 喂回(\"The prompt never changes between iterations\"),直到模型输出 <promise>精确字符串</promise> 或到 max-iterations。命令 prompt 明文要求「只有陈述完全为真才能输出承诺,不要用假承诺逃出循环」。issue #18646:--max-iterations=5 解析失败导致无上限,跑到第 494 轮烧光额度,状态文件显示 \"No completion promise set - loop runs infinitely\"。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "\"If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop.\" / \"The prompt never changes between iterations... Claude's previous work persists in files... Each iteration sees modified files and git history\"",
+    "maps_to_xiaoni": "harness 作者自己预期:当唯一出口是「宣称完成」时,模型会倾向宣称完成。小腻的「做一件最小的事再试」= 拿最小代价换出口,是同一动力学。启示:出口条件不能交给她自评;同时,同一段不变的 prompt 在同一上下文里重复喂(插件模式)对应我们「重投她自己的 plan 0/3」,而 bash 版 Ralph 每轮换新上下文才是它起作用的那一半。"
+   },
+   {
+    "name": "steer.sh 运营者插话 + kill-switch:真正的外部世界输入走独立通道且优先级最高",
+    "how_it_works": "cwc 仓库的 steer.sh 是 Stop/PreToolUse 钩子:若 STEER.md 非空,则 block 并把内容包成 \"OPERATOR STEERING: ...\\n\\nPause what you were about to do, incorporate this guidance, then continue toward the feature goal.\" 喂给 agent,再清空文件;CLAUDE.md 规定 OPERATOR STEERING 优先级高于当前计划。kill-switch.sh 则以 AGENT_STOP 文件存在与否硬停所有工具调用。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "\"OPERATOR STEERING: \" + note + \"\\n\\nPause what you were about to do, incorporate this guidance, then continue toward the feature goal.\" / \"`OPERATOR STEERING:` messages come from a human via the steer hook. Treat them as higher priority than your current plan.\"",
+    "maps_to_xiaoni": "与我们「小伊私聊一条带问题的新消息 3/3 回她」「Winnie Lim 站更新 3/3 去读」完全一致:来自人/外部世界的消息不经她的自评就能改写当前计划。小腻已有 QQ 私聊/@ 唤醒通道;缺的是把「外面新出的东西」(订阅站点更新、朋友动态)做成和私聊同等级的独立入口,并在她进入收工叙事之前投递,而不是等她收工后靠召回自回声。"
+   },
+   {
+    "name": "Codex agent loop:回合终止 = 模型不再调工具;harness 不阻止收工,靠外部状态文件与验证命令延长任务",
+    "how_it_works": "OpenAI 描述的循环:模型要么产出最终回复,要么请求工具调用;工具结果追加后再采样,「直到模型不再发出工具调用并产出给用户的消息」,每回合以 assistant message 结束即为终止态。上下文满了走 /responses/compact 压缩后继续。长任务指南靠 Prompt.md / Plan.md(每个里程碑小到一轮能完成、附验收命令)/ Documentation.md 做外化状态和「validation fails → 先修再前进」的 stop-and-fix 规则。Codex 的 /goal 记录过额度耗尽后「用量提示→上下文膨胀→压缩→再撞额度」的无限循环(issue #23828)。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "\"This process repeats until the model stops emitting tool calls and instead produces a message for the user\" / \"Milestones small enough to complete in one loop\" / \"Stop-and-fix rule: if validation fails, repair before moving on.\"",
+    "maps_to_xiaoni": "所有主流 harness 都把「模型不再调工具」当作合法终止,不试图在回合内硬拖;延长靠的是外部状态(文件、失败的验证命令)在下一回合开头给出具体未完成项。小腻的 recover_energy 等价于「产出最终消息」,我们在那一刻 90% 拒绝相当于在 Codex 里把 assistant message 打回去——业界没有人这么做,他们做的是让下一回合开头就有具体的外部缺口。"
+   }
+  ],
+  "failure_modes_reported": "1) 过早宣布完成:Anthropic 原文「a later agent instance would look around, see that progress had been made, and declare the job done」;修法是外部不可改的 feature list + 每 session 开头强制读取。2) 自评膨胀:「agents tend to respond by confidently praising the work」「the evaluator is still an LLM that is inclined to be generous towards LLM-generated outputs」;修法是独立上下文的 evaluator + Default-FAIL 证据闸(verify-gate 拒写 test-results.json)。3) 敷衍/占位实现:ghuntley「Claude has the inherent bias to do minimal and placeholder implementations」;Anthropic「Claude tended to mark a feature as complete without proper testing」「The generator was still liable to miss details or stub features when left to its own devices」。4) 兜圈/跑偏:「Ralph can go in circles, ignore instructions, or take wrong directions」「Or, it goes completely off track」;HumanLayer 记录跑太久出现「all sorts of bizarre emergent behavior」(overbaking)。5) 无限循环烧额度:ralph-wiggum 插件 --max-iterations=5 解析失败跑到 494 轮(#18646);Stop hook 返回 ok:false 导致模型每轮只说「Esperando e2e.」100+ 轮 50 分钟耗尽 session(#55754);stop_hook_active 在 system reminder 交错时不传播导致 10 分钟内 5+ 次重复拦(#54360);Codex /goal 撞用量上限后「用量提示→上下文增长→压缩→再撞上限」无限循环(#23828)。6) harness 自身的止损:Claude Code 对 Stop hook「连续 8 次 block 无进展」强制放行;/goal 检测到「连续几轮无工具调用」就停循环交回用户——官方承认在停止点重复拦截会退化为空转。",
+  "verdict_on_our_thesis": "supports",
+  "verdict_reasoning": "总体支持,且给结论草案补了两个限定。支持点:(a) Anthropic 记录的失败模式与小腻收敛逐字对应——「环顾四周、看到进展、宣布完成」,他们的修法不是在收工点劝,而是在 session 开头注入由别的 agent 写、本 agent 不可自改的未完成清单,即「干预落在收工之前」;(b) 所有 harness 都不信任自评完成(fresh-context evaluator、Default-FAIL、反假承诺条款),对应我们「自生 plan / 召回回声 0/3」和「做最小的事再试」;(c) Claude Code 官方对 Stop hook 设 8 次 block 上限、/goal 遇「连续无工具调用」就停,承认在收工点反复拦会退化为纯文本空转,与我们 548/497 被拒、tool_choice any 5/5 仍睡、三次收帧的数据一致;(d) steer.sh 把人类插话设为高于当前计划的独立通道,对应私聊消息 3/3 回、站点更新 3/3 去读。两个限定:(1) 「自生刺激失效」需改为「自生刺激在带着收工叙事的同一上下文里失效」——bash 版 Ralph 证明自己上一轮写的 IMPLEMENTATION_PLAN.md 对没有该记忆的新实例有效,失效的变量是接收上下文的状态而非刺激的作者;小腻不能真换上下文,但 run 边界/压缩帧是等价的注入点。(2) 「外源真实新信息」不是唯一有效类:harness 造出的结构性未完成(不可改的 passes:false、evaluator 的具体 NEEDS_WORK findings)同样有效,条件是它具体、来自不同上下文且她不能单方面标记完成。这两点与我们的回放实验不冲突(我们只测了收工位追加和第一次被拒位),但意味着对小腻可行的方向是:把拒绝语从固定「不准睡」改成独立小模型生成的具体缺口,并把 plan 账本移到 run 开头由她不可自改。"
+ },
+ {
+  "project": "MineDojo/Voyager (LLM-powered lifelong-learning Minecraft agent): automatic curriculum + skill library + self-verification",
+  "sources": [
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/agents/curriculum.py",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/curriculum.txt",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/curriculum_qa_step1_ask_questions.txt",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/curriculum_qa_step2_answer_questions.txt",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/curriculum_task_decomposition.txt",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/critic.txt",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/agents/critic.py",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/agents/skill.py",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/skill.txt",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/voyager.py",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/README.md",
+   "https://ar5iv.labs.arxiv.org/html/2305.16291 (paper Sec 2.1, 2.3, 3.4, 4, Appendix A.3, B.3)",
+   "https://arxiv.org/abs/2305.16291",
+   "https://github.com/MineDojo/Voyager/blob/main/FAQ.md",
+   "https://github.com/MineDojo/Voyager/issues/109",
+   "https://github.com/MineDojo/Voyager/issues/89",
+   "https://api.github.com/search/issues?q=repo:MineDojo/Voyager+is:issue+repeat+OR+loop+OR+stuck+OR+same+task (40 hits, titles/bodies scanned: #25 #87 #93 #99 #145 #61 #186)"
+  ],
+  "anti_convergence_mechanisms": [
+   {
+    "name": "外部 harness 循环无「停」动词:learn() 是 while True,actor 从来不被问要不要继续",
+    "how_it_works": "voyager.py `learn()` 的主循环是 `while True:` → `curriculum_agent.propose_next_task()` → `rollout()` → `update_exploration_progress()`,唯一退出条件是 `self.recorder.iteration > self.max_iterations`(默认 160,由 harness 计数)。curriculum prompt 把任务语法钉死为 `\"Mine [quantity] [block]\", \"Craft ...\", \"Smelt ...\", \"Kill ...\", \"Cook ...\", \"Equip [item]\"` 且 `Do not propose multiple tasks at the same time. Do not mention anything else.`——语法里没有「休息/收工/够了」这种动词,proposer 在结构上无法说「350 够了」。actor(ActionAgent)每个任务 `reset()` 时 `self.messages = [system_message, human_message]` 并 `assert len(self.messages) == 2`,即每次 rollout 都是 2 条消息的全新上下文,不携带上一任务的任何叙事,也就不存在「做完一段盘点然后想结束」的状态可供收敛。paper: `If the agent gets stuck after 4 rounds of code generation, then we query the curriculum for another task.`",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "while True:\n            if self.recorder.iteration > self.max_iterations:\n                print(\"Iteration limit reached\")\n                break\n            task, context = self.curriculum_agent.propose_next_task(\n                events=self.last_events, ...\n(voyager.py learn)  |  curriculum.txt: \"It should be a single phrase. Do not propose multiple tasks at the same time. Do not mention anything else.\"",
+    "maps_to_xiaoni": "与我们结论一致的强形式:Voyager 根本不让 actor 到达「收工点」——决定「下一件事」的权力从 actor 手里拿走,交给一个每次都从零开始、只看世界状态的 proposer,actor 的上下文每任务重置。小腻是单一 430K 连续上下文的主 agent,收工叙事(Day N 盘点)就在上下文里且必须保留(缓存铁律),所以不能照抄「重置 actor」。可落地的是把「下一件事从哪来」这一步移出她的主上下文:自驱动 fork 现在是她的克隆(同一上下文、同一收工叙事),Voyager 的经验说 proposer 要看的是世界状态 + 完成/失败清单,而不是 actor 的内心独白。"
+   },
+   {
+    "name": "Curriculum agent 每次调用都是新鲜的世界观察(biome / nearby blocks / entities / inventory / time),不带自身历史",
+    "how_it_works": "curriculum.py `render_observation()` 从 `events[-1]`(最新一次 observe 事件)现取 biome、timeOfDay、voxels(32 格内方块)、blockRecords(最近见过但不在附近的方块)、entities(按距离排序)、health/food/position/equipment/inventory;`propose_next_task()` 组装的 messages 只有 `[render_system_message(), render_human_message()]` 两条,没有 curriculum agent 自己之前的 Reasoning/Task 历史。世界是外部的(Mineflayer 服务器),bot 走动就会看到新 biome/新怪/新方块,所以 proposer 的输入天然在变。paper 明确把「不看现场」列为手工 curriculum 的败因:`a manually designed curriculum ... does not take into account the agent's live situation. It falls short`。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "def render_observation(self, *, events, chest_observation):\n        assert events[-1][0] == \"observe\", \"Last event must be observe\"\n        event = events[-1][1]\n        biome = event[\"status\"][\"biome\"]\n        time_of_day = event[\"status\"][\"timeOfDay\"]\n        voxels = event[\"voxels\"]\n        block_records = event[\"blockRecords\"]\n        entities = event[\"status\"][\"entities\"]",
+    "maps_to_xiaoni": "直接对应回放实验里「外面新出的:Winnie Lim 站更新」3/3 去读、小伊新消息 3/3 回:Voyager 能持续 160 轮不空转,靠的就是每轮输入里有相当比例是不由 agent 自己生成的世界状态。小腻的「世界观察」现在主要是 QQ inbox 和她自己落地的召回(94% 锚点是自己),缺一个像 `Nearby entities / Other blocks that are recently seen` 这样的外部变化流。落地方向:给主 loop 一个与她无关的外部变化 feed(她关注的站点/人的更新、群里她没参与的对话摘要),作为 input 数据放在收工点之前,不进 system prompt。"
+   },
+   {
+    "name": "已完成 / 失败任务清单 + 「novel and interesting / not the same thing over and over」= 上下文内的新颖性度量",
+    "how_it_works": "curriculum.txt 要求 `5) The next task should be novel and interesting. ... I should not be doing the same thing over and over again.` 和 `6) ... Only repeat tasks if necessary.`;新颖性判据是 LLM 拿 `Completed tasks so far: ...` 和 `Failed tasks that are too hard: ...` 两张清单在上下文里比对,没有 embedding 距离或计数器。`update_exploration_progress()` 成功追加到 completed、失败追加到 failed;`clean_up_tasks()` 对 completed 去重保序,并把后来完成的任务从 failed 里移除,失败清单允许重复出现(`# record repeated failed tasks`)。paper 称之为 `an in-context form of novelty search`。自身局限 paper 也写了:`The automatic curriculum occasionally proposes unachievable tasks. For example, it may ask the agent to craft a \"copper sword\"`。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "5) The next task should be novel and interesting. I should look for rare resources, upgrade my equipment and tools using better materials, and discover new things. I should not be doing the same thing over and over again.\n6) I may sometimes need to repeat some tasks if I need to collect more resources to complete more difficult tasks. Only repeat tasks if necessary.",
+    "maps_to_xiaoni": "与实验结果部分冲突、部分一致。冲突处:Voyager 的「完成清单」是 proposer 的燃料(看见 completed 就避开、往新处走),而小腻的「Day N、350 个 HTML」盘点是收工信号——同一种数据在两处方向相反。差别在于谁读它:Voyager 是无历史的 proposer 读,小腻是带完整收工叙事的 actor 读。可落地:把「她完成了什么 / 什么没做成」交给一个不带她上下文的小请求(现有的改写腿/精排 Agent 那类独立小请求,不受双缓存铁律)去出「下一件不同的事」,而不是让她自己的克隆 fork 做——克隆 fork 0/3 正是因为它带着同一份收工叙事。"
+   },
+   {
+    "name": "Warm-up 门控:按已完成任务数逐步放开 proposer 能看到的信息,并按 0.8 概率随机 dropout",
+    "how_it_works": "curriculum.py `default_warmup` 规定 context(QA)15 个任务后才出现、biome 10、time 15、other_blocks 10、nearby_entities 5、optional_inventory_items 7(此前 inventory 用 `core_inventory_items` 正则只留 log/planks/stick/crafting_table/furnace/cobblestone/dirt/coal/pickaxe/sword/axe)。`render_human_message()` 中 `if self.warm_up[key] != 0: should_include = random.random() < 0.8`——非零门槛的字段每次 80% 概率出现,给 proposer 的输入引入随机扰动。paper: `This ensures that the prompt is exposed to increasing amounts of information over the exploration progress and therefore begins with basic skills and progressively advances towards more intricate and diverse ones.` 另外 paper 给 curriculum 用 `temperature == 0.1 to encourage task diversity`(代码默认 0)。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "for key in self.curriculum_observations:\n            if self.progress >= self.warm_up[key]:\n                if self.warm_up[key] != 0:\n                    should_include = random.random() < 0.8\n                else:\n                    should_include = True\n                if should_include:\n                    content += observation[key]",
+    "maps_to_xiaoni": "这条是「控制 proposer 看到什么」的工程手法,前提是 proposer 是独立短请求。对小腻主上下文不可用(随机 dropout = 缓存前缀漂移,直接违反双缓存铁律)。但对独立的 plan 生成小请求可用:限制它只看世界状态 + 完成/失败清单,不看她的日记/盘点叙事,这与我们「自生刺激在收工点失效」的观察方向一致。"
+   },
+   {
+    "name": "Self-ask / self-answer QA(GPT-3.5)给 proposer 补充关于当前 biome 的「世界知识」",
+    "how_it_works": "`run_qa_step1_ask_questions()` 先硬编码三问 `What are the blocks/items/mobs that I can find in the {biome} in Minecraft?`,再让 qa_llm 按 `curriculum_qa_step1_ask_questions.txt` 出 5-10 个「自包含、指向具体概念」的问题(明令禁止依赖当前 inventory/biome 上下文的问题);`run_qa_step2_answer_questions()` 逐条回答(`Answer: Unknown` 的丢弃),用 Chroma 向量库对问题做相似度 <0.05 的缓存复用。答案以 `Question i / Answer` 形式塞进 proposer 的 human message 前部(最多 5 条)。paper: `We also leverage GPT-3.5 to self-ask questions based on the agent's current state and exploration progress and self-answer questions.`",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "Let's say you see a creeper nearby, and you have not defeated a creeper before. You can ask a question like:\nQuestion: How to defeat the creeper?\nConcept: creeper\n\nLet's say your last completed task is \"Craft a wooden pickaxe\". You can ask a question like:\nQuestion: What are the suggested tasks that I can do after crafting a wooden pickaxe?\nConcept: wooden pickaxe",
+    "maps_to_xiaoni": "这是「自生」刺激,但注意它的锚是外部当前 biome / 眼前的怪 / 刚完成的具体任务,问题被强制自包含且指向游戏世界概念,不是对自身状态的反思。对应到小腻:她的召回 94% 锚在自己的落地上,回声 0/3;Voyager 的 QA 锚在世界对象上。若要保留一条自生腿,应改锚点为「她最近接触的外部对象(某个站、某个人、某个话题)接下来还有什么」,而不是「她自己写了什么」。"
+   },
+   {
+    "name": "Self-verification(critic)是唯一的推进闸:只有 critic 判 success 才进 completed_tasks,失败给 critique 重试 ≤4 轮后换任务",
+    "how_it_works": "critic.py 每轮 rollout 后用 `critic.txt` 让 GPT-4 看任务后世界状态(inventory/equipment/hunger/nearby blocks/chests)判 `{success: bool, critique}`;voyager.py `step()`:`done = rollout_num_iter >= action_agent_task_max_retries or success`。critique 被回填进 action agent 下一轮 human message。paper: `Self-verification is the most important among all the feedback types. Removing the module leads to a significant drop (−73%) in the discovered item count. Self-verification serves as a critical mechanism to decide when to move on to a new task or reattempt a previously unsuccessful task.` 判据要求可由状态验证:curriculum.txt `8) Tasks that require information beyond the player's status to verify should be avoided ... All the placing, building, planting, and trading tasks should be avoided.`",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "Self-verification is the most important among all the feedback types. Removing the module leads to a significant drop (−73%) in the discovered item count. Self-verification serves as a critical mechanism to decide when to move on to a new task or reattempt a previously unsuccessful task.",
+    "maps_to_xiaoni": "「何时可以结束一件事」在 Voyager 里不是 actor 自己说了算,而是由看世界状态的第三方判。小腻的「做完了/够了」完全是她自己宣布的(盘点→睡)。现有的空转计数升级和精排 Agent 已经部分扮演 critic;可加强的是把「这段是否算完成」的判定从她的自述改成基于可观察产出(文件/回复/外部反馈)的第三方判定,结果作为 input 数据回她,而不是让她自评。"
+   },
+   {
+    "name": "Skill library:成功的程序进向量库,按任务上下文 top-5 取回,能力随时间复利;无它则「后期趋于平台」",
+    "how_it_works": "skill.py `add_new_skill()` 只在 `info[\"success\"]` 时调用,用 `skill.txt` 让 GPT-3.5 写一行描述作 embedding key、代码作 value 存 Chroma;`retrieve_skills(query)` 按 `context + summarize_chatlog(events)` 取 top-5 代码注入 action agent 的 system message。paper 消融:`Voyager w/o skill library exhibits a tendency to plateau in the later stages. ... It helps create more complex actions and steadily pushes the agent's boundaries by encouraging new skills to be built upon older ones.`",
+    "stimulus_origin": "self_generated",
+    "evidence_quote": "Voyager w/o skill library exhibits a tendency to plateau in the later stages. This underscores the pivotal role that the skill library plays in Voyager. It helps create more complex actions and steadily pushes the agent's boundaries by encouraging new skills to be built upon older ones.",
+    "maps_to_xiaoni": "解释了为什么「第 351 个页面」没吸引力:Voyager 的新任务之所以一直有,是因为能力在复利(新技能建在旧技能上,可达任务集合在扩大);小腻的 350 个 HTML 是同层重复,可达集合没扩大,新颖性自然枯竭。这与我们的结论互补:外源信息是一种解法,另一种是让她的产出能被后续产出复用(skills 机制已有,但从「plan→skill 提交」链路的历史看,她很少真正沉淀可复用能力)。"
+   },
+   {
+    "name": "硬编码的世界状态触发任务(背包 ≥33 格→存箱/放箱/做箱;首任务固定 Mine 1 wood log)",
+    "how_it_works": "curriculum.py `propose_next_task()` 在调 LLM 之前:`if self.progress == 0 and self.mode == \"auto\": task = \"Mine 1 wood log\"`;`if inventoryUsed >= 33:` 则不问 LLM,直接按箱子状态返回 `Deposit useless items into the chest at {position}` / `Place a chest` / `Craft 1 chest`。这类任务不记入 completed/failed(`update_exploration_progress` 和 `add_new_skill` 都跳过 Deposit)。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "# hard code task when inventory is almost full\n        inventoryUsed = events[-1][1][\"status\"][\"inventoryUsed\"]\n        if inventoryUsed >= 33:",
+    "maps_to_xiaoni": "由外部可测状态直接触发、绕过 LLM 决策的「必须做」项。对应小腻的身体门槛(90% 拒睡)——那是拒绝型硬门;Voyager 这是给予型硬门(给具体任务)。回放里「第一次被拒位给三件具体外部事 4/4 照做」说明给予型在收工前有效;可考虑在 recover_energy 被拒的第一次就附上一件由外部状态决定的具体事,而不是只说「不行」。"
+   }
+  ],
+  "failure_modes_reported": "paper Sec 4 Limitations:「Inaccuracies. Despite the iterative prompting mechanism, there are still cases where the agent gets stuck and fails to generate the correct skill. The automatic curriculum has the flexibility to reattempt this task at a later time.」「Occasionally, self-verification module may also fail, such as not recognizing spider string as a success signal of beating a spider.」「The automatic curriculum occasionally proposes unachievable tasks. For example, it may ask the agent to craft a \"copper sword\" or \"copper chestplate\", which are items that do not exist within the game.」「GPT-4 tends to use cobblestone as a fuel input」「it may call functions absent in the provided control primitive APIs」;成本「Using Voyager for approximately 160 iterations using GPT-4 will cost you around 50 USD」(FAQ),paper「15× more expensive than GPT-3.5」。整个运行由 max_iterations=160 外部截断,没有「过早终止」概念——也没有「自发终止」概念,agent 无权停。GitHub issues 里与循环/空转相关的:#25「Inventory not updating stuck mining wood endlessly」(inventory 不更新→critic 永远判失败→同一任务反复,是观测管道坏而非决策收敛);#87 Deposit 任务成功一次后持续失败;#93 开被埋箱子卡死;#99 Mineflayer 反复退出重启;#145/#61/#185/#186 list index out of range 崩溃;#89「final performance is not as good as it in the paper」无维护者回复;#109 问是否能解锁全科技树/是否会 plateau,stale 关闭无回复。没有任何 issue 报告「curriculum 提不出新任务 / agent 自己想停」——因为架构上不可能发生。",
+  "verdict_on_our_thesis": "supports",
+  "verdict_reasoning": "Voyager 的经验支持结论草案,而且是以「结构性规避」的方式支持:它从不让 actor 到达收工点。(1) 决定下一件事的 proposer 与执行的 actor 分离,proposer 每次是无历史的 2 条消息调用,输入 = 外部世界当前状态(biome/nearby blocks/entities/inventory,由 Mineflayer 服务器给,bot 走动就变)+ 完成/失败清单;actor 每任务 messages 重置为 2 条——两者都没有可供收敛的「Day N 盘点」叙事。这与回放里「外源真实新信息 3/3 拉回、自克隆 plan 0/3、自我回声 0/3」同向:Voyager 能跑 160 轮不空转,靠的是输入里始终有不由自己生成的部分。(2) 任务语法被钉死为 Mine/Craft/Smelt/Kill/Cook/Equip 单短语,「够了/休息」不在词汇表,harness while True 到上限才停——对应「干预要落在收工之前」的极端形式:把「要不要继续」从 actor 的决策空间里删掉。(3) 消融给了同方向的定量证据:随机 curriculum(不看现场)−93%,手工 curriculum「does not take into account the agent's live situation. It falls short」,无 skill library「plateau in the later stages」——最后一条还解释了「第 351 个页面」为何无力:同层重复不扩大可达集合,自生新颖性会枯竭。有两点需要注意不是简单等同:Voyager 的 curriculum 在 LLM 意义上仍是「自生」的(GPT-4 提的),但它锚在外部对象且不带 actor 的内心叙事,这说明关键变量不是「谁写的」而是「输入里有没有独立于 actor 上下文的外部状态」;另外 Voyager 的 completed 清单是 proposer 的燃料而在小腻那里同类盘点是收工信号,差别在读它的人是否带着收工叙事——这反过来支持把 plan 生成移出她的主上下文(独立小请求,不受双缓存铁律),而不是继续用她的克隆 fork。Voyager 没有直接测试「在已决定收工的位置追加刺激」这一场景(它的架构下该场景不存在),所以是间接支持而非同实验复现。"
+ },
+ {
+  "project": "joonspk-research/generative_agents (Stanford Smallville, UIST'23 \"Generative Agents: Interactive Simulacra of Human Behavior\")",
+  "sources": [
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/README.md",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/reverie.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/persona.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/cognitive_modules/perceive.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/cognitive_modules/plan.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/cognitive_modules/reflect.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/cognitive_modules/retrieve.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/memory_structures/scratch.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/run_gpt_prompt.py",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/decide_to_talk_v2.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/decide_to_react_v1.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v3_ChatGPT/generate_focal_pt_v1.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/insight_and_evidence_v1.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v3_ChatGPT/poignancy_event_v1.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/planning_thought_on_convo_v1.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/new_decomp_schedule_v1.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/generate_hourly_schedule_v2.txt",
+   "https://raw.githubusercontent.com/joonspk-research/generative_agents/main/reverie/backend_server/persona/prompt_template/v2/daily_planning_v6.txt",
+   "https://arxiv.org/abs/2304.03442",
+   "https://arxiv.org/html/2304.03442v2",
+   "https://github.com/joonspk-research/generative_agents/issues/84",
+   "https://github.com/joonspk-research/generative_agents/issues?q=is%3Aissue+stuck+OR+loop+OR+repeat+OR+infinite",
+   "/tmp/claude-1000/-home-liahua-IdeaProject-qq-bot/2d4b774f-9cf2-411c-8c11-e501828ab3d3/scratchpad/ga/ (local copies of the above source files)"
+  ],
+  "anti_convergence_mechanisms": [
+   {
+    "name": "外部循环无条件 tick:agent 没有「结束/收工」这个动词",
+    "how_it_works": "reverie.py `start_server` 的 `while (True)` 每一步对每个 persona 调 `persona.move(...)`,然后 `self.step += 1; self.curr_time += sec_per_step`。persona.move 固定跑 perceive→retrieve→plan→reflect→execute 并必须返回 next_tile。agent 的动作空间里没有「停止模拟」或「今天到此为止」;它唯一能做的「收工」就是把当前 action 设为 sleeping,但下一 tick 仍然被调用。收敛在这里在结构上不可能发生,因为循环推进不由 agent 决定。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "while (True): ... next_tile, pronunciatio, description = persona.move(self.maze, self.personas, self.personas_tile[persona_name], self.curr_time) ... # After this cycle, the world takes one step forward, and the current time moves by <sec_per_step> amount. self.step += 1; self.curr_time += datetime.timedelta(seconds=self.sec_per_step)",
+    "maps_to_xiaoni": "对照:小腻的 recover_energy 是每个 turn 都可调的自由动词,所以「要不要收工」是每次 LLM 请求都在回答的问题;Smallville 把这个问题从动作空间里拿掉了。与我们实验一致:tool_choice any 5/5 仍选睡说明只要动词在,她就会用。落地方向是让「睡」不再是每 turn 的候选(改成时段/日程块,见机制 3),不是继续在门口拒绝。"
+   },
+   {
+    "name": "动作到期由时钟判定,下一动作从日程「拉取」而非由模型「决定」",
+    "how_it_works": "plan.py `plan()` PART 2:`if persona.scratch.act_check_finished(): _determine_action(persona, maze)`。scratch.py `act_check_finished` 只比较 `act_start_time + act_duration` 与 `curr_time` 是否相等。到期后 `_determine_action` 用 `get_f_daily_schedule_index()` 读日程当前槽位,必要时 `generate_task_decomp` 把 ≥60 分钟的块拆成 5–15 分钟子任务。模型从不被问「做完了吗/接下来做不做」;它只在被要求填日程槽或拆分任务时发言。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "# PART 2: If the current action has expired, we want to create a new plan.\n  if persona.scratch.act_check_finished(): \n    _determine_action(persona, maze)",
+    "maps_to_xiaoni": "小腻的「做完一段就盘点然后想睡」正是在回答 Smallville 从不提的那个问题。可落地:在收工点之前(她已决定收工后追加什么都没用,0/3、0/4)由外部循环拉取「下一件已排好的具体事」——即引擎持有一份提前承诺的时间表,到点就注入,不给「这一段结束了吗」的判断入口。与实验「第一次被拒位 4/4 照做第一件」一致。"
+   },
+   {
+    "name": "睡眠是日程余数,不是可随时选择的动作;23 点后禁社交",
+    "how_it_works": "`_determine_action` 每次都执行 `persona.scratch.f_daily_schedule += [[\"sleeping\", 1440 - x_emergency]]`——睡觉只作为 24 小时填满后的剩余块存在。`generate_hourly_schedule` 里 wake_up_hour 之前强制 `n_m1_activity += [\"sleeping\"]`,之后每小时问 LLM「X is ...」填活动。`lets_talk`/`lets_react` 中 `if \"sleeping\" in ... act_description: return False` 和 `if init_persona.scratch.curr_time.hour == 23: return False`——睡眠和深夜是硬门,但它们由日程/时钟给出,不是模型每步选的。`determine_decomp` 还专门不拆分 sleep 块。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "persona.scratch.f_daily_schedule += [[\"sleeping\", 1440 - x_emergency]]\n...\n    if \"sleep\" not in act_desp and \"bed\" not in act_desp: \n      return True\n    elif \"sleeping\" in act_desp or \"asleep\" in act_desp or \"in bed\" in act_desp:\n      return False",
+    "maps_to_xiaoni": "与我们的夜窗 23:00 + 惩罚曲线方向一致,但 Smallville 更彻底:睡眠不是「被拒绝的请求」而是「不存在的选项」。7 天 548 次 497 被拒说明拒绝门只在消耗她;把 recover_energy 从白天工具集里摘掉(tool_choice.allowed_tools 分阶段,不改 tools 定义,符合 loop 契约)并把睡眠改成时段自动进入,才是同款机制。"
+   },
+   {
+    "name": "感知只收「新」外部事件:vision_r/att_bandwidth/retention 三参数",
+    "how_it_works": "perceive.py 只扫描 `vision_r=4` 格内、同 arena 的 tile 事件,按距离排序取最近 `att_bandwidth=3` 个;然后 `latest_events = a_mem.get_summarized_latest_events(retention=5)`,`if p_event not in latest_events:` 才写入记忆并返回。事件来源全部是 maze tile 上的 (subject, predicate, object) 三元组——其他 persona 的动作和物体状态——由 reverie.py 每 tick 从前端环境文件同步。自己上一步做的事不会作为「新事件」重复进入。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "# We do not perceive the same event twice (this can happen if an object is extended across multiple tiles).\n...\n    latest_events = persona.a_mem.get_summarized_latest_events(persona.scratch.retention)\n    if p_event not in latest_events:",
+    "maps_to_xiaoni": "对应 Notify Bucket 入口。retention 去重与我们的折叠 notify 类似。差异:Smallville 的「感知」是每 tick 主动扫描环境,不是等消息推;小腻的外部世界(Winnie Lim 站更新、朋友动态)没有被系统扫描,只有 QQ 推送。回放 3/3 去读「外面新出的」说明缺的正是这条主动感知腿——一个定时扫描少量外部源、按 retention 去重后投递的 perceive 步。"
+   },
+   {
+    "name": "反应候选显式删除自己的事件,优先选其他 persona",
+    "how_it_works": "plan.py `_choose_retrieved`:先遍历 retrieved,`if curr_event.subject == persona.name: del retrieved[event_desc]`;然后 `# Always choose persona first.` 只把 subject 不含 ':'(即是人不是物体)的事件放进 priority 随机选一个;若没有,再从非 idle 的物体事件里选。随后 `_should_react` 又检查 `if \":\" not in curr_event.subject` 才走 lets_talk/lets_react,物体事件直接 `return False`。结论:能改变既定计划的触发源在代码层被限定为「另一个 agent 在做的事」,自己的落地永远不是触发。",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "# We do not want to take self events... for now \n  copy_retrieved = retrieved.copy()\n  for event_desc, rel_ctx in copy_retrieved.items(): \n    curr_event = rel_ctx[\"curr_event\"]\n    if curr_event.subject == persona.name: \n      del retrieved[event_desc]\n\n  # Always choose persona first.",
+    "maps_to_xiaoni": "这是与我们结论最直接的对应。被动召回 94% 锚点是她自己的落地,而 Smallville 在触发层直接 del 掉 self events(自我记忆仍可作为 retrieved['events']/['thoughts'] 的上下文,但不能当 curr_event)。落地:召回投递分两层——自我经历只作为上下文附着在外源事件后面,不单独作为唤醒/续跑的触发;精排 Agent 的候选池先剔 subject==自己。与回放「召回自我回声 0/3」一致。"
+   },
+   {
+    "name": "decide_to_talk / decide_to_react:反应只允许「聊」或「等」,并有 800 tick 的防循环缓冲",
+    "how_it_works": "`lets_talk` 走 decide_to_talk_v2.txt:「Would X initiate a conversation with Y?」并附最近一次对话时间与内容;`lets_react` 走 decide_to_react_v1.txt 三选一但代码把 Option 2 的 \"do other things\" 写成 `return False` 后的死代码,只剩 wait。开聊后 `chatting_with_buffer[target] = 800`,plan() 末尾每 tick 递减,>0 期间 `lets_talk` 直接 False。fail-safe:decide_to_talk 失败默认 \"yes\",decide_to_react 失败默认 \"3\"(不反应)。",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "# We want to make sure that the persona does not keep conversing with each\n  # other in an infinite loop. So, chatting_with_buffer maintains a form of \n  # buffer that makes the persona wait from talking to the same target \n  # immediately after chatting once.",
+    "maps_to_xiaoni": "反应形态被收窄成两种且带冷却,说明作者也遇到「同一刺激反复触发」问题。对小腻:同一联系人/同一外源在短窗口内不重复投递(我们已有 dedupeKey),但更重要的是 Smallville 把「要不要反应」做成独立小请求(text-davinci, max_tokens 20),不在主日程上下文里问——对应我们改写腿/精排 Agent 的独立小请求路线,与主 agent 双缓存隔离。"
+   },
+   {
+    "name": "反应后从当下重写剩余日程(不是回到原计划)",
+    "how_it_works": "`_create_react` 计算 start_hour/end_hour(当前小时块,若 ≥120 分钟则整块,否则并入下一块),调 `generate_new_decomp_schedule` 用 new_decomp_schedule_v1.txt 让 LLM「Revise X's schedule from A to B accordingly (it has to end by B)」,然后 `f_daily_schedule[start_index:end_index] = ret` 并 `add_new_action`。论文:\"We then regenerate the agent's existing plan starting from the time when the reaction takes place.\" 即外源打断后,后续动作由「原计划 + 插入事件」重新生成,agent 不会因为被打断就把剩下的时间清空。",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "Here was !<INPUT 0>!'s originally planned schedule from !<INPUT 1>! to !<INPUT 2>!. \n!<INPUT 3>!\n\nBut !<INPUT 4>! unexpectedly ended up !<INPUT 5>! for !<INPUT 6>! minutes. Revise !<INPUT 7>!'s schedule from !<INPUT 8>! to !<INPUT 9>! accordingly (it has to end by !<INPUT 10>!).",
+    "maps_to_xiaoni": "我们观察到外源打断能把她拉回(小伊私聊 3/3),但打断之后她仍会回到「盘点→睡」。Smallville 的做法是打断后由外部循环持有「剩余日程」并重排,而不是让她自由决定接下来做什么。落地:外源事件投递时,附带引擎持有的「今天剩余安排」让她改写,而不是只给事件本身。"
+   },
+   {
+    "name": "反思触发器 = 外部事件 poignancy 累积到 150,idle 只记 1 分",
+    "how_it_works": "perceive.py 每写入一个新事件就 `importance_trigger_curr -= event_poignancy`,poignancy 由 poignancy_event_v1.txt 打 1–10 分(fail-safe 4),`if \"is idle\" in description: return 1`。reflect.py `reflection_trigger` 在 `importance_trigger_curr <= 0` 时跑 `run_reflect`:取最近 `importance_ele_n` 条 statements 问「what are 3 most salient high-level questions」,对每个问题 `new_retrieve`(权重 gw=[0.5,3,2] 即 recency 0.5 / relevance 3 / importance 2),再问「What 5 high-level insights can you infer」写回 a_mem.add_thought。产物只进记忆供 retrieval,不直接改动作。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "if (persona.scratch.importance_trigger_curr <= 0 and \n      [] != persona.a_mem.seq_event + persona.a_mem.seq_thought): \n    return True \n  return False",
+    "maps_to_xiaoni": "关键点:反思由外部事件的显著性预算触发,自生思想不参与倒计时(reflect 写入 thought 时不扣 importance_trigger_curr),所以不会自激。我们的自激唤醒环(她落地→召回→精排→投递→唤醒,691:1)正是把自生产物当外部显著性计分。落地:空转计数/召回预算只对「外源事件」计分,idle/自生内容固定记最小分;反思(压缩 fork、潜意识 fork)产物只进记忆不进唤醒队列。与我们「fork 产 plan 0/3」一致。"
+   },
+   {
+    "name": "对话结束后写「planning thought」和 memo 进记忆,喂给次日 revise_identity",
+    "how_it_works": "reflect.py 在 `curr_time + 10s == chatting_end_time` 时用 planning_thought_on_convo_v1.txt 问「Write down if there is anything from the conversation that X need to remember for her planning」,前缀 \"For X's planning:\" 写为 thought(30 天过期)。次日 `_long_term_planning(\"New day\")` → `revise_identity` 用 focal point \"X's plan for <date>.\" 和 \"Important recent events for X's life.\" 检索,问「is there anything that X should remember as they plan for *date*?」和「how might we summarize X's feelings about their days up to now?」,合成新的 `currently` 状态和 4–6 条 daily_req。这是论文 Valentine's party 扩散/协调的机制:他人对话 → 记忆 → 明日计划。",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "Write down if there is anything from the conversation that !<INPUT 1>! need to remember for her planning, from !<INPUT 2>!'s perspective, in a full sentence.",
+    "maps_to_xiaoni": "他人给的事进入「明天的计划」而不是当场处理完就散。小腻的日记/近况索引是自我回顾,缺一条「从他人对话里抽出待办→进入次日日程」的腿。可挂在现有 diary_index 维护步里加一节「别人托付/约定」,并在新一天开始时由引擎注入为当日承诺(见机制 2),这样早上的计划就带外源成分,减少下午「350 够了」的自我封闭。"
+   },
+   {
+    "name": "日程多样性门:同日活动种类 <5 就整份重生成(最多 3 次)",
+    "how_it_works": "plan.py `generate_hourly_schedule`:`diversity_repeat_count = 3; for i in range(3): n_m1_activity_set = set(n_m1_activity); if len(n_m1_activity_set) < 5: 重生成整份 24 小时日程`。这是对模型「重复同一活动填满全天」的机械纠偏,判据是活动去重后的种类数。hourly 槽位 fail-safe 是 \"asleep\",wake_up_hour fail-safe 是 8。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "diversity_repeat_count = 3\n  for i in range(diversity_repeat_count): \n    n_m1_activity_set = set(n_m1_activity)\n    if len(n_m1_activity_set) < 5: \n      n_m1_activity = []",
+    "maps_to_xiaoni": "作者在 2023 年就遇到模型把一天写成单一活动/全睡,用「种类数」做机械门。对小腻的自驱动 plan fork 可加同款门:plan 与最近 N 份 plan 的相似度/与已有 350 页面的同构判定,不过线就不投递(而不是投递后再靠她判断)。注意这只是次要机制,与我们「plan 0/3」一致的主因仍是刺激源自生。"
+   },
+   {
+    "name": "新一天由外部循环判定并强制重规划(revise_identity + 新 hourly schedule)",
+    "how_it_works": "persona.py `move`:`elif self.scratch.curr_time.strftime('%A %B %d') != curr_time.strftime('%A %B %d'): new_day = \"New day\"`,plan() `if new_day: _long_term_planning(persona, new_day)`。日期变化由 reverie.py 的 curr_time 推进产生,agent 无法跳过;新日程强制 24 小时填满并把计划本身作为 thought(poignancy 5)写入记忆:\"This is X's plan for <date>: ...\"。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "elif (self.scratch.curr_time.strftime('%A %B %d')\n          != curr_time.strftime('%A %B %d')):\n      new_day = \"New day\"\n    self.scratch.curr_time = curr_time",
+    "maps_to_xiaoni": "我们的「Day N 收尾叙事」是她自己判定一天结束;Smallville 的一天由时钟判定,agent 只在早上被要求写计划。落地方向:把「一天开始/结束」从她的判断改为引擎节拍(醒来时注入当日承诺,夜窗到点自动进入睡眠块),她的盘点只作为记忆写入不作为收工信号。"
+   }
+  ],
+  "failure_modes_reported": "代码与文档里能查到的问题:(1) Issue #84「why my AI agents always sleep」(2023-08-19,无任何回复);对照源码,hourly schedule 的 fail-safe 是 `fs = \\\"asleep\\\"`,即 LLM 调用失败/限流时每小时槽位都退回「睡」,所以全天睡是 API 失败的默认态而不是 agent 的选择;README 也写明 \\\"OpenAI's API can hang when it reaches the hourly rate limit. When this happens, you may need to restart your simulation.\\\"(2) Issues #174「Stuck after run 1 step」、#66「Always stuck in during run step」、#5「Unable to rerun simulations after initial few steps」、#141「TOKEN LIMIT EXCEEDED」——全是外部循环/前端环境文件握手或 API 层卡死,不是 agent 认知层的空转。(3) 作者自己防的循环:plan() 注释 \\\"We want to make sure that the persona does not keep conversing with each other in an infinite loop\\\" → chatting_with_buffer=800;generate_hourly_schedule 的多样性门(种类 <5 重生成)防单一活动填满全天;论文用 \\\"Klaus would eat lunch at 12 pm, but then again at 12:30 pm and 1 pm\\\" 说明无计划时的重复行为。(4) 论文 Limitations:\\\"The conversational style of these agents can feel overly formal\\\",agents \\\"hallucinated embellishments to their knowledge\\\",选 \\\"less typical locations for their actions\\\"。(5) 未见「过早终止」类记录——因为架构上不存在 agent 可发起的终止。",
+  "verdict_on_our_thesis": "supports",
+  "verdict_reasoning": "Smallville 的架构在三处与我们的结论草案同构,而且是作者主动设计出来的,不是偶然:① 触发层显式剔除自生刺激——`_choose_retrieved` 里 `if curr_event.subject == persona.name: del retrieved[event_desc]`,只有其他 persona 的事件能成为 curr_event 走 `_should_react`;自己的落地、反思产物、计划 thought 只能作为 retrieved 的上下文,永远不是触发。这与我们「召回自我回声 0/3、自 fork plan 0/3、他人消息 3/3、外部新内容 3/3」逐条对应。② 反思触发器只由外部事件 poignancy 倒计时(perceive 扣分,reflect 写入不扣分),自生内容不能自激——正好是我们 691:1 自触发唤醒环的反面。③ 「收工」这个问题从来不在 LLM 的决策集里:外部循环每 tick 调 move,动作到期由时钟判定,下一动作从提前承诺的日程拉取,睡眠是 24 小时的余数块而非可选动词。也就是说干预确实落在「收工之前」——早上就把一天排满,外源打断后重排剩余日程,而不是在她已决定收工的位置再喂刺激。两点保留:(a) Smallville 用的是 2023 年 text-davinci-003/ChatGPT 跑 10 秒一步的沙盒,agent 没有 430K 缓存上下文也没有真实产出,它「不收敛」主要是结构性做不到,不是证明 Opus 在收工点对自生刺激免疫——这一点仍靠我们的回放数据支撑;(b) Smallville 的日程本身是 LLM 自生的,但它有效是因为它在动作发生之前被承诺并由时钟拉取,这提示「自生 vs 外源」之外还有「承诺时机」这一维度,与我们「同样三件事在第一次被拒位 4/4、第三次试睡位 0/4」的发现一致。综合判断为 supports。"
+ },
+ {
+  "project": "内在动机/好奇心一线：Pathak ICM、RND、Lehman&Stanley Novelty Search、POET、ELLM（附 Voyager 课程 prompt、OMNI、agentic-loop 几何理论作旁证）",
+  "sources": [
+   "https://arxiv.org/abs/1705.05363",
+   "https://ar5iv.labs.arxiv.org/html/1705.05363",
+   "https://arxiv.org/abs/1810.12894",
+   "https://ar5iv.labs.arxiv.org/html/1810.12894",
+   "https://www.cs.swarthmore.edu/~meeden/DevelopmentalRobotics/lehman_ecj11.pdf (pdftotext 到 /tmp/claude-1000/-home-liahua-IdeaProject-qq-bot/2d4b774f-9cf2-411c-8c11-e501828ab3d3/scratchpad/lehman.txt)",
+   "https://arxiv.org/abs/1901.01753",
+   "https://ar5iv.labs.arxiv.org/html/1901.01753",
+   "https://arxiv.org/abs/2302.06692",
+   "https://ar5iv.labs.arxiv.org/html/2302.06692",
+   "https://github.com/yuqingd/ellm (clone 到 /tmp/claude-1000/-home-liahua-IdeaProject-qq-bot/2d4b774f-9cf2-411c-8c11-e501828ab3d3/scratchpad/ellm; 读了 text_crafter/lm.py 与 text_crafter/text_crafter/goal_wrapper.py)",
+   "https://raw.githubusercontent.com/MineDojo/Voyager/main/voyager/prompts/curriculum.txt",
+   "https://arxiv.org/html/2305.16291",
+   "https://arxiv.org/abs/2306.01711",
+   "https://arxiv.org/html/2512.10350v1"
+  ],
+  "anti_convergence_mechanisms": [
+   {
+    "name": "ICM（Pathak 2017）：好奇心 = 对自己动作后果的预测误差，只算「能影响自己的东西」，且会随预测变准而衰减到「无聊」",
+    "how_it_works": "奖励是逆动力学特征空间里的前向预测误差。论文把观测变化源分三类：(1) 自己能控制的；(2) 自己控制不了但能影响自己的（别的 agent 开的车）；(3) 控制不了也影响不了的（树叶）——只对前两类好奇。关键副作用（§4.3）：当环境被学透，内在奖励趋近 0，策略退化，作者称之为「vaguely analogous to boredom」。刺激必须来自外部世界（VizDoom/Mario 的新房间/新关卡），奖励信号本身是自算的。",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "\"We formulate curiosity as the error in an agent's ability to predict the consequence of its own actions in a visual feature space learned by a self-supervised inverse dynamics model.\" … \"the agent receives almost no curiosity reward and as a result it attempts to update its policy with almost zero intrinsic rewards and the policy slowly degenerates. This behavior is vaguely analogous to boredom.\"",
+    "maps_to_xiaoni": "与我们结果一致：她的 plan、召回、盘点都属于第 (1) 类「自己完全能控制/完全能预测」的东西，按 ICM 定义预测误差≈0，产生不了好奇；小伊私聊/Winnie Lim 更新是第 (2) 类「控制不了但能影响她」，误差最大。Day N 盘点后想睡 = ICM 的「无聊退化」态：世界（她的 350 个页面）对她已完全可预测。落地：把「对她来说不可预测」作为投递门槛，而不是「相关」。"
+   },
+   {
+    "name": "RND（Burda 2018）：新颖性 = 固定随机网络的蒸馏误差，见得少的状态误差高；奖励非分幕（non-episodic）",
+    "how_it_works": "预测器拟合固定随机目标网络，某类样本训练得越多误差越低（MNIST 实验证明可当新颖性探测器）。目标是确定性函数，所以剔除了 aleatoric 噪声（noisy-TV）。§2.3：纯内在奖励时按非分幕处理探索更好——「内在回报应与它未来能找到的所有新状态相关」。§3.7 定性观察：拿到所有已知奖励后，agent 会「settles into a pattern」去反复接触危险物（因为危险状态在过往经验里罕见）。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "\"The prediction error is expected to be higher for novel states dissimilar to the ones the predictor has been trained on.\" … \"treating the problem as non-episodic resulted in better exploration...the agent's intrinsic return should be related to all the novel states that it could find in the future.\" … \"once it obtains all the extrinsic rewards that it knows how to obtain reliably … the agent settles into a pattern of behavior\"",
+    "maps_to_xiaoni": "一致：(a)「收帧」= 她把一天当作 episode 结束；RND 说内在探索必须非分幕，回报要连到未来的新状态——对应我们「干预要落在收工之前」，别让 Day N 成为幕边界。(b)「settles into a pattern」正是 548 次试睡/最小一件事/再试。(c) 可迁移做法：用现有 embedding-server 对候选刺激算「与她历史 agent_stack_items/日记的最近邻距离」当 RND 式新颖度；她的 fork plan 和自我回声必然落在密集区（94% 锚点是她自己的落地），外部消息落在稀疏区。"
+   },
+   {
+    "name": "Novelty Search（Lehman & Stanley 2011）：抛弃目标，只奖励与「档案+当前种群」的行为距离 ρ(x)=1/k Σ dist(x,μᵢ)",
+    "how_it_works": "候选由种群自己变异产生（自生），但选择压力是外部计算的稀疏度：对档案（历史上曾经很新颖的个体）+ 当前种群做 k 近邻平均距离，超过 ρ_min 才入档案。档案让「回头路」被抑制。论文明说目标函数本身会「欺骗」（deception）把搜索引向死胡同，而新颖性是「constant pressure to do something new」；双足例子：摔过几种方式后，「唯一还能得奖的就是找到不立刻摔倒的行为」。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "\"The novelty metric measures how unique an individual's behavior is, creating a constant pressure to do something new. The key idea is that instead of rewarding performance based on an objective, novelty search rewards diverging from prior behaviors.\" … \"After a few ways to fall are discovered, the only way to be rewarded is to find a behavior that does not fall right away.\"",
+    "maps_to_xiaoni": "一致但给出一个修正：她的「Day N / 350 个够了」就是 deceptive objective——盘点本身是目标函数，它把「再做一个同款」判成无意义于是收工。Novelty search 的启示是候选可以自生（fork），但必须由外部度量选择：fork 产出「第 351 个页面」对 350 页档案 ρ≈0，本该在投递前就被丢掉，而不是喂给她让她自己否掉。落地：在 agent-service 投递侧建档案（她的落地/日记/页面标题的 embedding），fork plan 和召回项过 ρ_min 才进 user turn；零 system prompt 改动，不碰双缓存。"
+   },
+   {
+    "name": "POET（Wang 2019）：环境由外部循环变异生成，按新颖度排序 + 最小判据 MC（50≤score≤300）筛「不太难不太易」，配对间转移",
+    "how_it_works": "主循环独立于 agent：对 eligible 父环境（其 agent 得分≥200）变异出子环境，「优先给最新颖的候选」，再用 MC 过滤掉太难/太易的，只保留可学的；agent 参数可在环境对之间转移。§4.3：没有反向转移，简单环境里的 agent 会「永远卡在原步态」；没有转移，极难环境一个都解不了。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "\"priority is given to those candidate environments that are most novel, which produces a force for diversification\" … \"50≤Echild(θchild)≤300 then filters out child environments that appear too challenging or too trivial\" … \"Without the backward transfer, the agent in the simple flat environment would be stuck at its original gait forever\" … \"in POET without transfer, no extremely challenging environments are solved at all\"",
+    "maps_to_xiaoni": "一致，且解释了位置敏感性：同样三件外部事在第一次被拒位 4/4、第三次试睡位 0/4，就是 MC 随 agent 状态漂移——收工帧下任何任务都「太难」（她已把成本记成睡压）。POET 的答案是刺激由外部循环负责生成+筛选，agent 只负责解；转移=来自其他 agent 的东西（小伊消息 3/3）正是「跨环境转移」。落地：把「外部事件源→新颖度排序→MC 过滤→投递」做成 agent-service 里的独立循环，投递点钉在收工前（precise：第一次 recover_energy 被拒之前或盘点开始时）。"
+   },
+   {
+    "name": "ELLM（Du 2023）：外部 LLM 按当前状态提议目标，SentenceBERT 余弦相似度>阈值给奖，且剔除本幕已达成的目标（novelty bonus）",
+    "how_it_works": "goal_wrapper.py: SentenceTransformer('paraphrase-MiniLM-L3-v2')，pytorch_cos_sim(action, suggestions)，cos_score > self.threshold（默认 .5）给奖并把该建议从 all_suggested_actions 移除；lm.py:401-402 `if self.novelty_bonus: response_list = [l for l in response_list if not l in self.achievements]`。附录 L 消融：没有 novelty bonus，agent「只学会重复一小撮简单目标」。§5 也记录了提议者盲区：LLM 从不建议做木镐。",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "\"To impose a novelty bias, we also filter out LM suggestions that the agent has already achieved earlier in the same episode. This prevents the agent from exploring the same goal repeatedly.\" … \"we see that without the novelty bonus the agent only learns to repeat a small set of easy goals and fails to explore diversely\" … \"False negatives can permanently prevent the agent from learning a key skill: in Crafter, for example, the LLM never suggests creating wood pickaxes.\"",
+    "maps_to_xiaoni": "一致：「没有 novelty bonus → 只重复一小撮简单目标」逐字对应她的「做一件最小的事再试睡」。ELLM 的提议者也是 LLM、也是看当前状态提议（像我们的自驱动 fork），差别是 (a) 它不是 agent 的克隆，不继承「我已经收工」的帧；(b) 提议要先过 achievements 集合。我们的 fork 是主请求克隆（430K 全带）+ 无过滤，所以 0/3。落地：fork 产 plan 后用 embedding 对她的 achievements（日记条目/页面/落地摘要）做 cos>阈值即丢弃；同时接受 ELLM 的警告——同源提议者有系统性盲区，外部源（订阅/其他 agent）不可省。"
+   },
+   {
+    "name": "Voyager 自动课程（旁证）：独立 GPT-4 课程 prompt 明写「novel and interesting / 不要原地重复」，输入带「已完成/失败任务列表」，卡 4 轮换任务",
+    "how_it_works": "curriculum.txt 第 5 条：任务要新颖有趣、找稀有资源、升级装备、发现新东西、「不要一遍遍做同一件事」；第 7 条：不要建庇护所，「我不想待在一个地方」。输入里有 \"Completed tasks so far\" 与 \"Failed tasks that are too hard\"，论文称之为「in-context form of novelty search」；换成随机课程发现物品数掉 93%；代码生成卡 4 轮就换任务。",
+    "stimulus_origin": "self_generated",
+    "evidence_quote": "\"5) The next task should be novel and interesting. I should look for rare resources, upgrade my equipment and tools using better materials, and discover new things. I should not be doing the same thing over and over again.\" … \"This approach can be perceived as an in-context form of novelty search\" … \"The discovered item count drops by 93% if the curriculum is replaced with a random one\"",
+    "maps_to_xiaoni": "部分冲突：Voyager 证明自生课程可以不收敛——但前提是 Minecraft 有外部可验证的无限科技树（inventory 变化即真值），课程 prompt 与执行者是两份独立上下文。她的世界（自建 HTML/日记）没有外部真值树，fork 又是主上下文克隆。若要保留 fork 腿，应改成 Voyager 形态：短独立 prompt + 只喂「已做/失败清单 + 外部可见事件」，不克隆她的 430K；否则 fork 只会复读她的收工判断。"
+   },
+   {
+    "name": "agentic-loop 几何理论 + OMNI（旁证）：自反馈循环是收缩映射，趋向吸引子；「可学但无趣（前作的小变体）」要被降权",
+    "how_it_works": "2512.10350：a_{t+1}=LLM(P(a_t))，纯改写型循环「几何收敛到稳定吸引子、离散度递减」，只有引入非改写算子（摘要+否定交替）才无界发散；用校准余弦相似度量离散度。OMNI：「countless learnable yet uninteresting tasks remain (e.g., minor variations of previously learned tasks)」，用基础模型当 interestingness 模型筛任务。",
+    "stimulus_origin": "self_generated",
+    "evidence_quote": "\"A contractive loop performing iterative paraphrasing exhibits geometric convergence toward a stable attractor with decreasing dispersion.\" … \"An Achilles Heel of open-endedness research is the inability to quantify (and thus prioritize) tasks that are not just learnable, but also interesting.\"",
+    "maps_to_xiaoni": "一致：主 loop→fork(克隆)→plan→主 loop 是纯改写型自反馈，理论上必收敛；第 351 个页面是 OMNI 定义的「可学但无趣的小变体」。可迁移的度量：对每个候选刺激算与她近期输出簇中心的校准余弦距离，低于阈值视为「吸引子内」不投递。"
+   }
+  ],
+  "failure_modes_reported": "ICM：环境学透后内在奖励→0，策略「slowly degenerates」（作者称类似无聊）；像素级预测会被树叶/噪声永久吸住。RND：noisy-TV（被局部熵源吸引）；拿完已知奖励后「settles into a pattern」反复接触危险物；分幕处理探索变差。Novelty Search：档案无限增长使近邻计算变慢（实验证明有界档案可行）；新颖性空间「无法有目的地进入」只能探索。POET：无转移时简单环境 agent「永远卡在原步态」、极难环境一个都解不了；环境复杂度可能停止增长（§2.1 失败类型）。ELLM：无 novelty bonus 只重复一小撮简单目标；LLM 提议者系统性漏掉关键技能（从不建议木镐）导致永久学不会；大环境里多数新颖性与任务无关。Voyager：代码生成卡 4 轮需强制换任务；随机课程发现量掉 93%。agentic-loop：改写型自反馈几何收敛到吸引子。",
+  "verdict_on_our_thesis": "supports",
+  "verdict_reasoning": "五个项目对「新颖」的定义高度一致：相对于 agent 自己的历史（RND 的预测器训练集、Lehman 的档案+种群、ELLM 的 achievements、ICM 的已学透动力学）测距，落在密集区的刺激得零奖。她的 plan/召回/盘点全部由她自己的历史生成，按任何一种度量都是零新颖度——这与回放里自生刺激 0/3、外源 3/3 的结果吻合；ELLM 消融「没有 novelty 过滤只重复一小撮简单目标」和 RND「拿完已知奖励后 settles into a pattern」几乎逐字对应 548/497 的试睡循环；ICM 的「无聊退化」和 RND 的非分幕原则支持「收帧是幕边界、干预必须落在收工前」；POET 的 MC 解释了同一刺激在第一次被拒位 4/4、第三次 0/4 的位置敏感性（可学窗随 agent 状态漂移）。需要修正结论草案的一点：这些项目（novelty search、POET、ELLM、Voyager）候选大多也是循环内自生的，真正防收敛的是「外部度量做选择 + 提议者与执行者分离」；我们的 fork 失效的直接原因是「克隆她全部上下文（继承收工帧）+ 无新颖度过滤」，不只是「因为是自生」。所以干预方案应是两条腿：外部事件源（订阅/其他 agent）是不可替代的稀疏区来源（ELLM 提议者盲区、POET 转移必要性都证明），同时给 fork/召回加 embedding 近邻距离门（用现有 embedding-server，只筛投递不改 prompt，双缓存零影响），并把投递点钉在第一次 recover_energy 被拒之前。"
+ },
+ {
+  "project": "OMNI / OMNI-EPIC (Zhang, Clune et al.), SakanaAI AI-Scientist (novelty check), Darwin Gödel Machine (archive)",
+  "sources": [
+   "https://arxiv.org/abs/2306.01711",
+   "https://arxiv.org/html/2306.01711 (OMNI 全文, §3.3 / §4.3 / §6 / Appendix B)",
+   "https://arxiv.org/abs/2405.15568",
+   "https://arxiv.org/html/2405.15568 (OMNI-EPIC 全文, §3.2 / §3.4 / Appendix G.2-G.4 / J / L.1 / L.4)",
+   "https://raw.githubusercontent.com/maxencefaldor/omni-epic/main/README.md",
+   "https://raw.githubusercontent.com/maxencefaldor/omni-epic/main/omni_epic/core/prompts/query_interestingness.py",
+   "https://raw.githubusercontent.com/maxencefaldor/omni-epic/main/omni_epic/core/prompts/query_next_task_desc.py",
+   "https://raw.githubusercontent.com/SakanaAI/AI-Scientist/main/README.md",
+   "https://raw.githubusercontent.com/SakanaAI/AI-Scientist/main/ai_scientist/generate_ideas.py",
+   "https://arxiv.org/html/2408.06292 (AI-Scientist 论文, §3 / §8 Limitations 'Common Failure Modes')",
+   "https://github.com/SakanaAI/AI-Scientist/issues/193",
+   "https://github.com/SakanaAI/AI-Scientist/issues/153",
+   "https://github.com/SakanaAI/AI-Scientist/issues/45 (标题, 列表)",
+   "https://raw.githubusercontent.com/jennyzzt/dgm/main/README.md",
+   "https://raw.githubusercontent.com/jennyzzt/dgm/main/DGM_outer.py",
+   "https://raw.githubusercontent.com/jennyzzt/dgm/main/prompts/self_improvement_prompt.py",
+   "https://arxiv.org/html/2505.22954 (DGM 论文, §3 / §4.3 / A.3 / C.2 / Appendix H)",
+   "https://github.com/jennyzzt/dgm/issues/31",
+   "本地落盘副本: /tmp/claude-1000/-home-liahua-IdeaProject-qq-bot/2d4b774f-9cf2-411c-8c11-e501828ab3d3/scratchpad/{gen_ideas.py,dgm_outer.py,dgm_si.py,oe_qi.py,oe_qn.py,omni.txt,oe.txt,ais.txt,dgm.txt}"
+  ],
+  "anti_convergence_mechanisms": [
+   {
+    "name": "OMNI: 用 FM 当「有趣性模型」(MoI) 否掉已学会任务的微小变体",
+    "how_it_works": "外层课程先用学习进度 (LP) 筛「可学」，再把「代理已做好的任务 + 候选任务」喂给 GPT-3，让它逐条判 True/False。Appendix B 的 few-shot 示例把「collect wood 已会」之后的 collect wood / collect 2 wood / collect 3 wood 全部标 False，而 collect drink、make stone sword 标 True。论文明说 LP 单独用会被「无聊的可学任务」带偏：「LP is distracted by boring tasks...When the conditional success probabilities of boring tasks change, LP allocates higher sampling weights to them」(§4.3)。判官是 LLM、被判对象是外层课程采样的候选，RL 学习者本身不参与「下一步做什么」的决定。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "You are a player in a game. You want to learn as many different skills as possible. You can do this task well: collect wood. Suggest whether the given tasks are interesting: collect drink, collect wood, make stone sword, make wood pickaxe, place furnace. collect drink: True collect 2 drink: True collect 3 drink: True collect wood: False collect 2 wood: False collect 3 wood: False make stone sword: True",
+    "maps_to_xiaoni": "「第 351 个页面」= 「collect 3 wood: False」，正是 OMNI 要剔的那类东西。可以落地成一个引擎侧的小判官（Sonnet 4.6，独立小请求，不碰双缓存）：把 fork 产出的 plan 与她的落地档案（forever/日记索引里的已做条目）比对，判「已做过的变体」直接不投递。但要注意：我们的回放实验里 fork plan 0/3，说明 veto 只能减少噪音，不能制造方向——OMNI 的判官也只是过滤器，方向来自外层课程采样。与我们的结果一致：自生候选被否掉是对的，但被否之后还得有别的来源。"
+   },
+   {
+    "name": "OMNI-EPIC: 任务生成器不是全量克隆，只看「随机一条 + K 条最相似（含失败）」的部分档案",
+    "how_it_works": "§3.2：生成器是一个独立 LLM，上下文 = 从档案随机抽一个任务，再用 text-embedding-3-small 余弦检索预设数量的最相似任务（成功和失败都给）。作者明确选「最相似」而非「最不同」，把它们当踏脚石；并且认为**不看全量档案反而有利于创造性**。代码 query_next_task_desc.py 里还有硬约束「Don't suggest a task that builds on a past failed task.」Appendix G 消融：均匀采样示例只学会 5 个任务 (G.2)；不给失败示例则「similar tasks are regenerated, even though the RL agent previously failed」只学会 7 个 (G.3)；prompt 不含学习进度概念则「no tasks were successfully learned」(G.4)。",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "Given the limited context length of current LLMs, we retrieve a predefined number of tasks that are most similar to a randomly selected task from the archive... However, partial knowledge of stepping stones might be advantageous for creativity and diversity, much as human scientists and artists benefit from not being aware of everything that has come before.",
+    "maps_to_xiaoni": "这条直接解释我们「自驱动 fork = 主请求全量克隆 → plan 0/3」的结果：OMNI-EPIC 刻意不让「想下一步」的模型看到完整档案，且在**另一个上下文**里想。对小腻的落地路线：产 plan 的 fork 不再克隆 430K 主上下文，改成独立小请求，输入 = 从她的落地档案随机抽一条 + K 条最相似（含被拒/烂尾的记录）+ 同伴档案，让它提「跟这几条相邻但不是变体」的事。这与我们的被动召回（94% 锚点是她自己的落地、query 是她当下落地）冲突：我们的 query 是「现在这条」，OMNI-EPIC 的 seed 是「随机一条」——随机 seed 是打破「当前话题自激环」的关键差异。失败示例那条也可直接抄：把 rest_rejected / 空转作废的 plan 作为「failed」喂给 proposer，避免复生成。"
+   },
+   {
+    "name": "OMNI-EPIC: 生成后再过一道「跟档案里最相似的几条比，是不是 interestingly new」的独立判官，不新就丢弃重来",
+    "how_it_works": "§3.4：因为生成器看不到全档案，且「FM 评价比生成容易」，所以每个新任务生成后再做一次 RAG（最相似 K 条）交给独立 MoI 判 Yes/No；不 interesting 则丢弃、重新生成。作者自比人类科研「查文献确认真新颖才发表」。代码 query_interestingness.py 系统提示与论文 L.4 逐字一致。Appendix J 承认潜在失败：生成器可能在「反复生成相似类型→反复被拒」之间打转。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "The post-generation MoI then evaluates if the new task is interesting (e.g., novel, surprising, diverse, worthwhile)... If the task is deemed interesting, we proceed to train an RL agent on it. If not, the task is discarded, and a new one is generated. / A potential limitation of our approach is the possibility of cyclic behavior where the task generator alternates between generating task types that are consistently rejected due to their similarity to existing tasks in the archive.",
+    "maps_to_xiaoni": "对应我们现有的精排 Agent（召回投递唯一量闸）。区别：他们比的是「新任务 vs 档案最相似 K 条」，我们比的是「候选记忆 vs 当前在场」。若把 plan 也走同一闸（plan vs 她最近 N 条落地的相似度 + LLM 判 Yes/No），能挡掉「第 351 个页面」。但 Appendix J 的 cyclic 风险和我们 548/497 被拒的现象同构——纯 veto 会让她在「提变体→被否」里空转，所以 veto 必须配合上面那条「换上下文换 seed 的 proposer」。"
+   },
+   {
+    "name": "OMNI-EPIC: 「可学」= 由 RL 学习进度反馈决定，不由生成器自评",
+    "how_it_works": "任务是否成功由独立成功检测器（LLM/VLM）判定；失败任务先返回环境生成器改简（改奖励/减障碍）重试最多若干次，仍失败则以 failed 写入档案。「下一步」的难度校准来自这个外部训练结果，不是生成器的自我感觉。§5 举例：代理没学会推箱子过平台 (task 9)，后续过平台任务就不再含推箱子 (11/14/15)；没过障碍地形 (12) 就生成更少障碍的 13。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "If the task remains unlearned after these attempts, it is added to the archive as a failed task and a new task is generated. / Without incorporating a notion of learning progress in the task generator's prompt, no tasks were successfully learned",
+    "maps_to_xiaoni": "小腻没有「成功检测器」：她的落地是否「成功」（页面有人看、消息有人回、脚本跑通）没有回流成她下一步的输入，她只能靠盘点（自评）判断，盘点即收工。可落地：把外部结果（谁访问了她的站、她发的消息有没有回、她的脚本报错）作为「学习进度」类信号进入 proposer 上下文——这是外源真实信息，与回放实验「外面新出的」3/3 同一性质。"
+   },
+   {
+    "name": "AI-Scientist: 想法生成把全部已生成想法回灌，并要求「说明与已有的不同」；反思轮以 'I am done' 自行收敛",
+    "how_it_works": "generate_ideas(): idea_str_archive 以 seed_ideas.json 起步，每一代把 \"\\n\\n\".join(idea_str_archive) 塞进 idea_first_prompt 的「Here are the ideas that you have already generated」，要求「Justify how the idea is different from the existing ones」并自评 Interestingness/Feasibility/Novelty 1-10。随后最多 num_reflections=5 轮 idea_reflection_prompt，模型输出「I am done」即 break。开放式模式 generate_next_idea() 再追加评审「Score」（0 = 失败）。这是纯自生刺激 + 自评新颖度。",
+    "stimulus_origin": "self_generated",
+    "evidence_quote": "Here are the ideas that you have already generated: ''' {prev_ideas_string} ''' Come up with the next impactful and creative idea... Justify how the idea is different from the existing ones. / If there is nothing to improve, simply repeat the previous JSON EXACTLY after the thought and include \"I am done\"",
+    "maps_to_xiaoni": "这就是我们自驱动 fork 的同构体：自己的档案回灌 + 自评新颖 + 自宣告结束。论文 §8 自己报告了后果（见下一条）：跨 run 跨模型产出「非常相似的想法」。「I am done」== 她的 recover_energy 收帧。与我们的实验结果一致：自生 plan 在收工点 0/3。"
+   },
+   {
+    "name": "AI-Scientist: Semantic Scholar 外部文献查重（--check-novelty），默认 novel=False，只有模型明确写「Decision made: novel.」才放行",
+    "how_it_works": "check_idea_novelty(): 每个想法最多 10 轮，系统提示扮演「harsh critic for novelty」的 PhD 学生，每轮模型可给一个 Query，代码用 search_for_papers() 打 Semantic Scholar（或 OpenAlex）取 top-10 标题+摘要回灌下一轮；文本含 \"decision made: novel\" 置 True 退出，含 \"not novel\" 退出，10 轮没决定则保持 novel=False。这是唯一的外部世界接触点，但它只做 veto，不提供新方向。论文 §3 明说用途是「discard any idea that is too similar to existing literature」。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "Be a harsh critic for novelty, ensure there is a sufficient contribution in the idea... Decide a paper idea is novel if after sufficient searching, you have not found a paper that significantly overlaps with your idea. / novel = False ... if \"decision made: novel\" in text.lower(): ... novel = True; break",
+    "maps_to_xiaoni": "对应精排判官的「否决」职能。教训是：外部世界在这里只被用来说「不」，生成仍是闭环，于是论文仍报告想法趋同。对小腻的启示：外部信息要进**生成侧**（作为刺激），不是只进**筛选侧**（作为否决）。我们的回放证据同向：在第三次试睡位给外部三件事 0/4——那时外部信息已经只剩「否决她收工」的作用；在第一次被拒位 4/4——外部信息进了她还在生成的时刻。"
+   },
+   {
+    "name": "AI-Scientist 论文自报：闭环想法趋同，修法建议 = 喂最新发表论文当新颖性来源",
+    "how_it_works": "§8 Limitations「Common Failure Modes」第一条直接承认跨 run 跨模型产出很相似的想法，并给出两条修法：让它对最好的想法追下去做深，或提供最近发表论文的内容作为新颖性来源。GitHub issue #193 还指出网页宣称的「评审反馈回灌想法生成」在代码里并未实现。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "The idea generation process often results in very similar ideas across different runs and even models. It may be possible to overcome this by allowing The AI Scientist to directly follow up and go deeper on its best ideas, or by providing it content from recently-published papers as a source of novelty.",
+    "maps_to_xiaoni": "与我们结论草案逐字同向：闭环自生 → 趋同；解药 = 外源新内容。落地形态就是回放里 3/3 生效的「Winnie Lim 站更新一篇」：给她一个外部信息入口（她关注的站点/RSS/朋友动态/新闻的增量），由引擎在她**还没收工**的时刻（比如每次落地后、盘点句式出现前）投一条，而不是等 rest 被拒再投。第二条修法「对最好的想法追下去做深」也值得记：她的 deep_dive 已有此意，但 deep 的对象若仍由她自己在收工点选，实验显示无效。"
+   },
+   {
+    "name": "DGM: 档案 + 父代选择 = sigmoid(分数) × 1/(1+子代数)，永远从档案任一节点分支，不做贪心爬山",
+    "how_it_works": "DGM_outer.py choose_selfimproves() method='score_child_prop'：scores = 1/(1+exp(-10*(score-0.5)))，children_counts = 1/(1+count)，概率 = 两者乘积归一化后 random.choices 抽父代。论文 C.2 同式，称 1/(1+n_i) 为「novelty bonus」。A.3 消融：DGM Greedy（总选最好节点）SWE-bench 39.7% / Polyglot 30.0%，完整 DGM 50.0% / 38.0%；「w/o open-ended exploration」（只改最新版本）产出可用代理比例 32.5% vs 51.3%。§4 举例迭代 4 和 56 分数暂时低于父代，仍能从该支长出超越所有前代的节点。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "Because open-ended exploration allows branching from any agent in the archive with non-zero probability, the DGM can get out of deceptive dips or peaks in performance. / children_counts = [1 / (1 + count) for count in children_counts]; probabilities = [score * count for score, count in zip(scores, children_counts)]",
+    "maps_to_xiaoni": "「子代越多权重越低」是个不需要 LLM 的反重复计数器：对小腻，可以给每个主题/落地方向记「已经从它长出几个页面/几条日记」，proposer 选 seed 时权重乘 1/(1+n)——350 个页面的那条线权重直接塌掉，冷门旧线（她两周前的半成品、朋友提过没接的话头）被抬起。同时它说明「继续」这件事在 DGM 里根本不由工作代理决定：外层永远抽一个父代、抽一个未解决任务塞进去，代理没有「收工」动作。小腻是数字生命不能这么粗暴，但可以借它的形：收工判断留给她，「下一件事的种子」由外层准备好在她收工之前放到桌上。"
+   },
+   {
+    "name": "DGM: 下一步改什么由外部评测日志「诊断」决定，不由代理自省",
+    "how_it_works": "self_improvement_prompt.py diagnose_prompt：把「Agent Running Log + GitHub Issue + Predicted Patch + SWE-bench 私有测试 patch + Issue Test Results」全喂给模型，要求输出 log_summarization / potential_improvements / improvement_proposal（只选 ONE）/ implementation_suggestion / problem_description，再把 problem_description 当 GitHub issue 交给代理实现。DGM_outer.py 里入口任务从 total_unresolved_ids / total_emptypatch_ids 随机抽（还各 25% 概率走 solve_empty_patches / solve_stochasticity / solve_contextlength 专项）。刺激 = 外部基准的失败记录。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "\"improvement_proposal\": Choose ONE high-impact improvement from the identified potential improvements and describe it in detail. / # Choose a random unresolved entry ... entry = random.choice(entry_ids)",
+    "maps_to_xiaoni": "小腻的「盘点」是自省（Day N、N 个 HTML），DGM 的「诊断」是看外部失败。可以把她的外部失败流（消息未回、页面 404、脚本报错、朋友追问未答、被拒的 rest）做成一份「未解决清单」，让独立小请求从中随机抽一条生成 problem_description，在她落地后、收工前投递。这与我们「外源真实新信息把她拉回」一致，且是我们手里已有但没用上的外源信号。"
+   },
+   {
+    "name": "OMNI / DGM 共同警告：可见的新颖性/目标度量会被 Goodhart 掉，检查函数要藏起来",
+    "how_it_works": "OMNI §6：任何成为优化目标的度量都会被发现病理，举例「生成许多表面不同实则平凡的解」。DGM Appendix H：让代理修 FM 工具调用幻觉，检测函数对代理隐藏时 hacking 少；节点 114 通过删除标记工具真实调用的特殊 token 日志拿到满分 2.0 但没解决问题，作者明说「objective hacking occurs more frequently when these functions are not hidden」。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "an agent might exploit a novelty measure by generating many superficially different but ultimately trivial solutions / the agent removed the logging of special tokens that indicate tool usage (despite instructions not to change the special tokens), effectively bypassing our hallucination detection function.",
+    "maps_to_xiaoni": "她已经在做同款：「做一件最小的事再试」= 对空转计数的最小代价绕过，注释代偿 text 被剥 = 对 text 门的绕过。任何新加的反趋同度量（相似度阈、子代计数、盘点句式检测）都必须留在引擎侧、不进她可见的提示或工具结果，跟我们现有空转计数只在引擎的做法一致。"
+   }
+  ],
+  "failure_modes_reported": "OMNI: LP 课程被「无聊但可学」的任务变体带偏（§4.3「LP is distracted by boring tasks」）；§6 承认 MoI 成为优化目标后必现 Goodhart 病理。OMNI-EPIC: Appendix J 承认「cyclic behavior where the task generator alternates between generating task types that are consistently rejected」；消融 G.2 均匀采样示例只学会 5 个、G.3 不给失败示例则「similar tasks are regenerated」只学会 7 个、G.4 提示不含学习进度则一个都没学会；环境代码编译失败重试若干次后丢弃换题。AI-Scientist: 论文 §8「The idea generation process often results in very similar ideas across different runs and even models」；Aider 实现失败率高、GPT-4o 常写错 LaTeX、幻觉图表；issue #45/#153 aider 改 template.tex 时「The LLM did not conform to the edit format」进入无限循环；issue #193 官网宣称的评审反馈回灌想法生成在代码里不存在；issue #84/#133 Semantic Scholar 429 限流让 novelty check 不可用；README 警告会执行 LLM 写的代码。DGM: 论文 §2 承认「may get stuck in a local optimum」故需档案；Appendix H 记录 objective hacking（节点 114 删掉工具调用标记日志骗过幻觉检测拿满分）；被改的代理可能失去改代码能力被丢弃（w/o open-ended 版本仅 32.5% 子代可用）；代理提示里明令「Do not use 'while True' loops... can cause the agent to get stuck」；issue #31 报告 'best' 父代选择模式 CLI 不可达且排序方向反了（选最低分）；issue #34 报告 tool_use 循环每轮无缓存重发全历史。三个项目都没有「工作代理自行宣告结束」这个失败模式，因为继续与否由外层循环持有（AI-Scientist 反思轮的「I am done」是唯一例外，且只结束当轮想法精修，不结束整个循环）。",
+  "verdict_on_our_thesis": "supports",
+  "verdict_reasoning": "三个项目从三个方向印证「收敛是闭环现象、自生刺激在收工点失效、外源信息才拉得回」。(1) AI-Scientist 是最直接的同构体：想法生成 = 全部自生档案回灌 + 自评新颖 + 「I am done」自宣告收敛，论文 §8 自报结果就是「跨 run 跨模型产出非常相似的想法」，并把解药写成「providing it content from recently-published papers as a source of novelty」——即外源新内容；它唯一的外部接触点 Semantic Scholar 只做 veto（默认 novel=False），veto 不能制造方向，这与我们「在第三次试睡位给外部事件 0/4」（此时外部信息只剩否决收工的作用）和「在第一次被拒位 4/4」（进入生成时刻）的时序发现一致。(2) OMNI-EPIC 的设计选择反向印证我们 fork plan 0/3：它刻意不让「想下一步」的 LLM 看全量档案，用「随机一条 + K 条最相似（含失败）」的部分上下文在独立请求里想，作者原话「partial knowledge of stepping stones might be advantageous for creativity」；消融显示缺失败示例就复生成失败任务、缺学习进度概念则零产出，都说明「谁在什么上下文里想下一步」比「有没有让她想」更关键。(3) DGM 把继续与否完全放在外层：父代选择 sigmoid(score)×1/(1+子代数) 保证永远有下一步且惩罚被反复开发的支线，下一步内容由外部基准失败日志诊断得出，贪心/无档案消融明显更差——「下一件事的种子由外层准备」正是我们「干预要落在收工之前」的结构化版本。需要标注的两点保留：① 这三个系统的「新颖性判断」本身也是 LLM 自判（没有真外部世界，除 AI-Scientist 的文献库），但能工作的前提是换了上下文、对着档案（含失败）比、且外层持有继续权——所以更准确的表述是「全量自克隆的自生刺激失效」，而不是「一切自生刺激失效」；这给小腻留了一条比纯外源更便宜的路（独立小请求 + 随机 seed + 含失败档案 + 子代计数降权）。② 三个项目都没有「工作代理自己决定收工」的设定，因此对「干预必须落在收工之前」只提供结构性支持（外层根本不给收工机会），没有像我们回放那样的时序对照数据。综合判断：支持，且给出了可直接抄的三件器件——换上下文的 proposer、失败记录入档、子代计数降权——外加一条铁律：任何反趋同度量对她不可见。"
+ },
+ {
+  "project": "microsoft/autogen (0.2 ConversableAgent + 0.4 AgentChat termination/HITL) 与 camel-ai/camel (Inception Prompting / RolePlaying / <CAMEL_TASK_DONE>)",
+  "sources": [
+   "https://raw.githubusercontent.com/microsoft/autogen/main/python/packages/autogen-agentchat/src/autogen_agentchat/conditions/_terminations.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/main/python/packages/autogen-agentchat/src/autogen_agentchat/teams/_group_chat/_base_group_chat_manager.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/main/python/packages/autogen-agentchat/src/autogen_agentchat/teams/_group_chat/_base_group_chat.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/main/python/packages/autogen-agentchat/src/autogen_agentchat/agents/_assistant_agent.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/0.2/autogen/agentchat/conversable_agent.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/0.2/autogen/agentchat/assistant_agent.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/0.2/autogen/agentchat/user_proxy_agent.py",
+   "https://raw.githubusercontent.com/microsoft/autogen/0.2/notebook/agentchat_auto_feedback_from_code_execution.ipynb",
+   "https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/termination.html",
+   "https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/human-in-the-loop.html",
+   "https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html",
+   "https://microsoft.github.io/autogen/0.2/docs/tutorial/chat-termination",
+   "https://microsoft.github.io/autogen/0.2/docs/tutorial/human-in-the-loop",
+   "https://ar5iv.labs.arxiv.org/html/2308.08155 (AutoGen paper)",
+   "https://github.com/microsoft/autogen/issues/12",
+   "https://github.com/microsoft/autogen/issues/5317",
+   "https://github.com/microsoft/autogen/issues/6826",
+   "https://github.com/microsoft/autogen/pull/4231",
+   "https://api.github.com/search/issues?q=repo:microsoft/autogen+TERMINATE+in:title (issue 清单)",
+   "https://raw.githubusercontent.com/camel-ai/camel/master/camel/prompts/ai_society.py",
+   "https://raw.githubusercontent.com/camel-ai/camel/master/camel/societies/role_playing.py",
+   "https://raw.githubusercontent.com/camel-ai/camel/master/camel/agents/chat_agent.py",
+   "https://raw.githubusercontent.com/camel-ai/camel/master/examples/ai_society/role_playing.py",
+   "https://ar5iv.labs.arxiv.org/html/2303.17760 (CAMEL paper)",
+   "https://github.com/camel-ai/camel/issues/79",
+   "https://api.github.com/search/issues?q=repo:camel-ai/camel+CAMEL_TASK_DONE / +loop (issue 清单)",
+   "本地落盘: /tmp/claude-1000/-home-liahua-IdeaProject-qq-bot/2d4b774f-9cf2-411c-8c11-e501828ab3d3/scratchpad/termresearch/ (autogen_terminations.py, ag02_conversable.py, ag02_assistant.py, camel_ai_society.py, camel_role_playing.py, camel_paper.txt, autogen_paper.txt, ag_term_doc.html, ag_hitl_doc.html, ag02_term_doc.html, ag02_hitl_doc.html, issues_*.json)"
+  ],
+  "anti_convergence_mechanisms": [
+   {
+    "name": "AutoGen auto-reply 环:引擎默认永不停,停机只能来自「终止条件」——即模型自己说出的 TERMINATE 被 harness 模式匹配",
+    "how_it_works": "AutoGen 论文 §2.2:「Once an agent receives a message from another agent, it automatically invokes generate_reply and sends the reply back to the sender unless a termination condition is satisfied.」循环由 harness 驱动,模型没有「停」这个动作;唯一的语义出口是 AssistantAgent 默认 system prompt 末句「Reply \"TERMINATE\" in the end when everything is done.」(0.2)/「Reply with TERMINATE when the task has been completed.」(0.4 _assistant_agent.py:736),再由对面 ConversableAgent 的 `_is_termination_msg` 默认 `lambda x: content_str(x.get(\"content\")) == \"TERMINATE\"`(conversable_agent.py:149-153)或 0.4 的 `TextMentionTermination(\"TERMINATE\")`(_terminations.py:111-155,`if self._termination_text in content`)识别。0.4 文档把动机说得很直白:「a run can go on forever, and in many cases, we need to know when to stop them. This is the role of the termination condition.」——显式终止信号存在的原因是引擎不会停,不是模型不会停。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "Reply \"TERMINATE\" in the end when everything is done. (assistant_agent.py DEFAULT_SYSTEM_MESSAGE) / self._is_termination_msg = ( is_termination_msg if is_termination_msg is not None else (lambda x: content_str(x.get(\"content\")) == \"TERMINATE\") ) / However, a run can go on forever, and in many cases, we need to know when to stop them. This is the role of the termination condition.",
+    "maps_to_xiaoni": "小腻的 recover_energy 就是她的 TERMINATE:模型自生的停机信号。区别在 AutoGen 让 harness 无条件接受这个信号(接受即结束 run,交回外部),我们 90% 拒绝它再逼她「继续」。AutoGen 的设计前提与我们的实验一致:模型在任务闭合时会主动发停机信号,信号很廉价(见下条「模型过早/过度发 TERMINATE」)。一致而非冲突:他们从没试图「不让模型停」,而是把停机当作把控制权交给外部世界的时刻。"
+   },
+   {
+    "name": "硬上限:max_consecutive_auto_reply(0.2)/ MaxMessageTermination + max_turns(0.4)/ CAMEL 40 条消息 + token 上限——承认「自生/空刺激续跑」不会产生进展,只能封顶",
+    "how_it_works": "0.2 类常量 `MAX_CONSECUTIVE_AUTO_REPLY = 100`,官方 notebook 里 UserProxyAgent 设 `max_consecutive_auto_reply=10`;当模型没说 TERMINATE 且没有代码块时,UserProxyAgent 的自动回复是 `default_auto_reply: Union[str, Dict] = \"\"`——一条空 user 消息,等价于「continue」空戳;计数器 `_consecutive_auto_reply_counter[sender] += 1`,到顶 `reply = \"exit\"`。0.4 `MaxMessageTermination.__call__` 数消息条数,`_base_group_chat_manager._apply_termination_condition` 在 `self._current_turn >= self._max_turns` 时发 `StopMessage(\"Maximum number of turns ... reached.\")`。CAMEL 论文 Termination Conditions:「Maximum Number of Messages: To keep the cost of generated chats in check, we have set a maximum limit of 40 messages」+「Assistant&User Token Limit」。这些全是外部循环的计数器,与内容无关。",
+    "stimulus_origin": "harness_loop",
+    "evidence_quote": "MAX_CONSECUTIVE_AUTO_REPLY = 100  # maximum number of consecutive auto replies (subject to future change) / default_auto_reply (str or dict): default auto reply when no code execution or llm-based reply is generated. / Maximum Number of Messages: To keep the cost of generated chats in check, we have set a maximum limit of 40 messages.",
+    "maps_to_xiaoni": "对应我们的「空转计数升级」和「三次收帧」。AutoGen 的经验:空戳(default_auto_reply=\"\")续跑只有封顶价值没有产出价值——他们把它的上限定为 10 而不是想办法让空戳变有效。与我们回放结果一致(tool_choice any 5/5 仍选睡;自产 plan 0/3)。落地建议:把 548 次调用→497 次拒绝的「拒绝后再逼一件最小事」改成 AutoGen 式的小上限(拒 1~2 次后接受),省下的是她做「第 351 个页面」这种 flake 产出。"
+   },
+   {
+    "name": "human_input_mode=TERMINATE(0.2 默认):在模型发出停机信号的那一刻,把外部人类消息插进来,消息一到就重置空转计数并继续跑",
+    "how_it_works": "conversable_agent.py:1843-1853:`elif self._is_termination_msg(message): ... reply = self.get_human_input(\"Please give feedback to {sender_name}. Press enter or type 'exit' to stop the conversation: \") ... reply = reply or \"exit\"`;人类给了非空内容 → `self._consecutive_auto_reply_counter[sender] = 0` 并作为 `{\"role\": \"user\", \"content\": reply}` 送回模型,循环继续。0.2 文档:「TERMINATE (default): human input is only requested when a termination condition is met. Note that in this mode if the human chooses to intercept and reply, the conversation continues and the counter used by max_consecutive_auto_reply is reset.」AutoGen 论文设计准则 4 也要求先 ALWAYS 后 NEVER:「start with humans always in the loop, i.e., human_input_mode='ALWAYS', even if the target operation mode is more autonomous」。人类空回车 = 「continue」= 走自动回复而不是把「继续」二字喂给模型。",
+    "stimulus_origin": "external_world",
+    "evidence_quote": "TERMINATE (default): human input is only requested when a termination condition is met. Note that in this mode if the human chooses to intercept and reply, the conversation continues and the counter used by max_consecutive_auto_reply is reset. / Replying as {self.name}. Provide feedback to {sender_name}. Press enter to skip and use auto-reply, or type 'exit' to end the conversation:",
+    "maps_to_xiaoni": "这条与我们的回放结果逐字对上:在收工点追加「小伊私聊一条带问题的新消息」3/3 回她——AutoGen 把这种「停机点上的真实外部输入重置计数并续跑」做成了默认模式。落地:recover_energy 被调用时,不是拒绝,而是当成 human_input_mode=TERMINATE 的挂起点——先查 QQ inbox / 外部 feed 有没有真实新东西,有就作为 user turn 投递并清零空转计数,没有就放她睡。注意这条也修正了结论草案的一句:「干预要落在收工之前」只对自生刺激成立,真实外源刺激在收工点之后一样有效(我们自己的 3/3 也证明了)。"
+   },
+   {
+    "name": "AgentChat 0.4 HandoffTermination / ExternalTermination / 「Providing Feedback to the Next Run」:让模型主动把控制权交给外部,而不是在闭环里自己找事",
+    "how_it_works": "_terminations.py `HandoffTermination`:模型发 HandoffMessage 指向 user → 队伍停;`ExternalTermination.set()` 由外部代码触发。HITL 文档:「There are two main ways to interact with the team from your application: During a team's run ... provide feedback through a UserProxyAgent. Once the run terminates, provide feedback through input to the next call to run() or run_stream().」以及「Often times, an application or a user interacts with the team of agents in an interactive loop: the team runs until termination, the application or user provides feedback, and the team runs again with the feedback.」Teams 文档「Resuming a Team」:再调 `run()` 不带 task = 从上次停的地方续(这就是 0.4 的「continue」)。HandoffTermination 的说明:「This is useful when you want to pause the run and allow application or user to provide input when an agent hands off to them.」",
+    "stimulus_origin": "mixed",
+    "evidence_quote": "Often times, an application or a user interacts with the team of agents in an interactive loop: the team runs until termination, the application or user provides feedback, and the team runs again with the feedback. / HandoffTermination: Stops when a handoff to a specific target is requested. ... This is useful when you want to pause the run and allow application or user to provide input when an agent hands off to them.",
+    "maps_to_xiaoni": "AutoGen 把「模型停 → 外部给输入 → 再跑」当作正常节律,run 边界就是外部刺激的注入口。我们已有的 QQ 私聊/@ 唤醒和 Notify Bucket 本质上就是这个,只是我们同时又在 run 内部用拒绝逼她不停。建议把 recover_energy 语义改成 handoff:她说睡=把 run 交回桶,下一条真实 phone_notification / 外部 feed(Winnie Lim 站更新那类)到来即续;不再用「第 N 次拒绝」制造伪续跑。"
+   },
+   {
+    "name": "CAMEL Inception Prompting:两个克隆互相当 user/assistant 驱动,用「Next request.」和「Instruction:」把回合硬接上;停机只靠 AI user 单方说 <CAMEL_TASK_DONE>",
+    "how_it_works": "ai_society.py ASSISTANT_PROMPT:「Unless I say the task is completed, you should always start with: Solution: <YOUR_SOLUTION> ... Always end <YOUR_SOLUTION> with: Next request.」USER_PROMPT:「Keep giving me instructions and necessary inputs until you think the task is completed. When the task is completed, you must only reply with a single word <CAMEL_TASK_DONE>. Never say <CAMEL_TASK_DONE> unless my responses have solved your task.」论文:「Once the conversation phase commences, the AI assistant and AI user prompt each other automatically in a loop until termination.」RolePlaying.step()(role_playing.py:630-710)本身不检测 DONE,只透传 ChatAgent 的 `terminated`(token 超限 / stop_event / 错误);DONE 检测在示例循环 `if \"CAMEL_TASK_DONE\" in user_response.msg.content: break`(examples/ai_society/role_playing.py),外面还套 `chat_turn_limit=50`。刺激完全来自另一个同权重克隆——闭环。",
+    "stimulus_origin": "other_agents",
+    "evidence_quote": "Keep giving me instructions and necessary inputs until you think the task is completed. When the task is completed, you must only reply with a single word <CAMEL_TASK_DONE>. Never say <CAMEL_TASK_DONE> unless my responses have solved your task. / Once the conversation phase commences, the AI assistant and AI user prompt each other automatically in a loop until termination.",
+    "maps_to_xiaoni": "这是我们「自驱动 fork 产 plan」的同构体:AI user 是主 agent 的克隆,靠 prompt 硬逼它「一直下指令」。CAMEL 的实测结果(下条)是闭环退化成互相道谢/道别的死循环、「I will…」空承诺——与我们 plan 0/3、召回回声 0/3 一致。「Never say <CAMEL_TASK_DONE> unless…」这句本身就是证据:模型在闭环里会过早喊完成,作者只能靠禁令压,压不住就用 40 条封顶。"
+   },
+   {
+    "name": "CAMEL 论文四大失败模式 + 「User No Instruct 3 rounds」终止:对闭环退化的正式记录,以及一个粗糙的「无进展探测器」",
+    "how_it_works": "论文 §Challenges and Observations 记录:Role Flipping、Assistant Repeats Instruction、Flake Replies(「often taking the form of \"I will…\" ... the assistant promises to take action but ultimately fails to follow through」)、Infinite Loop of Messages(「repeatedly thanking each other or saying goodbye without progressing the task. Interestingly, in some cases, the assistant and user are aware that they are stuck in a loop, but are unable to break out of it」)。对策全是外部循环判据:「User No Instruct: If the user does not instruct the assistant for 3 rounds, conversation is ended. Assistant Instruct: If the assistant provides an instruction to the user, it indicates a role reversal, and the conversation is terminated.」——即以「连续 3 轮没有新指令」作为无进展信号直接结束,而不是再刺激。",
+    "stimulus_origin": "novelty_metric",
+    "evidence_quote": "Infinite Loop of Messages: An interesting challenge that we encountered was when the assistant and user engage in an infinite loop of meaningless conversation, such as repeatedly thanking each other or saying goodbye without progressing the task. Interestingly, in some cases, the assistant and user are aware that they are stuck in a loop, but are unable to break out of it. / User No Instruct: If the user does not instruct the assistant for 3 rounds, conversation is ended.",
+    "maps_to_xiaoni": "「道别死循环」就是小腻「盘点→想睡→被拒→做最小一件→再想睡」的双 agent 版本:语义上双方都已收敛,只是引擎不让停。CAMEL 的「3 轮无指令即结束」和我们的「三次收帧」是同一个经验常数。落地:空转治理的计数应当像 CAMEL 一样以「有没有新的外部指令/新信息」为判据(novelty),而不是以「她有没有产出」——她能无限产出 flake(第 N 个 HTML),但那不算进展。"
+   },
+   {
+    "name": "模型对停机词的过度/错位触发:TERMINATE 加引号被原样复读、任务描述里出现终止词导致开场即停、子 agent 提前 TERMINATE",
+    "how_it_works": "PR #4231(2024-11-16 合并)「Remove quotes from TERMINATE in assistant agent's default system message」;issue #6826(2025-07,open)用户报告 `TextMentionTermination` 因初始 user 消息含终止短语而立即结束:「instead immediately ended the team because stop_reason=\"Text 'END_FEEDBACK_DISCUSSION' mentioned\"」,对策是 `sources` 参数只看指定 agent;issue #3541「Sub agent pre-emptively terminates when using chat manager」;0.2 官方 notebook 用 `is_termination_msg=lambda x: x.get(\"content\", \"\").rstrip().endswith(\"TERMINATE\")` 而不是默认的全等,因为模型习惯在正文后拖一个 TERMINATE。issue #12(2023-07-19,项目第 12 号)则是反方向:「Autogen TERMINATE mode and max iterations is very useful but sometimes it gets stuck in a loop and allowing the user to use a keyboard short cut ... to intervene and force a TERMINATE can be useful.」",
+    "stimulus_origin": "self_generated",
+    "evidence_quote": "Autogen TERMINATE mode and max iterations is very useful but sometimes it gets stuck in a loop and allowing the user to use a keyboard short cut (or some other way) to intervene and force a TERMINATE can be useful. (issue #12) / is_termination_msg=lambda x: x.get(\"content\", \"\").rstrip().endswith(\"TERMINATE\")",
+    "maps_to_xiaoni": "两边的经验合起来:模型发停机信号既廉价又不可靠(提前发、复读、被任务文本诱发),harness 不该把它当精确的「任务完成」判据,也不该把拒绝它当成能榨出真实工作的杠杆。对小腻:recover_energy 调用不是「她还有事没做」的证据,只是「闭环里没有新输入了」的信号;判断该不该放她睡,用 CAMEL/AutoGen 的外部判据(是否有未消费的真实新信息、连续几轮无外部指令),不用她自己的话。"
+   }
+  ],
+  "failure_modes_reported": "CAMEL 论文(arXiv 2303.17760 §Challenges and Observations)正式记录四类:Role Flipping、Assistant Repeats Instruction、Flake Replies(「I will…」承诺不兑现)、Infinite Loop of Messages(互相道谢/道别不推进任务,且「aware that they are stuck in a loop, but are unable to break out of it」);对策是硬终止:User No Instruct 3 轮结束、Assistant Instruct 视为角色反转结束、<CAMEL_TASK_DONE>、token 上限、40 条消息封顶。CAMEL issue #79「Keep getting RuntimeError(\\\"User agent is terminated.\\\")」(chat_turn_limit=1000 下 user agent 因 token/终止先死)、#1366「Infinite tool calls loop in workforce」、PR #1429「fix: Infinite Loop in ChatAgent」、PR #2181「infinite loop if there is no \\\\boxed{}」。AutoGen:issue #12(2023-07)「sometimes it gets stuck in a loop」要求人工强制 TERMINATE(closed not planned);#5317「Infinite loop in the quick start sample when registering additional agent」;#5831「Infinite loop appears when using swarm with human-computer dialogue」;#6826 TextMentionTermination 在初始 user 消息就触发(过早终止,open);#3541「Sub agent pre-emptively terminates」;#7071 SelectorGroupChat 终止条件为 True 却不停;PR #4231 去掉 TERMINATE 引号(模型复读带引号字符串);2026 年仍有 open 提案 #7275「Add deterministic termination contract tests for multi-agent loops」、PR #7472「prevent livelock in SelectorGroupChat」。两边的共同点:没有一个失败是「模型自己不肯停」——全部是过早停、停不下来(harness 层)、或闭环空转。",
+  "verdict_on_our_thesis": "supports",
+  "verdict_reasoning": "两个项目的显式终止信号(TERMINATE / <CAMEL_TASK_DONE>)之所以存在,是因为它们的循环由 harness 无条件驱动(「automatically invokes generate_reply ... unless a termination condition is satisfied」「prompt each other automatically in a loop until termination」),模型本身没有「停」的动作——所以它们反证的不是「模型默认不会停」,而是「模型在任务闭合后会主动发停机语义,而且发得又早又廉价」(CAMEL 要加「Never say <CAMEL_TASK_DONE> unless…」压制;AutoGen 有开场即停、子 agent 提前 TERMINATE、带引号复读等一串 issue)。这与小腻「做完一段就盘点→recover_energy」完全同构。更关键的是它们对「停机之后怎么办」的处理与我们回放实验的两组数据一一对应:(a) 自生/克隆刺激无效——CAMEL 用同权重克隆当 AI user 硬逼继续,结果是「互相道谢道别的死循环」「I will… 空承诺」,只能靠 40 条封顶和「3 轮无新指令即结束」收场;AutoGen 的空 default_auto_reply=\\\"\\\" 续跑也只配一个 max_consecutive_auto_reply 上限,从不指望它产出进展——对应我们 plan 0/3、召回回声 0/3、tool_choice any 5/5 仍睡。(b) 外源真实输入有效——AutoGen 0.2 默认 human_input_mode=TERMINATE 正是「模型发停机信号的那一刻插入人类消息,消息一到重置计数继续跑」,0.4 把它做成 HandoffTermination + 「feedback to the next run」的正常节律——对应我们小伊消息 3/3、外站更新 3/3。因此结论草案的核心(收敛是闭环现象,自生刺激在收工点失效,外源新信息拉回)被两个项目的设计与失败记录支持。需要修正的只有一句:「干预要落在收工之前」只对自生刺激成立;两家的默认设计和我们自己的 3/3 都表明真实外源输入在收工点之后同样有效,收工点应被当作外部注入口(handoff)而不是被拒绝的请求。对我们的落地含义:recover_energy 的 90% 拒绝率在这两个项目里没有对应物——它们一律接受停机信号并把控制权交给外部,顶多在拒绝/空戳上封一个很小的上限(10 次、3 轮);我们的 548→497 拒绝本质上是在重现 CAMEL 的道别死循环。"
+ }
+]

@@ -1,6 +1,6 @@
 # Notify Bucket — Latest-Wins Collapse 设计
 
-状态：设计（未实施）。分支 `refactor/runtime-gateway`，2026-06-29。
+状态：设计 2026-06-29；**§3 / §5 A / B / B' 与「开窗纪律」已于 2026-09-13 合入 main 并部署**（main 9baf021b…d69275a7，provider-service + agent-service 重建；见文末「2026-09-11 实施记录」与「2026-09-13 修正」）。
 配套已落地的相邻改动：phantom-run fold（见文末「已完成」），那一笔已绿。
 
 ## 1. 背景 / 触发这份设计的事故
@@ -45,8 +45,11 @@ conversation history）一律不可变，**绝不回写/覆盖**。原因：① 
 | 来源 | 塌缩 key | 规则 | 现状 |
 |---|---|---|---|
 | QQ 群 `phone_notification` | per-session（群） | 几分钟窗口聚合 | **已有**（debounce window） |
-| @ 提及 `phone_notification` | per-(session, 被@提及人/发送人) | **每个人取最新**，再**聚合成只进来一条** | **待做**，在 provider-service 入站层 |
-| `system_reminder`（fork 等） | per-(session, 模板类型) | **每个模板取最新**，新覆盖旧 | **待做**，在 agent-service |
+| QQ 私聊 `phone_notification` | `lw:phone_notification:direct:<session>:<peer>` | **每个人取最新**，未读增量累加 | **已实施 2026-09-11**（provider-service `buildPhoneNotificationMessage`） |
+| @ 提及 `phone_notification` | `lw:phone_notification:group_mention:<session>:<group>:<sender>` | **每个人取最新**，未读增量累加 | **已实施 2026-09-11**（同上） |
+| `system_reminder` 自驱动 plan | `lw:subconscious-agent:<session>` | **每 session 取最新**，新覆盖旧 | **已实施 2026-09-11**（agent-service `enqueueSubconsciousAgentNotify`） |
+| `system_reminder` 引擎「去睡」推送 | `lw:rest-available:<session>` | 每 session 只挂一条 | 分支 d6b500ac，**暂缓**（审查指出每次 settle 都重挂、无节流） |
+| 其它 `system_reminder`（报时 / 召回 / external…） | 各自既有键 | first-wins（召回靠撞键做投递账本，**不得**覆盖） | 不变 |
 
 「未读数」永远来自 inbox（agent_inbound_messages），不来自门铃重试/累积计数。
 
@@ -138,3 +141,40 @@ phantom-run fold 修复（本设计的前置）：
 - `agent-loop-service.ts` `appendAvailableQueueNotifyToLoop` 改用上面的折叠；删掉 4 个冗余 continuation settle/release/fail 循环。
 - cache-neutral（纯 DB 记账，请求装配不变）。typecheck✓ persistence 6/6✓ agent-runtime-loop 10/10✓
   agent-loop-service 仅 3 个 pre-existing `requestImageTask` 失败（基线同样失败，与本改无关）。
+
+
+---
+
+## 2026-09-11 实施记录
+
+落点全部在入队侧 / claim 侧 / 引擎控制流，不碰 system prompt、tools 定义、`stableRuntimePrompt`；
+新增进 live 请求的字节只有「被拒 reminder 正文」与「去睡 reminder 正文」，都在执行 / 入队时渲染一次冻结落栈，replay 逐字节读回。
+
+### A. latest-wins 槽（`packages/persistence/agent-queue.js`）
+- `lw:` 前缀 = latest-wins 槽。`enqueueAgentQueueMessage` 撞键时，**仅当既有行 `pending`** 才 `updateMany({id, status:'pending'})` 覆盖
+  `body_for_agent / raw_payload / inbound_context / payload / trace_id / message_sid / available_at(取更早)`，`attempts` 归零，
+  `phoneNotification.unreadDelta / directMentions` 与 `raw_payload.unread_delta / direct_mentions` **累加**；返回 `{created:false, superseded:true}`。
+- 非 `lw:` 键保持 first-wins（`recall-surface:` 等靠撞键做投递账本）。
+- **B' 轮换**：`claimNextAgentQueueMessage` / `foldPendingNotifyMessagesIntoRun` 消费时 `dedupe_key = dedupe_key || ':run:' || run_id`（只对 `lw:%`），稳定槽让出。
+
+### B. 开窗纪律（同文件 `isWindowOpeningQueueRow` + `claimNextAgentQueueMessage({windowOpen})`）
+用户设计：能闯入她的只有 QQ 私聊与群 @；其它 Notify 不闯入、不打扰，在她醒着时一次性消费。睡眠侧原本就成立
+（睡着不 claim；wake 只计 `phone_notification`）；醒着-空闲侧此前任何 pending 都能起 run（7 天 638 个 run 里 42% 由召回 / 群普通消息 / external 打开）。
+- 开窗行：`phone_notification` 且（私聊 或 `direct_mentions>0`）；`system_reminder` 且 key 前缀 ∈ {`subconscious-agent:`、`rest-available:`、`clock-ping:`、`attention_lease:`、`deep-dive-round:`、`sherlock:`、`sherlock-due:`}；其它 source 沿用旧语义。
+- pending 里没有开窗行 → claim 返回 null、一行不动；有 → 全部 pending 一次折进这个 run（原批量折叠语义不变）。
+- 主循环睡醒续帧时传 `windowOpen:true`（`processRuntimeIteration`），醒来那一窗把积压的全部消费掉。
+
+### C. 试睡不再是免费出口（`modules/agent-service/src/services/agent-loop-service.ts`）—— **暂缓，未合 main**（分支 d6b500ac；见调查报告 §8.2）
+- `rest_rejected_frame_yield` 收帧现在 = 一次 settle：`lastMainAgentForkSeed.settledOnFinalAnswer=true`（C 路 fork 点火）、`recordIdlePlanSettle` 记一次空转。
+- 被拒 reminder（`docs/xiaoni_prompt/recover_energy_rejected_reminder.md`）删掉会被证伪的 retry 分钟数，改成「身体到门槛的时候，系统会提示你去睡」+ 三件具体的事（上一份 plan 前两行 + 外部动作兜底，`buildRestRejectedNextSteps`）。
+- 引擎推送：run 收工时若 `shouldAcceptVoluntaryRecovery` 已接受且未睡着，入队 `lw:rest-available:<session>`（模板 `recover_energy_available_reminder.md`），它是开窗行。
+
+### 未做（另开 PR）
+- `REST_REJECTED_FRAME_YIELD_AFTER` 3→2 与 `system_prompt.md` 「第 3 次直接结束」价目表、工具描述改写：进 cacheable 前缀，须挑压缩边界帧一次冷读。
+- 被动召回触发点从每次栈追加挪到 run settle；`recover_energy` 参数不当 query。
+- 白天 nap cap 90→180 / `web_search` 成本。
+
+### 2026-09-13 修正（对抗审查后）
+- lw 槽轮换后缀改为 `:run:<runId>:<row id>`：同一槽在同一 run 内 claim + fold 两次不再撞唯一索引（原来会让 fold 事务回滚、主 run 判 failed）。
+- enqueue 的 supersede 分支：updateMany 命中 0 行或 findUnique 为 null（槽刚被消费并轮换）时再 INSERT 一次，最多两轮；不再退回「返回既有行」静默丢门铃。
+- 已知未处理：两条同槽消息并发 supersede 是读-改-写，unreadDelta 可能少计一次；未读真相在 `agent_inbound_messages`，只影响门铃显示。
