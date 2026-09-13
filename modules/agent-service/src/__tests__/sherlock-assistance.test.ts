@@ -103,6 +103,9 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[1].instructions, /只应知道自己负责的局部工作/);
   assert.match(h.requests[1].instructions, /定位发帖输入区域/);
   assert.match(h.requests[1].instructions, /不要只改写成“帮助完成论坛发帖”/);
+  assert.match(h.requests[1].instructions, /识别页面要求验证的目标内容/);
+  assert.match(h.requests[1].instructions, /找到所有符合目标内容的图片并点击/);
+  assert.match(h.requests[1].instructions, /点击确认或验证按钮/);
   assert.match(h.requests[1].instructions, /无感情色彩/);
   assert.doesNotMatch(JSON.stringify(h.requests[2].input), /李阿花|小腻/);
   assert.doesNotMatch(h.requests[2].instructions, /小逆|阿花|客户说|用户让我|委托人要求/);
