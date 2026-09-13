@@ -39,6 +39,7 @@ function createQueueRow(overrides = {}) {
       rawBody: overrides.rawBody || overrides.body_for_agent || '群里有 1 条新消息。',
       commandBody: '',
       wasMentioned: overrides.wasMentioned || false,
+      wakesXiaoni: overrides.wakesXiaoni === true,
       receivedAt: overrides.receivedAt || '2026-06-09T00:00:00.000Z',
       phoneNotification: {
         app: 'qq',
@@ -58,7 +59,7 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   const executes = [];
   const rows = [
     createQueueRow({ id: 10, message_sid: 'sid-10', body_for_agent: '第一条', unreadDelta: 1 }),
-    createQueueRow({ id: 11, message_sid: 'sid-11', body_for_agent: '第二条', unreadDelta: 2, directMentions: 1 })
+    createQueueRow({ id: 11, message_sid: 'sid-11', body_for_agent: '第二条', unreadDelta: 2, directMentions: 1, wakesXiaoni: true })
   ];
   const tx = {
     query: async (sql, params = []) => {
@@ -118,7 +119,7 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
 test('claimNextAgentQueueMessage drains all currently due pending bucket messages', async () => {
   const rows = [
     // 私聊门铃能开窗;窗一开,同批 pending 的 system_reminder 一起折进来。
-    createQueueRow({ id: 10, source: 'phone_notification', message_sid: 'sid-10', chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200' }),
+    createQueueRow({ id: 10, source: 'phone_notification', message_sid: 'sid-10', chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200', wakesXiaoni: true }),
     createQueueRow({
       id: 11,
       source: 'system_reminder',
@@ -401,19 +402,24 @@ function createClaimHarness(rows) {
   return { persistence, executes, inserts };
 }
 
-test('isWindowOpeningQueueRow: only QQ private / group @ / her own drivers open a window', () => {
+test('isWindowOpeningQueueRow: only rows whose payload carries wakesXiaoni:true open a window', () => {
   const { isWindowOpeningQueueRow } = createAgentQueuePersistence({ getPrismaClient: () => undefined, createSqlAdapter: () => undefined });
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'direct' })), true);
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 1 })), true);
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 0 })), false);
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'direct', wakesXiaoni: true })), true);
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 1, wakesXiaoni: true })), true);
+  // 私聊 / 群消息本身不算:标记由入站方按「私聊 or 被 @」打,这里只认标记
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'direct' })), false);
+  assert.equal(isWindowOpeningQueueRow(createQueueRow({ chat_type: 'group', directMentions: 1 })), false);
   assert.equal(isWindowOpeningQueueRow(createRecallRow()), false);
-  for (const key of ['subconscious-agent:x', 'lw:subconscious-agent:xiaoni:global', 'lw:rest-available:xiaoni:global', 'clock-ping:s:1', 'attention_lease:s:1', 'deep-dive-round:1:2', 'sherlock:1:2', 'sherlock-due:1:2']) {
-    assert.equal(isWindowOpeningQueueRow(createRecallRow({ dedupe_key: key })), true, key);
-  }
-  for (const key of ['external-notify:image:uuid', 'core-memory-compression-done:s:1', 'open-loops-pointer:s:1']) {
+  // 她自己的驱动(plan / 报时 / 深挖)与外部通知不再开窗,除非事件显式带标记
+  for (const key of ['lw:subconscious-agent:xiaoni:global', 'clock-ping:s:1', 'attention_lease:s:1', 'deep-dive-round:1:2', 'external-notify:image:uuid']) {
     assert.equal(isWindowOpeningQueueRow(createRecallRow({ dedupe_key: key })), false, key);
   }
-  assert.equal(isWindowOpeningQueueRow(createQueueRow({ source: 'simulator', chat_type: 'group' })), true);
+  const flaggedExternal = createRecallRow({ dedupe_key: 'external-notify:check-email:uuid' });
+  flaggedExternal.payload = JSON.stringify({ ...JSON.parse(flaggedExternal.payload), wakesXiaoni: true });
+  assert.equal(isWindowOpeningQueueRow(flaggedExternal), true);
+  const stringFlag = createRecallRow(); stringFlag.payload = JSON.stringify({ wakesXiaoni: 'true' });
+  assert.equal(isWindowOpeningQueueRow(stringFlag), true);
+  assert.equal(isWindowOpeningQueueRow(null), false);
 });
 
 test('claimNextAgentQueueMessage leaves non-window rows pending when nothing opens a window', async () => {
@@ -432,7 +438,7 @@ test('claimNextAgentQueueMessage leaves non-window rows pending when nothing ope
 test('claimNextAgentQueueMessage folds non-window rows once a window-opening row is present', async () => {
   const rows = [
     createRecallRow({ id: 20 }),
-    createQueueRow({ id: 23, chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200', dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200' })
+    createQueueRow({ id: 23, chat_type: 'direct', session_key: 'qq:direct:200', peer_id: '200', dedupe_key: 'lw:phone_notification:direct:qq:direct:200:200', wakesXiaoni: true })
   ];
   const { persistence, executes } = createClaimHarness(rows);
   const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
@@ -526,13 +532,14 @@ test('enqueueAgentQueueMessage latest-wins: group @ merge accumulates directMent
   const existing = {
     id: 41, dedupe_key: 'lw:phone_notification:group_mention:qq:group:100:100:20001', status: 'pending', available_at: new Date(),
     raw_payload: { unread_delta: 1, direct_mentions: 1 },
-    payload: { messageId: 1, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
+    payload: { messageId: 1, wakesXiaoni: true, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
   };
   const persistence = createAgentQueuePersistence({ getPrismaClient: () => createEnqueuePrisma(existing, calls), createSqlAdapter: () => undefined });
   await persistence.enqueueAgentQueueMessage({
     message: { traceId: 't', source: 'phone_notification', messageSid: 'y', dedupeKey: existing.dedupe_key, chatType: 'group', sessionKey: 'qq:group:100', peerId: '100', senderId: 'qq', accountId: '1', bodyForAgent: '@小腻 又一条', rawPayload: { unread_delta: 1, direct_mentions: 1 } },
-    payload: { messageId: 2, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
+    payload: { messageId: 2, wakesXiaoni: true, phoneNotification: { app: 'qq', chatType: 'group', unreadDelta: 1, directMentions: 1 } }
   });
+  assert.equal(calls[0].data.payload.wakesXiaoni, true);
   assert.equal(calls[0].data.payload.phoneNotification.directMentions, 2);
   assert.equal(calls[0].data.raw_payload.direct_mentions, 2);
   const merged = { source: 'phone_notification', chat_type: 'group', dedupe_key: existing.dedupe_key, payload: calls[0].data.payload, raw_payload: calls[0].data.raw_payload };

@@ -173,6 +173,7 @@ test('enqueues unmentioned group messages as phone notifications without message
   assert.equal(store.enqueuedMessages[0]?.commandBody, '');
   // 群普通消息不进 latest-wins 槽,保持每条唯一键(入站层另有聚合)
   assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'phone_notification:napcat:msg-1');
+  assert.equal(store.enqueuedMessages[0]?.wakesXiaoni, false);
 });
 
 test('schedules ordinary unmuted group messages when group aggregation delay is enabled', async () => {
@@ -328,6 +329,7 @@ test('enqueues mentioned group messages as phone notifications', async () => {
   assert.equal(store.enqueuedMessages[0]?.inboundContext.BodyForCommands, '');
   // 群 @:按 (session, 群, 发送人) 一人一个 latest-wins 槽
   assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'lw:phone_notification:group_mention:qq:group:100:100:20001');
+  assert.equal(store.enqueuedMessages[0]?.wakesXiaoni, true);
 });
 
 test('does not enqueue the claimed unread inbox window when a mention arrives', async () => {
@@ -413,6 +415,7 @@ test('enqueues direct messages as phone notifications until xiaoni actively open
   assert.equal(store.enqueuedMessages[0]?.inboundContext.BodyForCommands, '');
   // 私聊:按 (session, 对方) 一人一个 latest-wins 槽 —— 同一个人连发几条只挂一个门铃,新覆盖旧
   assert.equal(store.enqueuedMessages[0]?.dedupeKey, 'lw:phone_notification:direct:qq:direct:1129974489:20001:20001');
+  assert.equal(store.enqueuedMessages[0]?.wakesXiaoni, true);
 });
 
 test('enqueues private messages from authorized user as a single phone notification', async () => {

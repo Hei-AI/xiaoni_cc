@@ -260,6 +260,8 @@ export interface SemanticInboundMessage {
   rawBody: string;
   commandBody: string;
   wasMentioned: boolean;
+  /** 睡觉唤醒属性:true 的事件才能在她睡眠时计入唤醒、在她空闲时开新 run。只给 QQ 私聊与群 @ 打。 */
+  wakesXiaoni?: boolean;
   receivedAt: string;
   messageTimestamp?: string | null;
   rawPayload: Record<string, unknown>;

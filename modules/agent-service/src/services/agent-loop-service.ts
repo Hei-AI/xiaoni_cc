@@ -12894,7 +12894,7 @@ export class AgentLoopService {
    *
    * 路由只做转译，校验全在这里(同 redeemSubconsciousPlanTicket 的分工)。
    */
-  async ingestExternalNotify(params: { text: unknown; sourceSystem: unknown }): Promise<
+  async ingestExternalNotify(params: { text: unknown; sourceSystem: unknown; wake?: unknown }): Promise<
     | { ok: true; queueId: number | null }
     | { ok: false; status: 400 | 500; reason: string }
   > {
@@ -12909,8 +12909,11 @@ export class AgentLoopService {
     if (!EXTERNAL_NOTIFY_SOURCE_SYSTEM_PATTERN.test(sourceSystem)) {
       return { ok: false, status: 400, reason: 'invalid_source_system' };
     }
+    // 睡觉唤醒属性:默认 false —— 通知留在 pending,她下一次醒来 / 开窗时一次消费。脚本显式传 wake:true
+    // 才能在她睡眠时计入唤醒、在她空闲时开新 run(与 QQ 私聊 / 群 @ 同一个标记)。
+    const wake = params.wake === true || params.wake === 'true' || params.wake === 1;
     try {
-      const notify = await this.enqueueExternalNotify({ sourceSystem, text });
+      const notify = await this.enqueueExternalNotify({ sourceSystem, text, wake });
       return { ok: true, queueId: Number(notify?.queueId || 0) || null };
     } catch (error) {
       moduleLogger.warn('Failed to enqueue external notify', {
@@ -12927,7 +12930,7 @@ export class AgentLoopService {
   //
   // dedupeKey 每次调用随机(用户拍板:服务端生成)。后果是【没有幂等】—— 同一件事投两次就是两条
   // notify。投递方(skill)必须自己保证只在状态真变化时投,别指望这一层去重。
-  private async enqueueExternalNotify(params: { sourceSystem: string; text: string }) {
+  private async enqueueExternalNotify(params: { sourceSystem: string; text: string; wake?: boolean }) {
     const enqueuer = (this.store as RuntimeStore & {
       enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
     }).enqueueQueueMessage;
@@ -12946,7 +12949,8 @@ export class AgentLoopService {
     const rawPayload = {
       reason: 'external_notify',
       source_system: params.sourceSystem,
-      notify_template: 'external_notify.md'
+      notify_template: 'external_notify.md',
+      wakes_xiaoni: params.wake === true
     };
     const inboundContext = {
       Body: promptFacingText,
@@ -12980,7 +12984,9 @@ export class AgentLoopService {
         sourceSystem: params.sourceSystem,
         createdAt: now.toISOString()
       },
-      externalNotify: rawPayload
+      externalNotify: rawPayload,
+      // 睡觉唤醒属性(persistence WAKE_FLAG_PAYLOAD_KEY):唤醒计数与开窗只读这一个字段
+      wakesXiaoni: params.wake === true
     };
 
     return enqueuer.call(this.store, {
