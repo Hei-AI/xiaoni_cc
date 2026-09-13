@@ -121,7 +121,7 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
         assert.deepEqual(params, ['xiaoni', 'active', 20]);
         return activeRow ? [activeRow] : [];
       }
-      if (statement.includes('FROM agent_queue_messages') && statement.includes("source = 'phone_notification'")) {
+      if (statement.includes('FROM agent_queue_messages') && statement.includes("(payload->>'wakesXiaoni') = 'true'")) {
         assert.deepEqual(params, [42n, 100]);
         return [{
           id: 43n,

@@ -2090,10 +2090,10 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   /** true 仅当 `lw:` latest-wins 槽的既有 pending 行被本次入队就地覆盖。 */
   superseded?: boolean;
 }>;
-/** 只有 QQ 私聊 / 群 @ / 她自己的驱动(自驱动 plan、报时、注意力租约、深挖轮次)能开窗。 */
+/** 只有入队 payload 带 `wakesXiaoni: true` 的事件能叫醒她 / 开窗(QQ 私聊、群 @;或 notify 脚本显式传 wake)。 */
 export function isWindowOpeningQueueRow(row: Record<string, unknown> | null | undefined): boolean;
 export const LATEST_WINS_DEDUPE_PREFIX: string;
-export const WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES: string[];
+export const WAKE_FLAG_PAYLOAD_KEY: 'wakesXiaoni';
 export function listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date | number; limit?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
 export function getLastAgentQueueEnqueuedAt(params: { prefix: string }, config?: DatabaseUrlConfig): Promise<number | null>;
 export type AgentQueueClaimInput = {

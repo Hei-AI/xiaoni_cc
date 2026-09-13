@@ -196,6 +196,7 @@ function normalizeWakeNotificationRow(row) {
     createdAt: normalizeDate(row.created_at),
     payload,
     rawPayload,
+    // 群行按累加的 directMentions 计(带 wakesXiaoni 的群行必然 ≥1);私聊每条 1
     wakeCount: chatType === 'direct' ? 1 : Math.max(0, Math.floor(directMentions))
   };
 }
@@ -289,7 +290,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
   async function getAgentRecoveryQueueHighWatermark(input = {}, config = {}) {
     await ensureAgentRecoverySessionSchema(input, config);
     return withSql(input, config, async (sql) => {
-      const rows = await sql.query("SELECT COALESCE(MAX(id), 0) AS id FROM agent_queue_messages WHERE source = 'phone_notification'");
+      // 水位取全表 MAX(id):能叫醒她的事件不再限于 phone_notification(payload.wakesXiaoni 才是判据)。
+      const rows = await sql.query("SELECT COALESCE(MAX(id), 0) AS id FROM agent_queue_messages");
       return Number(rows[0]?.id || 0);
     });
   }
@@ -298,7 +300,7 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
     await ensureAgentRecoverySessionSchema(input, config);
     return withSql(input, config, async (sql) => {
       const createWithExecutor = async (executor) => {
-        const watermarkRows = await executor.query("SELECT COALESCE(MAX(id), 0) AS id FROM agent_queue_messages WHERE source = 'phone_notification'");
+        const watermarkRows = await executor.query("SELECT COALESCE(MAX(id), 0) AS id FROM agent_queue_messages");
         const wakeStartId = normalizeBigIntId(input.wakeCountStartQueueMessageId ?? input.wake_count_start_queue_message_id ?? watermarkRows[0]?.id ?? 0);
         const startedAt = input.startedAt || input.started_at || new Date();
         const rows = await executor.query(
@@ -427,7 +429,7 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
         `
           SELECT id, chat_type, session_key, peer_id, payload, raw_payload, created_at
           FROM agent_queue_messages
-          WHERE source = 'phone_notification'
+          WHERE (payload->>'wakesXiaoni') = 'true'
             AND id > ?
           ORDER BY id ASC
           LIMIT ?

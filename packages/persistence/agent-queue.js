@@ -167,61 +167,25 @@ const RECALL_SURFACE_DEDUPE_PREFIX = 'recall-surface:';
 // claim/fold 的 UPDATE），稳定槽让出来给下一条 pending。非 `lw:` 键（recall-surface 等）保持
 // first-wins：那些调用方靠「撞键 = 早就投过」做投递账本，绝不能覆盖也绝不能轮换。
 const LATEST_WINS_DEDUPE_PREFIX = 'lw:';
-// 能「开窗」（她空闲时起一个新 run）的 doorbell：只有 QQ 私聊、群里 @ 她、以及她自己的驱动
-// （自驱动 plan / 报时 / QQ 注意力租约 / 深挖轮次）。其余（被动召回、群普通消息、外部通知、压缩完成、
-// open-loops 指针…）不开窗：留在 pending，等下一个窗打开时一次折叠进去消费。睡眠侧本来就不 claim，
-// 这里补的是醒着-空闲侧（此前任何 pending 都能起 run，7 天里 42% 的 run 是召回/群普通消息开的）。
-const WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES = [
-  'subconscious-agent:',
-  'rest-available:',
-  'clock-ping:',
-  'attention_lease:',
-  'deep-dive-round:',
-  'sherlock:',
-  'sherlock-due:'
-];
+// 能叫醒她 / 开窗的事件只有一种标记：入队 payload 里的 `wakesXiaoni: true`（用户 2026-09-13 拍板：
+// 「给 Notify 事件结构加一个睡觉唤醒属性，只给 QQ 私聊和群里 @ 她的事件加，其它不加；独立唤醒窗口只读
+// 这一个属性、只累积这一个」）。产生事件的一方在入队时标：provider-service 给私聊 / 群 @ 标，
+// 她自己的 notify 脚本可以显式传 wake。自驱动 plan、报时、被动召回、外部通知默认都不标 —— 它们
+// 留在 pending，等下一个窗打开时一次折叠进去消费。睡眠期间的唤醒计数（agent-recovery-sessions.js）
+// 读的也是同一个标记。
+const WAKE_FLAG_PAYLOAD_KEY = 'wakesXiaoni';
 
-function stripLatestWinsPrefix(dedupeKey) {
-  const key = String(dedupeKey || '');
-  return key.startsWith(LATEST_WINS_DEDUPE_PREFIX) ? key.slice(LATEST_WINS_DEDUPE_PREFIX.length) : key;
-}
-
-function readDirectMentions(row) {
+function readWakesXiaoni(row) {
   const payload = parseJson(row.payload, {});
-  const rawPayload = parseJson(row.raw_payload, {});
-  const notification = payload && typeof payload === 'object' ? payload.phoneNotification : null;
-  const candidates = [
-    notification && notification.directMentions,
-    notification && notification.direct_mentions,
-    rawPayload && rawPayload.direct_mentions,
-    rawPayload && rawPayload.directMentions
-  ];
-  for (const value of candidates) {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) {
-      return numeric;
-    }
-  }
-  return 0;
+  const value = payload && typeof payload === 'object' ? payload[WAKE_FLAG_PAYLOAD_KEY] : undefined;
+  return value === true || value === 'true';
 }
 
 function isWindowOpeningQueueRow(row) {
   if (!row) {
     return false;
   }
-  const source = String(row.source || '');
-  if (source === 'phone_notification') {
-    if (row.chat_type !== 'group') {
-      return true;
-    }
-    return readDirectMentions(row) > 0;
-  }
-  if (source === 'system_reminder') {
-    const bare = stripLatestWinsPrefix(row.dedupe_key);
-    return WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES.some((prefix) => bare.startsWith(prefix));
-  }
-  // 其它来源（provider / simulator / 管理端注入）沿用旧语义：能开窗。
-  return true;
+  return readWakesXiaoni(row);
 }
 
 // 消费时把 latest-wins 槽轮换成历史唯一值（dedupe_key 是簿记字段、从不进模型，轮换不违反上下文不可变）。
@@ -876,7 +840,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     flushPendingRecallSurfaceQueueMessages,
     isWindowOpeningQueueRow,
     LATEST_WINS_DEDUPE_PREFIX,
-    WINDOW_OPENING_SYSTEM_REMINDER_PREFIXES,
+    WAKE_FLAG_PAYLOAD_KEY,
     listRecentAgentQueueDedupeKeys,
     getLastAgentQueueEnqueuedAt,
     claimNextAgentQueueMessage,

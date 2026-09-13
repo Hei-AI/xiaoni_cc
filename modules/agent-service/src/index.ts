@@ -113,7 +113,8 @@ app.post('/api/internal/runtime/notify', async (req, res) => {
     const body = (req.body || {}) as Record<string, unknown>;
     const result = await loopService.ingestExternalNotify({
       text: body.text,
-      sourceSystem: body.source_system ?? body.sourceSystem
+      sourceSystem: body.source_system ?? body.sourceSystem,
+      wake: body.wake
     });
     if (result.ok) {
       res.json({ success: true, queue_id: result.queueId });

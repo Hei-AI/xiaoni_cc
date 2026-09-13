@@ -32,9 +32,9 @@ def resolve_endpoint():
     return LOCAL_ENDPOINT
 
 
-def post_notify(endpoint, text, source_system):
+def post_notify(endpoint, text, source_system, wake=False):
     payload = json.dumps(
-        {"text": text, "source_system": source_system},
+        {"text": text, "source_system": source_system, "wake": bool(wake)},
         ensure_ascii=False,
     ).encode("utf-8")
     request = urllib.request.Request(
@@ -57,6 +57,11 @@ def main():
         required=True,
         help="来源标记，只收小写字母/数字/下划线/短横，≤32 字符，例如 check-email",
     )
+    parser.add_argument(
+        "--wake",
+        action="store_true",
+        help="睡觉唤醒属性：加了才会在你睡眠时计入唤醒、在你空闲时起新 run；不加就等你下次醒来一起看",
+    )
     args = parser.parse_args()
 
     text = args.text.strip()
@@ -70,7 +75,7 @@ def main():
 
     endpoint = resolve_endpoint()
     try:
-        result = post_notify(endpoint, text, args.source_system)
+        result = post_notify(endpoint, text, args.source_system, args.wake)
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")
         print(f"ERROR: HTTP {error.code} {detail}", file=sys.stderr)
