@@ -132,3 +132,11 @@
 2026-09-13 17:52（UTC+8）基于 `5ac0c841` 定向 build/up `agent-service`，服务 healthy、runtime enabled，`help_worker_busy` 健康字段生效；executor 和 embedding 容器未重建。异步求助回归 15/15、持久层求助回归 7/7、两支 agent 缓存契约 43/43、持久层 event-id mock/真库各 4/4 通过。全量 agent 测试执行到既有 runtime-enabled 等待用例前 142 项均通过；全量 persistence 的 runtime-control 旧断言漂移在未修改的 main 同样复现，不属于本变更。
 
 部署切换后的首次 heartbeat 预期冷读，随后两次真实 Anthropic heartbeat 均读取 382,253 / 382,256 input tokens。受控相邻持久 slice `llm_1789293377372_40674028`、`llm_1789293392098_f9f79a82` 均读取 382,253 / 382,256；完整 `wire_request` MD5 同为 `8e0f25764e468b8e918f55b6375b140a`，system/tools MD5 分别同为 `8b31d4f0155d80db0947135304719ffd`、`214f44a7204d95fca355071ccdda8116`。这验证了工具描述切换后 fork 前缀重新稳定，也验证了下一主 run 所依赖的冻结 request 前缀没有随 run 或时间漂移。
+
+### 去身份化需求转述、浏览器 skill 与结构化终态（2026-09-13 21:49，UTC+8）
+
+基于 `08d3c345` 定向构建并更新 `agent-service`，未重建 executor、embedding 或其它主栈服务；容器、`/health` 和 runtime 均健康。执行 worker 新增 `finish_task(status, summary, verification, blocked_reason)`，`completed` 缺验证、`blocked` 缺原因、字段矛盾或与其它动作混调都会拒绝收口。旧文本标签只保留历史兼容。
+
+原始求助现在先经过独立 `build_delegated_brief` 请求；执行 worker 只读取去身份化的第三方 `task/context/acceptance_criteria`。运行态 smoke `help-handoff-smoke-1789307240048` 的原始材料故意包含“小腻”和“李阿花”，实际 worker request 对这两个名字均为 false，完整装配中性 `$delegated-browser` 正文，tools 精确为 `exec_command,finish_task`；Sonnet 4.6 用一次 `exec_command` 得到并核对 `17*19=323`，第 2 turn 用 `finish_task` 返回 `goalCompleted=true`、`goalBlocked=false`。该 smoke 无文件修改、消息发送或其它外部副作用；本轮没有重新运行真实图片验证码，不能改变上文“图片挑战仍未验证”的结论。
+
+新增求助、隐私转述和终态边界连同两支不可变 agent 缓存用例 63/63 通过；event-id mock/主栈真库各 4/4 通过。全量 agent 测试连续通过 142 项后复现既有 runtime-enabled 等待用例挂起，未改弱断言。主 Agent 的 system/tools/stack replay 没有变化；需求转述和执行 worker 都是独立 no-persist 请求。受控相邻真实 Anthropic heartbeat `llm_1789307346343_3dacf8dc`、`llm_1789307349333_c4db3691` 均读取 454,366 cache tokens，完整 `wire_request` MD5 同为 `e34626aa028073cdeee91574684ca334`，逐字节一致。
