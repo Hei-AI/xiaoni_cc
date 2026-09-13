@@ -167,26 +167,10 @@ const RECALL_SURFACE_DEDUPE_PREFIX = 'recall-surface:';
 // claim/fold 的 UPDATE），稳定槽让出来给下一条 pending。非 `lw:` 键（recall-surface 等）保持
 // first-wins：那些调用方靠「撞键 = 早就投过」做投递账本，绝不能覆盖也绝不能轮换。
 const LATEST_WINS_DEDUPE_PREFIX = 'lw:';
-// 能叫醒她 / 开窗的事件只有一种标记：入队 payload 里的 `wakesXiaoni: true`（用户 2026-09-13 拍板：
-// 「给 Notify 事件结构加一个睡觉唤醒属性，只给 QQ 私聊和群里 @ 她的事件加，其它不加；独立唤醒窗口只读
-// 这一个属性、只累积这一个」）。产生事件的一方在入队时标：provider-service 给私聊 / 群 @ 标，
-// 她自己的 notify 脚本可以显式传 wake。自驱动 plan、报时、被动召回、外部通知默认都不标 —— 它们
-// 留在 pending，等下一个窗打开时一次折叠进去消费。睡眠期间的唤醒计数（agent-recovery-sessions.js）
-// 读的也是同一个标记。
+// 「睡觉唤醒属性」`payload.wakesXiaoni`(用户 2026-09-13 拍板)只管一件事:她睡着、loop 被 wait 住时,
+// 只有带这个属性的事件累计进独立唤醒窗口的阈值(agent-recovery-sessions.js listAgentRecoveryWakeNotifications)。
+// 它【不】影响醒着时的消费:所有 pending 每一轮 loop 都会被 claim 一次性折进 run,这是大前提。
 const WAKE_FLAG_PAYLOAD_KEY = 'wakesXiaoni';
-
-function readWakesXiaoni(row) {
-  const payload = parseJson(row.payload, {});
-  const value = payload && typeof payload === 'object' ? payload[WAKE_FLAG_PAYLOAD_KEY] : undefined;
-  return value === true || value === 'true';
-}
-
-function isWindowOpeningQueueRow(row) {
-  if (!row) {
-    return false;
-  }
-  return readWakesXiaoni(row);
-}
 
 // 消费时把 latest-wins 槽轮换成历史唯一值（dedupe_key 是簿记字段、从不进模型，轮换不违反上下文不可变）。
 // 后缀带上行自己的 id:同一个槽在同一个 run 里被消费两次(开窗 claim 一次 + 后续 fold 一次)时,
@@ -406,9 +390,6 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 
   async function claimNextAgentQueueMessage(input = {}, config = {}) {
     const workerId = normalizeOptionalString(input.workerId || input.worker_id) || 'agent-worker';
-    // windowOpen=true：调用方已经因为别的原因开了窗（睡醒续帧等），pending 全部折进来。
-    // 默认 false：只有 pending 里含「开窗」行时才起 run；否则一条都不动、返回 null。
-    const windowOpen = input.windowOpen === true || input.window_open === true;
     const { sql, shouldClose } = createSql(input, config);
     try {
       return await sql.withTransaction(async (tx) => {
@@ -424,9 +405,6 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
         );
 
         if (rows.length === 0) {
-          return null;
-        }
-        if (!windowOpen && !rows.some(isWindowOpeningQueueRow)) {
           return null;
         }
 
@@ -838,7 +816,6 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   return {
     enqueueAgentQueueMessage,
     flushPendingRecallSurfaceQueueMessages,
-    isWindowOpeningQueueRow,
     LATEST_WINS_DEDUPE_PREFIX,
     WAKE_FLAG_PAYLOAD_KEY,
     listRecentAgentQueueDedupeKeys,
