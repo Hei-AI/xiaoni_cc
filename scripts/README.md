@@ -32,7 +32,7 @@ RECAPTCHA_AUDIT_FILE=/tmp/qqbot-recaptcha-verifications.jsonl node scripts/recap
 
 真实实验先在 Google 注册 reCAPTCHA v2 复选框站点，把以下环境变量放到 `/home/liahua/.qqbot-local/recaptcha-lab.env`：`RECAPTCHA_MODE=live`、`RECAPTCHA_SITE_KEY`、`RECAPTCHA_SECRET_KEY`、`RECAPTCHA_HOSTNAME`（精确域名，不含协议或端口；本地可注册 localhost）。然后运行 `node --env-file=/home/liahua/.qqbot-local/recaptcha-lab.env scripts/recaptcha-lab/server.mjs`。默认仅绑定回环地址；远程访问需要自行配置受控入口。正式模式拒绝测试密钥并核对 Google 返回的 hostname；通过正式验证也不等于一定出现过图片挑战，需结合浏览器操作记录判断。
 
-`agent-probe.cjs` 复制到当前 `qqbot-agent-service:/tmp/` 后，用 `docker exec qqbot-agent-service node /tmp/agent-probe.cjs` 运行。它调用 `ask_li_ahua` 实际使用的 `runSherlockFork`，使用部署模型、executor 和内嵌的中性浏览器 skill，不 mock 模型或浏览器；从 worker 入口测试，不覆盖外层求助任务创建、重试及 QQ 人工升级。结果在容器 `/tmp/recaptcha-agent-result.json`，请求记录在现有独立 fork 账本。可通过 `RECAPTCHA_LAB_URL` 指定测试页；`RECAPTCHA_PREVIOUS_DIRECTION` 可注入上一轮验收驳回意见。图片挑战模式的完成回执要求同时具备挑战截图、选图操作和 live 服务端成功，否则必须阻塞。不要和其他浏览器任务同时运行。
+`agent-probe.cjs` 复制到当前 `qqbot-agent-service:/tmp/` 后，用 `docker exec qqbot-agent-service node /tmp/agent-probe.cjs` 运行。它调用 `ask_li_ahua` 实际使用的 `runSherlockFork`，使用部署模型、executor 和内嵌的中性浏览器 skill，不 mock 模型或浏览器；从 worker 入口测试，不覆盖外层求助任务创建、重试及 QQ 人工升级。结果在容器 `/tmp/recaptcha-agent-result.json`，请求记录在现有独立 fork 账本。可通过 `RECAPTCHA_LAB_URL` 指定测试页；`RECAPTCHA_QUESTION` 和 `RECAPTCHA_CONTEXT` 可分别传入未经预改写的原始求助与现场上下文，`RECAPTCHA_PREVIOUS_DIRECTION` 可注入上一轮验收驳回意见。图片挑战模式的完成回执要求同时具备挑战截图、选图操作和 live 服务端成功，否则必须阻塞。不要和其他浏览器任务同时运行。
 
 Google 契约：[测试密钥说明](https://developers.google.com/recaptcha/docs/faq)、[服务端验证](https://developers.google.com/recaptcha/docs/verify)。
 

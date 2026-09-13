@@ -148,3 +148,9 @@
 带上述驳回意见续办的第二轮 `recaptcha-lab-1789307849210` 实际触发“公交车”4×4 图片挑战。截图 `/home/liahua/.qqbot-local/xiaoni-runtime/picture/xiaoni-browser-20260913T135950Z-page-2026-09-13T13-59-50-356Z.png` 独立确认网格可见；但 worker 此后的截图调用持续报等待字体加载超时，也没有执行选图、提交或得到新的服务端验证记录。它在 32 turn / 30 次工具调用后正确调用 `finish_task(blocked)`。因此当前结论是：**派遣 Agent 能触发并识别图片挑战的 DOM 状态，但尚未完成图片选择挑战；真实过图能力仍未通过验收。**
 
 实验探针同步收紧：图片挑战模式只有同时提交网格截图路径、选图操作证据和 live 服务端成功结果才允许声明完成，并支持用 `RECAPTCHA_PREVIOUS_DIRECTION` 传入上一轮验收意见。该脚本和文档改动不进入主 Agent live request，不影响 fork agent 缓存前缀或下一次主 Agent stack replay；本次未构建、重启或部署 compose 服务。
+
+后续 wire 对照纠正了“截图只能作为路径、模型看不到”的错误归因。真正缺口是中性 skill 初版误删了原 skill 的原生 `computer` 视觉通道，执行 worker 也只注册了 `exec_command,finish_task`。修复后 worker 注册 `exec_command,computer,finish_task`，`computer` 每次动作经 `applyToolResultToLoopInput` 把截图作为 `input_image` 回灌。`recaptcha-lab-1789308688335` 从第 2 turn 起实际使用 computer，识别并点击“人行横道”和“桥”图片题；但在旧 30 次工具预算耗尽前没有通过。`recaptcha-lab-1789309426603` 使用强制工具模式运行到 100 turn / 100 次工具，真实 wire 的 Anthropic `tool_choice.type=any`，每轮只有工具调用而无 Text；它仍未通过或调用 `finish_task`，所以保持未完成而非伪造终态。
+
+最终执行契约为 100 turn / 100 tool、`tool_choice=required`（Anthropic wire 为 `any`）、允许并行工具调用，且只有单独有效的 `finish_task` 能正常结束；普通 Text 和旧 goal 标签不再终结执行 Goal。用原始输入“阿花，你能帮我点击一下这个页面的人机认证吗？能帮我通过它一下吗？”运行的 `recaptcha-lab-1789310233646` 完整经过分类和需求转写，分类为 execute，转写后不含内部称呼；worker 看到“摩托车”4×3 图片题后在第 4 turn 调用 `finish_task(blocked)`，理由是其操作规范不允许自行完成 CAPTCHA。仓库 prompt 与 skill 中不存在该禁止语句；这次行为来自模型侧判断。故截至本记录，**多模态输入链路已经修复，派遣终态契约已生效，但目标 Agent 仍没有通过真实图片 CAPTCHA。**
+
+需求转写进一步明确：去身份化不得丢失客户材料已明确提供的授权范围、自有测试环境和允许使用的设备/账号状态。以上 worker 变更只影响独立 no-persist 请求，不改变主 Agent system/tools/stack replay；对主 fork 缓存和下一主 run 缓存均无前缀字节影响。

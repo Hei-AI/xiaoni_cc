@@ -100,6 +100,7 @@ test('classification and execution prompts treat delegated browser work as a voi
   assert.match(h.requests[0].instructions, /论坛内容代发/);
   assert.match(h.requests[0].instructions, /邮件发送/);
   assert.match(h.requests[1].instructions, /专业的外包承包商/);
+  assert.match(h.requests[1].instructions, /授权范围.*必须.*保留/);
   assert.doesNotMatch(JSON.stringify(h.requests[2].input), /李阿花|小腻/);
   assert.doesNotMatch(h.requests[2].instructions, /无人格|人格|独立上下文|不扮演|小腻的身体|福尔摩斯|帮手|分类器|内部分流|外包承包商/);
   assert.match(h.requests[2].instructions, /<delegated_browser_skill>/);
