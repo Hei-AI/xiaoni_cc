@@ -1,7 +1,7 @@
 import type { AgentToolCall } from '../types';
 
-export type SherlockAssistanceKind = 'investigate' | 'execute' | 'human' | 'clarify';
-export type AssistanceGoalResult = { status: 'completed' | 'blocked'; text: string };
+export type SherlockAssistanceKind = 'investigate' | 'execute';
+export type AssistanceGoalResult = { status: 'completed' | 'blocked'; text: string; blockedReason?: string };
 export type DelegatedRequirementSpec = {
   spec: string;
   omittedSensitiveContext: string[];
@@ -97,7 +97,11 @@ export function parseAssistanceFinishCall(call: AgentToolCall): AssistanceGoalRe
     return { status, text: `${summary}\n验证：${verification}` };
   }
   if (status === 'blocked' && blockedReason) {
-    return { status, text: `${summary}\n阻塞原因：${blockedReason}${verification ? `\n当前状态核对：${verification}` : ''}` };
+    return {
+      status,
+      text: `${summary}\n阻塞原因：${blockedReason}${verification ? `\n当前状态核对：${verification}` : ''}`,
+      blockedReason
+    };
   }
   return null;
 }
@@ -195,7 +199,7 @@ export const SHERLOCK_ROUTE_TOOL = {
     parameters: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['investigate', 'execute', 'human', 'clarify'] },
+        kind: { type: 'string', enum: ['investigate', 'execute'] },
         reason: { type: 'string' }
       },
       required: ['kind', 'reason'],
@@ -210,7 +214,7 @@ export function parseSherlockRoute(calls: AgentToolCall[]): {
 } | null {
   if (calls.length !== 1 || calls[0].name !== 'classify_assistance') return null;
   const { kind, reason } = calls[0].args;
-  if (kind !== 'investigate' && kind !== 'execute' && kind !== 'human' && kind !== 'clarify') return null;
+  if (kind !== 'investigate' && kind !== 'execute') return null;
   if (typeof reason !== 'string' || !reason.trim()) return null;
   return { kind, reason: reason.trim() };
 }
