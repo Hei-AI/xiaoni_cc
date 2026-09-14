@@ -279,3 +279,11 @@ worker 只看自己的局部工作包。分类器为判断处理模式可以读�
 执行 worker 使用 `claude-sonnet-4-6`，工具精确为 `exec_command,view_browser_screenshot,finish_task`，canonical `tool_choice=required`、Anthropic wire `tool_choice.type=any`、`parallel_tool_calls=true`。它先处理已过期的 4×4“摩托车”题并重新触发挑战，随后处理 3×3“小轿车”题；第一次漏选后读取页面错误、补选第三张并再次确认，reCAPTCHA 控件出现绿色勾。之后点击站点提交按钮，23:20:28 本站审计记录 `success=true,mode=live,liveVerification=true,hostname=captcha.liahuas.top,errors=[]`。最终截图为 `/home/liahua/.qqbot-local/xiaoni-runtime/picture/xiaoni-browser-20260913T152034Z-page-2026-09-13T15-20-33-981Z.png`，显示“Google 服务端验证通过”及同一成功 JSON。第 50 turn 单独调用有效 `finish_task(status=completed)`；结果为 `goalCompleted=true,goalBlocked=false,toolCallsUsed=49`。这是目标 Agent 首次在真实图片挑战后取得服务端成功，不是复选框直接放行或 Codex 代选。
 
 实测前一轮发现 worker 曾试图读取 frame URL，因此该轮停止且不计成绩；随后执行层加入身份探针硬拒绝和工具输出 URL 脱敏。成功轮 50 条 worker slice 中 `page.url/frame.url/location.href/tab-list/目标 URL` 命中数为 0。最终定向、三级隔离和两支不可变 agent 缓存回归 68/68 通过。该链路全部是独立 no-persist 请求，主 Agent system/tools/stack replay 未改；部署后两次真实手动 cache heartbeat 均为 454,586 input / 454,583 cache-read tokens，主请求克隆前缀保持热读。
+
+### 二类分流与累计人工降级上线（2026-09-14 14:53–14:55，UTC+8）
+
+基于 `3427bc87` 定向构建并更新 `agent-service`。分类器只接受 `investigate | execute`；Deep Dive `need_outsider` 固定为 `investigate` 并跳过分类；同一 `help_id` 持久保存首次模式、原始 request/context、补充材料、真实 helper attempt 和未解决摘要。分类、转写或 provider 启动前故障不计 attempt；`execute` 仍只有有效 `finish_task` 才能完成。达到默认 2 次未解决后先写 `help_human_sending`，再把原始材料与历次摘要发送一次；发送结果不确定时不自动重发。
+
+定向求助与两支不可变 agent 缓存用例 70/70，通过 event-id mock 4/4、主栈 `qqbot_cache_test` 真库 4/4 和持久层求助 9/9。全量 agent 测试连续通过 142 项后复现既有 runtime-enabled 等待用例挂起；全量 persistence 的既有 runtime-control/recall 环境漂移失败不在本次改动文件中，未改弱缓存断言。容器、`/health`、runtime 均健康；executor 与 embedding 未构建或替换。
+
+主 Agent system、tools 和 stack replay 字节没有改动，二类分类、转写、经理和 worker 都是独立 no-persist 请求，因此 fork 克隆前缀与下一主 run 的 replay 前缀保持原样。部署后相邻两次受控生产 Anthropic heartbeat provider slice `llm_1789368874269_435dd184`、`llm_1789368885930_1d9d62b0` 均读取 473,614 / 473,617 input tokens；完整 `wire_request` MD5 同为 `c44edc46ead8496005c6af2d08b90fb2`，system/tools MD5 分别同为 `8b31d4f0155d80db0947135304719ffd`、`214f44a7204d95fca355071ccdda8116`。两份 wire request 逐字节一致，没有缓存塌陷。该证据来自生产主上下文 heartbeat；验证窗口内尚无部署后的自然主 run slice，不能把 heartbeat 记成自然 run。
