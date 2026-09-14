@@ -3,6 +3,130 @@
 当前实现契约。第三方独立视角的历史理由见 `docs/adr/0009-failure-conclusions-need-an-outside-reviewer.md`。
 旧版 `blocked` 触发、克隆主上下文的方案已被替代；本页维护现行实现。
 
+> **下一版决策（2026-09-14，尚未实现）：** 首次分流只保留 `investigate` 与 `execute` 两种
+> 处理模式；`clarify` 改为一次处理的未解决结果，`human` 改为同一求助多次未解决后的人工降级
+> 目的地。下面“二类处理模式与人工降级”是目标契约；其后的“当前生产内部分流（四分类）”记录
+> 部署现状，在代码切换并完成生产验证前不得把目标契约描述成已上线事实。
+
+## 下一版：二类处理模式与人工降级（未实现）
+
+### 要解决的层级混淆
+
+现有四分类把三个不同维度放在了同一枚举里：
+
+- `investigate` / `execute` 是**怎么处理**这次求助；
+- `clarify` 是一次处理后发现材料不足的**结果**；
+- `human` 是自动处理反复未解决后的**升级目的地**。
+
+下一版分类器只回答一个问题：这件事应该“查”还是应该“做”。它不得直接决定转人工，也不再把
+缺少信息当成第三种工作模式。
+
+| 处理模式 | 边界 | 成功结果 |
+| --- | --- | --- |
+| `investigate` | 福尔摩斯读取脱敏后的问题与已查路径，寻找新证据、反例、查法或方向；不替小腻形成最终结论，不修改 deep dive 状态。 | 返回可核对的发现与下一步方向。 |
+| `execute` | 执行 worker 读取脱敏、拆包后的局部规格，在已授权环境中实际操作并验证；不能只给建议。 | 返回已完成动作、产物和客观验收证据。 |
+
+### 统一状态机
+
+```text
+ask_li_ahua(request, context, help_id?)
+  -> 首次求助:创建稳定 help_id
+  -> 二分类:investigate | execute
+  -> 去身份化转写 -> 工作包 -> 对应 worker
+  -> solved
+       -> 保存结果 -> Notify Bucket 通知小腻
+  -> unresolved
+       -> 保存本次缺口与已做检查 -> attempts + 1
+       -> 尚未到阈值:保留同一 help_id,允许补充材料或后台续办
+       -> 达到阈值:把原始 request/context 与尝试摘要直接 QQ 交给李阿花
+```
+
+“没有答案”统一叫 `unresolved`，包括：缺少必要输入、调查没有形成可核对的新方向、执行未完成、
+验收失败、预算耗尽或 worker 明确 blocked。它是一次 attempt 的结果，不是路由分类。普通异常只有在
+本次确实启动过 helper 后才计 attempt；分类、转写、持久化或 provider 的瞬时故障按基础设施重试处理，
+不能消耗业务降级次数。
+
+人工不是首轮分类结果。同一 `help_id` 的 helper attempt 连续未解决达到
+`AGENT_HELP_MAX_HELPER_ATTEMPTS` 后才进入人工交接；沿用当前默认值 `2`，但配置值是运行策略，
+不是写进主 prompt 或工具 schema 的语义常量。进入 `help_human_sending` 后不得因超时自动重复发，
+发送结果不确定时先核对 QQ 记录；确认送达后进入 `help_human_sent`。
+
+### Deep Dive 的固定语义
+
+`update_deep_dive(action=need_outsider)` 是 `ask_li_ahua` 的兼容来源，但它的处理模式固定为
+`investigate`，不重新交给二分类器猜。原因是 deep dive 的结论权属于小腻：外援只能提供新的调查
+方向和依据，不能把一个思想或研究问题改写成“替她执行并完成”。
+
+```text
+active deep dive
+  -> need_outsider(question + searched_paths)
+  -> investigate worker 给新方向
+  -> 小腻亲自核对
+  -> 小腻继续 / 再次求助 / conclude
+```
+
+求助期间 deep dive 保持原状态；外援成功不自动 `conclude`。同一 deep dive 再次求助复用稳定的
+help thread，并把上一轮方向和小腻说明的“哪里仍未解决”交给下一 attempt。达到人工阈值后，按下节
+把原始 deep dive 问题、`searched_paths` 和尝试摘要交给李阿花。
+
+### 原始内容、脱敏内容与人工交接
+
+自动处理仍保留三级隔离：需求转写 Agent 是唯一读取原始诉求的下游角色；经理只看中性规格；每个
+worker 只看自己的局部工作包。分类器为判断处理模式可以读取原始 `request/context`，但不得执行。
+
+人工交接是这个脱敏边界的明确终点。发给李阿花本人时使用该 `help_id` 保存的原始 `request` 与
+`context`，并附最小必要的尝试摘要：每次使用的模式、得到的结果、缺少什么。不得把脱敏后的规格
+冒充原话，也不得只发内部错误、分类名或 worker 日志。QQ 正文建议固定为：
+
+```text
+【小腻求助 {help_id}】
+原始请求：{request}
+原始背景：{context}
+自动处理已尝试 {attempts} 次，仍未解决。
+尝试摘要：{每次结果与当前缺口}
+```
+
+这里的“原始”指首次提交及同一 `help_id` 后续补充形成的可追溯材料，不包含主 stack 全文、私密
+系统提示或与这次求助无关的上下文。本人回复仍走现有 QQ inbox；小腻用 `$qq-usage` 查看，不新建
+第二条回信链路。
+
+### 目标状态与兼容边界
+
+- 分类器 schema 从四类收敛为 `investigate | execute`；历史 slice 中的 `human` / `clarify` 原样保留，
+  不迁移、不改写 stack。
+- `help_waiting_input` 可以保留为模型可见的中间状态，但它表达 unresolved 的具体缺口，不再对应
+  `clarify` 分类；后续补充必须复用原 `help_id`。
+- `help_human_sending` / `help_human_sent` 继续作为发送幂等边界，但只能由 attempt 阈值触发。
+- `attempts` 只数真正开始的 investigate/execute helper attempt；同一个工作包内部的 model turn、
+  tool call 和基础设施重试不重复计数。
+- 自动 worker 永远读取脱敏材料；只有最终 QQ 人工交接读取并发送原始求助材料。
+- 小腻面向 `ask_li_ahua` 的工具说明仍只表达“异步求助、保留 help_id、结果另行通知”，不暴露
+  分类器、脱敏层、worker 或尝试阈值。
+
+### 验收条件
+
+1. 分类工具只接受并只返回 `investigate | execute`；原四分类 prompt 不再进入新请求。
+2. Deep Dive `need_outsider` 不调用分类模型，持久化 mode 必为 `investigate`。
+3. 缺输入、无新方向、执行 blocked、无有效 `finish_task` 都落为 unresolved attempt，不生成第三类 route。
+4. 第一次未解决不发 QQ；达到配置阈值后只发送一次，正文含原始 request/context、help ID 和尝试摘要。
+5. 人工发送失败与发送结果不确定都不能自动重复发送；能够从账本核对最终状态。
+6. 同一 `help_id` 补充材料后延续原任务、历史与 attempt 计数；新问题不得复用旧编号。
+7. investigate 的返回不会修改 deep dive phase；只有小腻自己的 `update_deep_dive` 能 conclude。
+8. execute 仍须用有效 `finish_task(completed)` 和可核验证据收口；普通 Text 不算完成。
+9. 转写、经理和 worker request 中不出现被要求省略的身份、来源和业务目的；人工 QQ 正文反向验证
+   使用的是原始材料而不是脱敏规格。
+10. 历史 stack、旧 help 回执和旧 slice 逐字节不改写。
+
+### 缓存影响（实现前必须复核）
+
+- **fork Agent 缓存：** 分类器 schema/prompt、转写、经理和 worker 都是独立 no-persist 请求，单改这些
+  不改变主 Agent 克隆前缀。若同时修改主 Agent 的 `ask_li_ahua` / deep-dive 工具定义或 system prompt，
+  主请求 tools/system 字节会变化，全部 fork 前缀随之一次性冷读；应合并成一次压缩边界切换。
+- **下一次主 Agent run 缓存：** 新 pending/结果/人工交接回执必须在生成时冻结进 stack，replay 使用
+  同一字节；attempt 数、分类结果和当前时间不得在重放时重新渲染。既有历史回执不得迁移改写。
+- 实现后必须运行仓库冻结的四组缓存回归，并以切换后相邻生产 slice 的 `wire_request` 和
+  `cache_read_input_tokens` 实测，失败禁止部署 `agent-service`。
+
 ## 面向小腻的入口
 
 `ask_li_ahua(request, context, help_id?)` 把“需要李阿花帮助的事情”提交为异步任务。日常计算机操作与研究问题都可使用，不要求创建 deep dive。
@@ -16,7 +140,7 @@
 旧 `update_deep_dive(action=need_outsider)` 作为已有上下文的兼容入口，转入同一求助实现，以 deep dive ID 稳定关联求助记录，结果通过原 Notify Bucket 回传。
 主 prompt 的主动求助入口是 `ask_li_ahua`。
 
-## 内部分流
+## 当前生产内部分流（四分类）
 
 分类器使用独立请求，只能返回 `classify_assistance`，不能执行计算机操作。严格校验分类输出；失败不默认授权执行。
 
