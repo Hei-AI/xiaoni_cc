@@ -307,6 +307,9 @@ const HELP_PROCESS_ID = randomUUID();
 function createXiaoniHelpPersistence({ getPrismaClient }) {
   async function enqueueXiaoniHelp(input, config = {}) {
     const prisma = getPrismaClient(config);
+    const assistanceMode = input.assistanceMode === 'investigate' || input.assistanceMode === 'execute'
+      ? input.assistanceMode
+      : null;
     const id = input.helpId || `help_${createHash('sha256').update(input.correlationKey || input.callId).digest('hex').slice(0, 40)}`;
     if (!input.helpId) {
       await prisma.agentTask.upsert({
@@ -321,6 +324,10 @@ function createXiaoniHelpPersistence({ getPrismaClient }) {
           input_json: {
             context: input.context,
             call_id: input.callId,
+            original_request: input.request,
+            original_context: input.context,
+            supplements: [],
+            ...(assistanceMode ? { assistance_mode: assistanceMode } : {}),
             queue_message: normalizeJsonObject(input.queueMessage)
           },
           result_json: { history: [] }
@@ -336,13 +343,23 @@ function createXiaoniHelpPersistence({ getPrismaClient }) {
       return { ok: false, reason: row.status, task: normalizeTask(row) };
     }
     if (input.helpId && ['help_answered', 'help_failed', 'help_waiting_input'].includes(row.status)) {
+      const previousInput = normalizeJsonObject(row.input_json);
+      const supplements = normalizeJsonArray(previousInput.supplements);
       const updated = await prisma.agentTask.updateMany({
         where: { id, task_type: HELP_TASK_TYPE, status: row.status, updated_at: row.updated_at },
         data: {
           status: 'help_ready', prompt: input.request,
           input_json: {
+            ...previousInput,
             context: input.context,
             call_id: input.callId,
+            original_request: previousInput.original_request || row.prompt,
+            original_context: previousInput.original_context || previousInput.context || '',
+            supplements: [...supplements, {
+              call_id: input.callId,
+              request: input.request,
+              context: input.context
+            }],
             queue_message: normalizeJsonObject(input.queueMessage)
           },
           error_message: null, completed_at: null, available_at: new Date()
@@ -439,9 +456,16 @@ function createXiaoniHelpPersistence({ getPrismaClient }) {
   }
 
   async function startXiaoniHelpAttempt(input, config = {}) {
-    const result = await getPrismaClient(config).agentTask.updateMany({
+    const prisma = getPrismaClient(config);
+    const row = await prisma.agentTask.findUnique({ where: { id: input.helpId } });
+    if (!row || row.task_type !== HELP_TASK_TYPE || row.claimed_by !== input.claim || row.status !== 'help_running') return false;
+    const mode = input.mode === 'investigate' || input.mode === 'execute' ? input.mode : null;
+    const result = await prisma.agentTask.updateMany({
       where: { id: input.helpId, task_type: HELP_TASK_TYPE, claimed_by: input.claim, status: 'help_running' },
-      data: { attempts: { increment: 1 } }
+      data: {
+        attempts: { increment: 1 },
+        ...(mode ? { input_json: { ...normalizeJsonObject(row.input_json), assistance_mode: mode } } : {})
+      }
     });
     return result.count === 1;
   }
@@ -451,16 +475,20 @@ function createXiaoniHelpPersistence({ getPrismaClient }) {
     const row = await prisma.agentTask.findUnique({ where: { id: input.helpId } });
     if (!row || row.task_type !== HELP_TASK_TYPE || row.claimed_by !== input.claim) return false;
     const history = Array.isArray(row.result_json?.history) ? row.result_json.history : [];
+    const nextHistory = input.recordHistory === false
+      ? history
+      : [...history, {
+          call_id: `${input.callId}:incomplete:${history.length + 1}`,
+          request: input.request,
+          result: input.result
+        }];
     const updated = await prisma.agentTask.updateMany({
       where: { id: row.id, task_type: HELP_TASK_TYPE, claimed_by: input.claim, status: 'help_running' },
       data: {
         status: 'help_ready',
         result_json: {
-          history: [...history, {
-            call_id: `${input.callId}:incomplete:${history.length + 1}`,
-            request: input.request,
-            result: input.result
-          }]
+          ...normalizeJsonObject(row.result_json),
+          history: nextHistory
         },
         available_at: input.availableAt || new Date(Date.now() + 5000),
         claimed_by: null,

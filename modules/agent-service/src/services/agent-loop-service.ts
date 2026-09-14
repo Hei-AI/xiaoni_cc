@@ -12419,9 +12419,9 @@ export class AgentLoopService {
     });
   }
 
-  // The help worker starts with an independent context. Classification is recorded
-  // as turn 0, followed by investigation or execution slices in the existing
-  // failure_review_fork_slices ledger. Nothing is cloned from the main request.
+  // The help worker starts with an independent context. General help records a
+  // two-mode classification at turn 0; deep-dive help fixes investigate and skips
+  // that request. Later slices share the existing failure_review_fork_slices ledger.
   private async runSherlockFork(params: {
     diveId: string;
     question: string;
@@ -12430,72 +12430,65 @@ export class AgentLoopService {
     forkRunId: string;
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
-    onHelperStart?: () => Promise<void>;
+    assistanceKind?: 'investigate' | 'execute';
+    onHelperStart?: (mode: 'investigate' | 'execute') => Promise<void>;
   }): Promise<{
     text: string | null;
     toolCallsUsed: number;
     turns: number;
-    needsHuman?: boolean;
     helperAttempt?: boolean;
     goalCompleted?: boolean;
     goalBlocked?: boolean;
-    assistanceKind?: 'investigate' | 'execute' | 'human' | 'clarify';
+    assistanceKind?: 'investigate' | 'execute';
+    unresolvedReason?: string | null;
   }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
     const helperModel = agentConfig.sherlockModelName || params.runtimePrompt.modelName;
     const classifierModel = agentConfig.sherlockClassifierModelName || helperModel;
-    const classifierRequest = {
-      model: classifierModel,
-      instructions: readPromptSnippet('sherlock_classify.md').trim(),
-      input: [{ type: 'message', role: 'user', content: JSON.stringify({
-        request: params.question, context: params.searchedPaths, previous_result: params.previousDirection
-      }) }],
-      tools: [SHERLOCK_ROUTE_TOOL],
-      tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: 'classify_assistance' }], 'required'),
-      parallel_tool_calls: false,
-      store: false,
-      max_output_tokens: 1000
-    } as CanonicalAgentTurnRequest;
-    await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
-    const classified = await this.executeSubconsciousAgentForkTurn(
-      classifierRequest, params.queueMessage,
-      { ...params.runtimePrompt, modelName: classifierModel, parameters: {} }, 0,
-      { agentType: 'sherlock_classifier', executionMode: 'sherlock_classifier_no_persist' }
-    );
-    const route = parseSherlockRoute(this.responseActionRouter.route(classified.canonical_response).toolCalls);
-    await this.recordFailureReviewForkSliceSafe({
-      sliceId: classified.llm_request_slice_id || classified.llm_call_id || `${params.forkRunId}:classify`,
-      forkRunId: params.forkRunId,
-      diveId: params.diveId,
-      llmCallId: classified.llm_call_id || null,
-      canonicalRequest: classified.canonical_request || classifierRequest,
-      wireRequest: classified.wire_request || null,
-      canonicalResponse: classified.canonical_response || null,
-      wireResponse: classified.wire_response || null,
-      outputItems: extractCanonicalResponseOutputItems(classified),
-      tokenUsage: buildProviderTokenUsage(classified),
-      traceId: params.queueMessage.traceId,
-      runId: params.queueMessage.runId,
-      agentTurn: 0,
-      modelName: classified.model || classifierModel,
-      status: route ? 'completed' : 'failed',
-      metadata: { fork_kind: 'sherlock', stage: 'classification', assistance_kind: route?.kind ?? null }
-    });
-    if (!route) throw new Error('Sherlock assistance classification returned an invalid decision');
-    if (route.kind === 'human') {
-      return { text: route.reason, toolCallsUsed: 0, turns: 0, needsHuman: true, assistanceKind: route.kind };
-    }
-    if (route.kind === 'clarify') {
-      return {
-        text: `需要补充信息：${route.reason}`,
-        toolCallsUsed: 0,
-        turns: 0,
-        goalBlocked: true,
-        assistanceKind: route.kind
-      };
+    let route: { kind: 'investigate' | 'execute'; reason: string } | null = params.assistanceKind
+      ? { kind: params.assistanceKind, reason: 'fixed by help source' }
+      : null;
+    if (!route) {
+      const classifierRequest = {
+        model: classifierModel,
+        instructions: readPromptSnippet('sherlock_classify.md').trim(),
+        input: [{ type: 'message', role: 'user', content: JSON.stringify({
+          request: params.question, context: params.searchedPaths, previous_result: params.previousDirection
+        }) }],
+        tools: [SHERLOCK_ROUTE_TOOL],
+        tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: 'classify_assistance' }], 'required'),
+        parallel_tool_calls: false,
+        store: false,
+        max_output_tokens: 1000
+      } as CanonicalAgentTurnRequest;
+      await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+      const classified = await this.executeSubconsciousAgentForkTurn(
+        classifierRequest, params.queueMessage,
+        { ...params.runtimePrompt, modelName: classifierModel, parameters: {} }, 0,
+        { agentType: 'sherlock_classifier', executionMode: 'sherlock_classifier_no_persist' }
+      );
+      route = parseSherlockRoute(this.responseActionRouter.route(classified.canonical_response).toolCalls);
+      await this.recordFailureReviewForkSliceSafe({
+        sliceId: classified.llm_request_slice_id || classified.llm_call_id || `${params.forkRunId}:classify`,
+        forkRunId: params.forkRunId,
+        diveId: params.diveId,
+        llmCallId: classified.llm_call_id || null,
+        canonicalRequest: classified.canonical_request || classifierRequest,
+        wireRequest: classified.wire_request || null,
+        canonicalResponse: classified.canonical_response || null,
+        wireResponse: classified.wire_response || null,
+        outputItems: extractCanonicalResponseOutputItems(classified),
+        tokenUsage: buildProviderTokenUsage(classified),
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        agentTurn: 0,
+        modelName: classified.model || classifierModel,
+        status: route ? 'completed' : 'failed',
+        metadata: { fork_kind: 'sherlock', stage: 'classification', assistance_kind: route?.kind ?? null }
+      });
+      if (!route) throw new Error('Sherlock assistance classification returned an invalid decision');
     }
 
-    await params.onHelperStart?.();
     const rewriteRequest = {
       model: classifierModel,
       instructions: readPromptSnippet('sherlock_restate.md').trim(),
@@ -12602,6 +12595,8 @@ export class AgentLoopService {
     let finalText: string | null = null;
     let completedWorkItems = 0;
     let goalBlocked = false;
+    let unresolvedReason: string | null = null;
+    let helperStarted = false;
     const workItemResults: string[] = [];
 
     for (let workItemIndex = 0; workItemIndex < plan.workItems.length && turns < SHERLOCK_FORK_MAX_TURNS; workItemIndex += 1) {
@@ -12639,6 +12634,10 @@ export class AgentLoopService {
           forkTurn,
           { agentType: 'sherlock', executionMode: 'sherlock_fork_no_persist' }
         );
+        if (!helperStarted && modelResult.success !== false) {
+          await params.onHelperStart?.(route.kind);
+          helperStarted = true;
+        }
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         const forkSliceId = modelResult.llm_request_slice_id
           || modelResult.llm_call_id
@@ -12691,6 +12690,7 @@ export class AgentLoopService {
             finalText = workItemResults.join('\n');
             workItemFinished = goalResult.status === 'completed';
             goalBlocked = goalResult.status === 'blocked';
+            unresolvedReason = goalResult.blockedReason || null;
             break;
           }
           for (const item of toolCalls) {
@@ -12768,10 +12768,11 @@ export class AgentLoopService {
       text: finalText,
       toolCallsUsed,
       turns,
-      helperAttempt: true,
+      helperAttempt: helperStarted,
       goalCompleted,
       goalBlocked,
-      assistanceKind: route.kind
+      assistanceKind: route.kind,
+      unresolvedReason
     };
   }
 
@@ -12884,7 +12885,7 @@ export class AgentLoopService {
         callId: `deep-dive-help:${dive.id}:${dive.revision}`,
         args,
         rawArguments: JSON.stringify(args)
-      }, queueMessage, `deep-dive:${dive.id}`);
+      }, queueMessage, `deep-dive:${dive.id}`, 'investigate');
       const findings = JSON.stringify(result);
       await this.enqueueSherlockNotify({ diveId: dive.id, revision: dive.revision, findings });
     })().catch(error => {
@@ -14817,7 +14818,12 @@ export class AgentLoopService {
     throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Provider agent execute failed'));
   }
 
-  private async askLiAhua(toolCall: AgentToolCall, queueMessage: QueueMessageRecord['payload'], correlationKey?: string): Promise<Record<string, unknown>> {
+  private async askLiAhua(
+    toolCall: AgentToolCall,
+    queueMessage: QueueMessageRecord['payload'],
+    correlationKey?: string,
+    assistanceMode?: 'investigate' | 'execute'
+  ): Promise<Record<string, unknown>> {
     const request = typeof toolCall.args.request === 'string' ? toolCall.args.request.trim() : '';
     const context = typeof toolCall.args.context === 'string' ? toolCall.args.context.trim() : '';
     const helpId = typeof toolCall.args.help_id === 'string' ? toolCall.args.help_id.trim() : '';
@@ -14828,6 +14834,7 @@ export class AgentLoopService {
       context,
       callId: toolCall.callId,
       correlationKey,
+      assistanceMode,
       traceId: queueMessage.traceId,
       runId: queueMessage.runId,
       sessionKey: queueMessage.sessionKey,
@@ -14882,7 +14889,8 @@ export class AgentLoopService {
         result: {
           status: 'incomplete',
           error: error instanceof Error ? error.message : String(error)
-        }
+        },
+        recordHistory: false
       });
     }
     return true;
@@ -14899,86 +14907,44 @@ export class AgentLoopService {
     const context = typeof task.input_json?.context === 'string' ? task.input_json.context : '';
     const callId = typeof task.input_json?.call_id === 'string' ? task.input_json.call_id : task.id;
     const history = Array.isArray(task.result_json?.history) ? task.result_json.history : [];
-    let helperAttempt = false;
     let attemptRecorded = false;
-    let sending = false;
-    let result: Record<string, unknown>;
-    let status = 'help_answered';
+    const storedMode = task.input_json?.assistance_mode === 'investigate' || task.input_json?.assistance_mode === 'execute'
+      ? task.input_json.assistance_mode
+      : undefined;
+    let attemptMode = storedMode;
+    let outcome: {
+      text: string | null;
+      toolCallsUsed: number;
+      turns: number;
+      helperAttempt?: boolean;
+      goalCompleted?: boolean;
+      goalBlocked?: boolean;
+      assistanceKind?: 'investigate' | 'execute';
+      unresolvedReason?: string | null;
+    };
     try {
       const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
       const prior = history.map((entry: any) => ({ request: entry.request, result: entry.result }));
-      const outcome = await this.runSherlockFork({
-            diveId: '',
-            question: task.prompt,
-            searchedPaths: JSON.stringify({ original_context: context, request, context }),
-            previousDirection: prior.length ? JSON.stringify(prior) : null,
-            forkRunId: `help:${task.id}:${uuidv4().slice(0, 8)}`,
-            queueMessage, runtimePrompt,
-            onHelperStart: async () => {
-              if (!await this.store.startHelpAttempt({ helpId: task.id, claim: task.claim })) throw new Error('Help attempt claim lost');
-              attemptRecorded = true;
-              helperAttempt = true;
-            }
-          });
-      helperAttempt = Boolean(outcome.helperAttempt);
-      if (outcome.assistanceKind === 'execute' && !outcome.goalCompleted && !outcome.goalBlocked) {
-        const requeued = await this.store.requeueHelp({
-          helpId: task.id,
-          claim: task.claim,
-          callId,
-          request,
-          result: {
-            status: 'incomplete',
-            summary: outcome.text,
-            turns: outcome.turns,
-            tool_calls: outcome.toolCallsUsed
+      outcome = await this.runSherlockFork({
+        diveId: '',
+        question: task.prompt,
+        searchedPaths: JSON.stringify({ original_context: context, request, context }),
+        previousDirection: prior.length ? JSON.stringify(prior) : null,
+        forkRunId: `help:${task.id}:${uuidv4().slice(0, 8)}`,
+        queueMessage,
+        runtimePrompt,
+        assistanceKind: storedMode,
+        onHelperStart: async (mode) => {
+          attemptMode = mode;
+          if (!await this.store.startHelpAttempt({ helpId: task.id, claim: task.claim, mode })) {
+            throw new Error('Help attempt claim lost');
           }
-        });
-        if (!requeued) throw new Error('Help goal requeue claim lost');
-        return;
-      }
-      if (outcome.goalBlocked) {
-        status = 'help_waiting_input';
-        result = {
-          ok: false,
-          help_id: task.id,
-          status,
-          result: outcome.text || '需要补充完成任务所必需的信息。'
-        };
-      } else if (outcome.needsHuman || (outcome.assistanceKind === 'investigate' && helperAttempt && !shouldDeliverSherlockDirection(outcome.text))) {
-        const qqId = Number(agentConfig.helpHumanQqId);
-        if (!Number.isSafeInteger(qqId) || qqId <= 0) {
-          status = 'help_waiting_input';
-          result = { ok: false, help_id: task.id, status: 'human_contact_unconfigured', message: '需要李阿花本人帮助，但求助私聊收件人尚未配置，消息未发送。' };
-        } else {
-          if (!await this.store.markHelpSending({ helpId: task.id, claim: task.claim })) throw new Error('Help delivery claim lost');
-          sending = true;
-          const message = [
-            `【小腻求助 ${task.id}】`, task.prompt,
-            `背景：${task.input_json?.context || context}`,
-            `本次补充：${request}\n${context}`,
-            '这件事目前仍需要你的帮助。',
-            prior.length ? `此前求助结果：${JSON.stringify(prior.map((entry: any) => ({ request: entry.request, result: presentLiAhuaHelp(entry.result) })))}` : '',
-            '请在这个 QQ 私聊里回复小腻。'
-          ].filter(Boolean).join('\n\n');
-          const characters = Array.from(message);
-          const messages: string[] = [];
-          for (let offset = 0; offset < characters.length; offset += 1500) {
-            messages.push(characters.slice(offset, offset + 1500).join(''));
-          }
-          await this.sendMessage('private', { user_id: qqId, messages }, queueMessage);
-          status = 'help_human_sent';
-          result = { ok: true, help_id: task.id, status: 'waiting_for_li_ahua', message: '已把求助和此前处理记录发到你与李阿花的 QQ 私聊，等待他本人回复。' };
+          attemptRecorded = true;
         }
-      } else {
-        result = {
-          ok: true, help_id: task.id, status: 'helper_replied', source: '求助入口的帮手',
-          result: outcome.text, message: '这是帮手的处理结果，不是李阿花本人回复。仍未解决时带上这个 help_id 说明情况。'
-        };
-      }
+      });
     } catch (error) {
       moduleLogger.warn('Help request failed', { helpId: task.id, error: error instanceof Error ? error.message : String(error) });
-      if (!sending) {
+      if (!attemptRecorded) {
         const requeued = await this.store.requeueHelp({
           helpId: task.id,
           claim: task.claim,
@@ -14987,20 +14953,136 @@ export class AgentLoopService {
           result: {
             status: 'incomplete',
             error: error instanceof Error ? error.message : String(error)
-          }
+          },
+          recordHistory: false
         });
         if (!requeued) throw new Error('Help goal requeue claim lost');
         return;
       }
-      status = 'help_human_sending';
-      result = {
-        ok: false, help_id: task.id, status: 'delivery_uncertain',
-        message: '私聊发送结果尚未确认，请先核对聊天记录，避免重复发送。'
+      outcome = {
+        text: '自动处理已启动，但本次没有形成可核对的结果。',
+        toolCallsUsed: 0,
+        turns: 0,
+        helperAttempt: true,
+        assistanceKind: attemptMode,
+        unresolvedReason: error instanceof Error ? error.message : String(error)
       };
+    }
+
+    if (!attemptRecorded && outcome.helperAttempt !== true) {
+      const requeued = await this.store.requeueHelp({
+        helpId: task.id,
+        claim: task.claim,
+        callId,
+        request,
+        result: { status: 'infrastructure_retry' },
+        recordHistory: false
+      });
+      if (!requeued) throw new Error('Help infrastructure retry claim lost');
+      return;
+    }
+
+    const mode = outcome.assistanceKind || attemptMode || 'investigate';
+    const solved = mode === 'execute'
+      ? outcome.goalCompleted === true
+      : shouldDeliverSherlockDirection(outcome.text);
+    if (solved) {
+      const result = {
+        ok: true,
+        help_id: task.id,
+        status: 'helper_replied',
+        result: outcome.text,
+        message: '求助有了可核对的处理结果。仍未解决时带上这个 help_id 说明情况。'
+      };
+      const saved = await this.store.finishHelp({
+        helpId: task.id, claim: task.claim, callId, request, result, status: 'help_answered', helperAttempt: false
+      });
+      if (!saved) throw new Error('Help result persistence claim lost');
+      await this.enqueueHelpTaskNotification(task, result, 'help_answered');
+      return;
+    }
+
+    const attempts = Number(task.attempts || 0) + (attemptRecorded || outcome.helperAttempt ? 1 : 0);
+    const unresolved = {
+      status: 'unresolved',
+      mode,
+      summary: outcome.text || '本次没有形成可核对的结果。',
+      gap: outcome.unresolvedReason || (outcome.goalBlocked
+        ? outcome.text || '缺少继续处理所需的输入或可用条件。'
+        : '尚未完成或没有形成可核对的新方向。'),
+      turns: outcome.turns,
+      tool_calls: outcome.toolCallsUsed
+    };
+
+    if (attempts < agentConfig.helpMaxHelperAttempts) {
+      if (outcome.goalBlocked) {
+        const result = { ok: false, help_id: task.id, status: 'help_waiting_input', result: unresolved.gap };
+        const saved = await this.store.finishHelp({
+          helpId: task.id, claim: task.claim, callId, request, result: { ...result, attempt: unresolved },
+          status: 'help_waiting_input', helperAttempt: false
+        });
+        if (!saved) throw new Error('Help result persistence claim lost');
+        await this.enqueueHelpTaskNotification(task, result, 'help_waiting_input');
+        return;
+      }
+      const requeued = await this.store.requeueHelp({
+        helpId: task.id, claim: task.claim, callId, request, result: unresolved
+      });
+      if (!requeued) throw new Error('Help goal requeue claim lost');
+      return;
+    }
+
+    const qqId = Number(agentConfig.helpHumanQqId);
+    let status: 'help_waiting_input' | 'help_human_sent' | 'help_human_sending';
+    let result: Record<string, unknown>;
+    if (!Number.isSafeInteger(qqId) || qqId <= 0) {
+      status = 'help_waiting_input';
+      result = {
+        ok: false, help_id: task.id, status: 'human_contact_unconfigured',
+        message: '自动处理已达到人工交接条件，但求助私聊收件人尚未配置，消息未发送。',
+        attempt: unresolved
+      };
+    } else {
+      if (!await this.store.markHelpSending({ helpId: task.id, claim: task.claim })) {
+        throw new Error('Help delivery claim lost');
+      }
+      const originalRequest = task.input_json?.original_request || task.prompt;
+      const originalContext = task.input_json?.original_context || task.input_json?.context || context;
+      const supplements = Array.isArray(task.input_json?.supplements) ? task.input_json.supplements : [];
+      const attemptSummaries = [
+        ...history.map((entry: any) => entry.result?.attempt || entry.result),
+        unresolved
+      ];
+      const message = [
+        `【小腻求助 ${task.id}】`,
+        `原始请求：${originalRequest}`,
+        `原始背景：${originalContext}`,
+        supplements.length ? `后续补充：${JSON.stringify(supplements)}` : '',
+        `自动处理已尝试 ${attempts} 次，仍未解决。`,
+        `尝试摘要：${JSON.stringify(attemptSummaries)}`,
+        '请在这个 QQ 私聊里回复小腻。'
+      ].filter(Boolean).join('\n\n');
+      const characters = Array.from(message);
+      const messages: string[] = [];
+      for (let offset = 0; offset < characters.length; offset += 1500) {
+        messages.push(characters.slice(offset, offset + 1500).join(''));
+      }
+      try {
+        await this.sendMessage('private', { user_id: qqId, messages }, queueMessage);
+        status = 'help_human_sent';
+        result = { ok: true, help_id: task.id, status: 'waiting_for_li_ahua', message: '已把原始求助和尝试摘要发到你与李阿花的 QQ 私聊，等待本人回复。', attempt: unresolved };
+      } catch (error) {
+        moduleLogger.warn('Help handoff delivery is uncertain', { helpId: task.id, error: error instanceof Error ? error.message : String(error) });
+        status = 'help_human_sending';
+        result = {
+          ok: false, help_id: task.id, status: 'delivery_uncertain',
+          message: '私聊发送结果尚未确认，请先核对聊天记录，避免重复发送。', attempt: unresolved
+        };
+      }
     }
     const saved = await this.store.finishHelp({
       helpId: task.id, claim: task.claim, callId, request, result, status,
-      helperAttempt: helperAttempt && !attemptRecorded
+      helperAttempt: false
     });
     if (!saved) throw new Error('Help result persistence claim lost');
     await this.enqueueHelpTaskNotification(task, result, status);

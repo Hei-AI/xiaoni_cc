@@ -53,11 +53,12 @@ function harness(responses: unknown[]) {
   service.executeTool = async (tool: any) => { commands.push(tool); return { stdout: 'verified', codex_output: 'Process exited with code 0\nverified' }; };
   return {
     requests, commands, slices,
-    run: () => service.runSherlockFork({
+    run: (overrides: Record<string, unknown> = {}) => service.runSherlockFork({
       diveId: 'd1', question: '帮我转换文件', searchedPaths: '/xiaoni-runtime/input.txt，输出 result.json',
       previousDirection: null, forkRunId: 'help-1', baseRequest: {},
       queueMessage: { runId: 'run-1', traceId: 'trace-1' },
-      runtimePrompt: { modelName: 'test-model', parameters: {}, promptName: 'test' }
+      runtimePrompt: { modelName: 'test-model', parameters: {}, promptName: 'test' },
+      ...overrides
     })
   };
 }
@@ -70,10 +71,14 @@ test('invalid or ambiguous classification never authorizes operations', async ()
   assert.equal(h.slices[0].status, 'failed');
 });
 
-test('missing information returns a concrete question without executing', async () => {
+test('historical clarify and human classifications are rejected by the two-mode schema', async () => {
   const h = harness([response([call('classify_assistance', { kind: 'clarify', reason: '输出文件应放在哪里？' })])]);
-  const result = await h.run();
-  assert.match(result.text, /输出文件应放在哪里/);
+  await assert.rejects(h.run(), /invalid decision/);
+  assert.deepEqual((h.requests[0].tools[0] as any).function.parameters.properties.kind.enum, ['investigate', 'execute']);
+  assert.doesNotMatch(h.requests[0].instructions, /\b(?:clarify|human)\b/u);
+  assert.equal(parseSherlockRoute([{
+    name: 'classify_assistance', callId: 'legacy-human', rawArguments: '', args: { kind: 'human', reason: '旧分类' }
+  }]), null);
   assert.equal(h.commands.length, 0);
 });
 
@@ -228,13 +233,31 @@ test('investigation keeps the direction contract and rejects unrelated tools', a
   assert.equal(h.requests[4].input.at(-1).call_id, 'c1');
 });
 
+test('a fixed investigate source bypasses classification and starts one persisted helper attempt', async () => {
+  const h = harness([
+    ...handoff('调查指定故障', '已有日志路径', '提供可核对的新方向'),
+    response([{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '方向：核对事件顺序' }] }])
+  ]);
+  const started: string[] = [];
+  const result = await h.run({
+    assistanceKind: 'investigate',
+    onHelperStart: async (mode: string) => { started.push(mode); }
+  });
+  assert.deepEqual(started, ['investigate']);
+  assert.equal(result.assistanceKind, 'investigate');
+  assert.equal(h.requests[0].tools[0].function.name, 'rewrite_delegated_requirement');
+  assert.equal(h.slices.some((slice) => slice.metadata.stage === 'classification'), false);
+});
+
 test('finish_task reports verified completion or an explicit blocker without shell execution', async () => {
   assert.deepEqual(parseAssistanceFinishCall({
     name: 'finish_task', callId: 'f1', rawArguments: '', args: {
       status: 'blocked', summary: '停在登录页', verification: '页面仍要求短信验证码', blocked_reason: '缺少本人收到的短信验证码'
     }
   }), {
-    status: 'blocked', text: '停在登录页\n阻塞原因：缺少本人收到的短信验证码\n当前状态核对：页面仍要求短信验证码'
+    status: 'blocked',
+    text: '停在登录页\n阻塞原因：缺少本人收到的短信验证码\n当前状态核对：页面仍要求短信验证码',
+    blockedReason: '缺少本人收到的短信验证码'
   });
   assert.equal(parseAssistanceFinishCall({
     name: 'finish_task', callId: 'f2', rawArguments: '', args: {
@@ -325,8 +348,10 @@ test('invalid or identity-leaking brief fails closed before the execution worker
       spec: '替小腻完成李阿花提供的当前账号页面测试。', omitted_sensitive_context: []
     })])
   ]);
-  await assert.rejects(h.run(), /requirement transformation returned an invalid result/);
+  let attempts = 0;
+  await assert.rejects(h.run({ onHelperStart: async () => { attempts += 1; } }), /requirement transformation returned an invalid result/);
   assert.equal(h.commands.length, 0);
+  assert.equal(attempts, 0);
   assert.equal(h.slices[1].status, 'failed');
 });
 
@@ -400,7 +425,7 @@ test('execution worker loads browser screenshots without native computer use', a
 function helpHarness(outcome: any = {
   text: '文件已经转换并验证', helperAttempt: true, assistanceKind: 'execute',
   goalCompleted: true, goalBlocked: false, needsHuman: false, turns: 2, toolCallsUsed: 1
-}) {
+}, taskAttempts = 0) {
   const service: any = new AgentLoopService({} as any, {} as any);
   const enqueued: any[] = [];
   const saved: any[] = [];
@@ -409,7 +434,7 @@ function helpHarness(outcome: any = {
   const sent: any[] = [];
   let helperCalls = 0;
   const task = {
-    id: 'help-1', prompt: '帮我完成转换', source_trace_id: 't1', source_run_id: 'r1', attempts: 0,
+    id: 'help-1', prompt: '帮我完成转换', source_trace_id: 't1', source_run_id: 'r1', attempts: taskAttempts,
     claim: 'lease', result_json: { history: [] }, input_json: {
       call_id: 'c1', context: 'input.txt',
       queue_message: { runId: 'r1', traceId: 't1', sessionKey: 'xiaoni:global', chatType: 'direct', peerId: 'bot' }
@@ -464,6 +489,16 @@ test('an execution without a completion marker stays active and is requeued', as
   assert.equal(h.saved.length, 0);
   assert.equal(h.requeued.length, 1);
   assert.equal(h.notifications.length, 0);
+  assert.equal(h.sent.length, 0);
+});
+
+test('classification or transformation infrastructure failures do not consume the escalation threshold', async () => {
+  const h = helpHarness(undefined, agentConfig.helpMaxHelperAttempts - 1);
+  h.service.runSherlockFork = async () => { throw new Error('provider unavailable before worker start'); };
+  await h.work();
+  assert.equal(h.requeued.length, 1);
+  assert.equal(h.saved.length, 0);
+  assert.equal(h.sent.length, 0);
 });
 
 test('a goal blocked on required input asks the main loop for that input', async () => {
@@ -477,13 +512,18 @@ test('a goal blocked on required input asks the main loop for that input', async
   assert.match(h.notifications[0].payload.bodyForAgent, /收件人地址/);
 });
 
-test('human-only classification is handled by the background worker', async () => {
+test('only the configured unresolved-attempt threshold triggers a human handoff with original material', async () => {
   const previous = agentConfig.helpHumanQqId;
   agentConfig.helpHumanQqId = '123456';
   try {
-    const h = helpHarness({ text: '需要本人决定', needsHuman: true, assistanceKind: 'human', helperAttempt: false });
+    const h = helpHarness({
+      text: null, assistanceKind: 'investigate', helperAttempt: true,
+      goalCompleted: false, goalBlocked: false, turns: 2, toolCallsUsed: 0
+    }, agentConfig.helpMaxHelperAttempts - 1);
     await h.work();
-    assert.match(h.sent[0][1].messages.join(''), /帮我完成转换/);
+    assert.match(h.sent[0][1].messages.join(''), /原始请求：帮我完成转换/);
+    assert.match(h.sent[0][1].messages.join(''), /原始背景：input.txt/);
+    assert.match(h.sent[0][1].messages.join(''), new RegExp(`自动处理已尝试 ${agentConfig.helpMaxHelperAttempts} 次`));
     assert.doesNotMatch(h.sent[0][1].messages.join(''), /分类|帮手|外包/);
     assert.equal(h.saved[0].helperAttempt, false);
   } finally { agentConfig.helpHumanQqId = previous; }
@@ -501,7 +541,10 @@ test('unknown human delivery outcome is recorded once and not retried automatica
   const previous = agentConfig.helpHumanQqId;
   agentConfig.helpHumanQqId = '123456';
   try {
-    const h = helpHarness({ text: '需要本人决定', needsHuman: true, assistanceKind: 'human', helperAttempt: false });
+    const h = helpHarness({
+      text: null, assistanceKind: 'execute', helperAttempt: true,
+      goalCompleted: false, goalBlocked: false, turns: 100, toolCallsUsed: 100
+    }, agentConfig.helpMaxHelperAttempts - 1);
     h.service.sendMessage = async () => { throw new Error('connection interrupted'); };
     await h.work();
     assert.equal(h.saved[0].status, 'help_human_sending');

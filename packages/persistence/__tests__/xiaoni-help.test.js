@@ -61,11 +61,12 @@ test('unknown help ids do not create a replacement task', async () => {
   assert.equal(row(), null);
 });
 
-test('attempts are recorded before work and process replacement requires human review', async () => {
+test('attempts are recorded when the helper starts and survive process replacement', async () => {
   const { api, row } = harness();
   const first = await api.beginXiaoniHelp(input);
-  assert.equal(await api.startXiaoniHelpAttempt({ helpId: first.task.id, claim: first.claim }), true);
+  assert.equal(await api.startXiaoniHelpAttempt({ helpId: first.task.id, claim: first.claim, mode: 'execute' }), true);
   assert.equal(row().attempts, 1);
+  assert.equal(row().input_json.assistance_mode, 'execute');
   row().claimed_by = 'previous-runtime:claim';
   const resumed = await api.beginXiaoniHelp({ ...input, callId: 'after-restart', helpId: first.task.id });
   assert.equal(resumed.ok, true);
@@ -95,6 +96,28 @@ test('asynchronous help is enqueued, claimed, and requeued until the goal comple
   assert.equal(resumed.status, 'help_running');
 });
 
+test('a fixed source mode is persisted for retries without becoming a route result', async () => {
+  const { api, row } = harness();
+  const queued = await api.enqueueXiaoniHelp({ ...input, assistanceMode: 'investigate' });
+  assert.equal(queued.ok, true);
+  assert.equal(row().input_json.assistance_mode, 'investigate');
+  assert.equal(row().result_json.history.length, 0);
+});
+
+test('infrastructure retries do not enter business attempt history', async () => {
+  const { api, row } = harness();
+  await api.enqueueXiaoniHelp(input);
+  const claimed = await api.claimNextXiaoniHelp('test-worker');
+  assert.equal(await api.requeueXiaoniHelp({
+    helpId: claimed.id, claim: claimed.claim, callId: input.callId, request: input.request,
+    result: { status: 'infrastructure_retry', error: 'provider unavailable' },
+    recordHistory: false,
+    availableAt: new Date(0)
+  }), true);
+  assert.deepEqual(row().result_json.history, []);
+  assert.equal(row().attempts, 0);
+});
+
 test('supplying missing input reopens the same waiting goal', async () => {
   const { api, row } = harness();
   const queued = await api.enqueueXiaoniHelp(input);
@@ -107,4 +130,9 @@ test('supplying missing input reopens the same waiting goal', async () => {
   assert.equal(resumed.ok, true);
   assert.equal(row().status, 'help_ready');
   assert.equal(row().input_json.call_id, 'second');
+  assert.equal(row().input_json.original_request, 'convert file');
+  assert.equal(row().input_json.original_context, 'input.txt');
+  assert.deepEqual(row().input_json.supplements, [{
+    call_id: 'second', request: 'convert file', context: '邮箱是 test@example.com'
+  }]);
 });
