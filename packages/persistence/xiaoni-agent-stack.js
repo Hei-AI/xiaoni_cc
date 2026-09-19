@@ -38,6 +38,19 @@ const USAGE_SOURCE_PSYCH_ASSESSMENT_FORK = 'psych_assessment_fork';
 const USAGE_SOURCE_FAILURE_REVIEW_FORK = 'failure_review_fork';
 const USAGE_SOURCE_CODEX_PROVIDER = 'codex_provider';
 const USAGE_SOURCE_IMAGE_VISION_FORK = 'image_vision_fork';
+// pruneLlmPayloadsBeforeReadCutoff 按时间修剪的观测载荷表(fork 局部 index 与主栈不可比)。
+// runsTable:该 fork 的 run 表,running 的 run 整个跳过;hasStatus:行自身带 status,running 的跳过。
+const TIME_PRUNED_PAYLOAD_TABLES = [
+  { table: 'subconscious_agent_fork_slices', runsTable: 'subconscious_agent_fork_runs', hasStatus: true },
+  { table: 'subconscious_agent_fork_items', runsTable: 'subconscious_agent_fork_runs', hasStatus: false },
+  { table: 'core_memory_compression_fork_slices', runsTable: 'core_memory_compression_fork_runs', hasStatus: true },
+  { table: 'core_memory_compression_fork_items', runsTable: 'core_memory_compression_fork_runs', hasStatus: false },
+  { table: 'image_vision_fork_slices', runsTable: 'image_vision_fork_runs', hasStatus: true },
+  { table: 'image_vision_fork_items', runsTable: 'image_vision_fork_runs', hasStatus: false },
+  { table: 'failure_review_fork_slices', runsTable: null, hasStatus: true },
+  { table: 'psych_assessment_fork_slices', runsTable: null, hasStatus: true },
+  { table: 'provider_usage_events', runsTable: null, hasStatus: true }
+];
 const USAGE_SOURCE_IMAGE_GENERATION = 'image_generation';
 const USAGE_SOURCE_IMAGE_EDIT = 'image_edit';
 const USAGE_SOURCE_IMAGE_PROMPT_ASSISTANT = 'image_prompt_assistant';
@@ -2851,6 +2864,82 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  // 观测层载荷保留期:只留还在小腻当前上下文里的请求快照。
+  // llm_request_slices 每行是整份请求快照(canonical_request + wire_request 各 ~2MB),只做观测、
+  // 不进 replay(replay 只读 agent_stack_items)。read_cutoff 之前的栈块已被驱逐出上下文,对应快照
+  // 再留着只占盘 —— 2026-09 曾涨到 626G 撑满磁盘。
+  //  - llm_request_slices:输入/输出区间整段 <= read_cutoff 的删;区间全空的按时间删。
+  //  - fork slices/items 与 provider_usage_events:fork 用自己的局部 index,和主栈不可比,按时间删 ——
+  //    早于「上下文首个保留块」created_at 的删;running 的行 / running fork run 的行跳过。
+  //  - 分批 DELETE,每批一条短语句,不长时间持锁。用量统计写入时已同步进 llm_usage_rollup_sources,
+  //    删源行不影响;但 USAGE_ROLLUP_VERSION 升版本会从源表整体重建,被修剪的历史统计随之消失。
+  //  - 栈、fork runs(含摘要)、tool_executions 一律不动。
+  async function pruneLlmPayloadsBeforeReadCutoff(input = {}, config = {}) {
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+    const readCutoff = Number(input.readCutoffAfterStackIndex ?? input.read_cutoff_after_stack_index);
+    if (!Number.isSafeInteger(readCutoff) || readCutoff <= 0) {
+      return { pruned: false, reason: 'no_read_cutoff', deleted: {}, total: 0 };
+    }
+    const batchSize = Math.max(1, Math.min(5000, Number.parseInt(String(input.batchSize ?? 100), 10) || 100));
+    await ensureXiaoniAgentStackSchema(input, config);
+    return withSql(input, config, async (sql) => {
+      const deleteInBatches = async (table, whereClause, params) => {
+        let deleted = 0;
+        for (;;) {
+          const rows = await sql.query(
+            `DELETE FROM ${table} WHERE id IN (SELECT id FROM ${table} WHERE ${whereClause} LIMIT ?) RETURNING id`,
+            [...params, batchSize]
+          );
+          deleted += rows.length;
+          if (rows.length < batchSize) {
+            return deleted;
+          }
+        }
+      };
+
+      const boundaryRows = await sql.query(
+        'SELECT created_at FROM agent_stack_items WHERE identity_key = ? AND stack_index > ? ORDER BY stack_index ASC LIMIT 1',
+        [identityKey, readCutoff]
+      );
+      const contextStartedAt = boundaryRows[0]?.created_at ? new Date(boundaryRows[0].created_at) : null;
+
+      const deleted = {};
+      const mainWhere = contextStartedAt
+        ? `identity_key = ? AND status <> 'running' AND (
+             GREATEST(input_end_index, output_end_index) <= ?
+             OR (input_end_index IS NULL AND output_end_index IS NULL AND created_at < ?::timestamptz)
+           )`
+        : `identity_key = ? AND status <> 'running' AND GREATEST(input_end_index, output_end_index) <= ?`;
+      deleted.llm_request_slices = await deleteInBatches(
+        'llm_request_slices',
+        mainWhere,
+        contextStartedAt ? [identityKey, readCutoff, contextStartedAt.toISOString()] : [identityKey, readCutoff]
+      );
+
+      if (contextStartedAt) {
+        for (const { table, runsTable, hasStatus } of TIME_PRUNED_PAYLOAD_TABLES) {
+          const clauses = ['identity_key = ?', 'created_at < ?::timestamptz'];
+          if (hasStatus) {
+            clauses.push("status <> 'running'");
+          }
+          if (runsTable) {
+            clauses.push(`fork_run_id NOT IN (SELECT fork_run_id FROM ${runsTable} WHERE status = 'running')`);
+          }
+          deleted[table] = await deleteInBatches(table, clauses.join(' AND '), [identityKey, contextStartedAt.toISOString()]);
+        }
+      }
+
+      const total = Object.values(deleted).reduce((sum, count) => sum + count, 0);
+      return {
+        pruned: total > 0,
+        readCutoffAfterStackIndex: readCutoff,
+        contextStartedAt: contextStartedAt ? contextStartedAt.toISOString() : null,
+        deleted,
+        total
+      };
+    });
+  }
+
   async function recordLlmRequestSlice(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const sliceId = buildSliceId(input);
@@ -5283,6 +5372,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendAgentStackItem,
     appendAgentStackItems,
     voidAgentStackRunSegment,
+    pruneLlmPayloadsBeforeReadCutoff,
     recordLlmRequestSlice,
     recordProviderUsageEvent,
     updateLlmRequestSliceStackLinks,

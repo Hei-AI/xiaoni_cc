@@ -1134,6 +1134,7 @@ export type XiaoniAgentStackPersistenceApi = {
   appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
   appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   voidAgentStackRunSegment(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackVoidResult>;
+  pruneLlmPayloadsBeforeReadCutoff(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmPayloadPruneResult>;
   recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
   recordProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniProviderUsageEvent | null>;
   updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
@@ -1182,6 +1183,15 @@ export type XiaoniAgentStackVoidResult = {
   minStackIndex?: number;
 };
 export function voidAgentStackRunSegment(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackVoidResult>;
+export type XiaoniLlmPayloadPruneResult = {
+  pruned: boolean;
+  reason?: string;
+  readCutoffAfterStackIndex?: number;
+  contextStartedAt?: string | null;
+  deleted: Record<string, number>;
+  total: number;
+};
+export function pruneLlmPayloadsBeforeReadCutoff(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmPayloadPruneResult>;
 export function recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
 export function recordProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniProviderUsageEvent | null>;
 export function updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
