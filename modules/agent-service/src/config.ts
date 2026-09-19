@@ -117,6 +117,13 @@ export const agentConfig = {
     30 * 60 * 1000,
     readIntegerEnv('AGENT_CLOCK_PING_INTERVAL_MS', 2 * 60 * 60 * 1000)
   ),
+  // 观测层载荷保留期:周期性删掉已被 read_cutoff 驱逐出上下文的 llm_request_slices / fork 快照,
+  // 否则每次 LLM 调用 ~4MB 的整份请求快照会无限累积(2026-09 曾撑满磁盘)。
+  llmPayloadRetentionEnabled: readBooleanEnv('AGENT_LLM_PAYLOAD_RETENTION_ENABLED', true),
+  llmPayloadRetentionIntervalMs: Math.max(
+    5 * 60 * 1000,
+    readIntegerEnv('AGENT_LLM_PAYLOAD_RETENTION_INTERVAL_MS', 60 * 60 * 1000)
+  ),
   cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),
   cacheHeartbeatIntervalMs: Math.max(
     60 * 1000,
