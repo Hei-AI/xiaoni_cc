@@ -97,9 +97,9 @@ services:
       - NAPCAT_WEBUI_BASE_URL=http://napcat:6099
       - NAPCAT_WEBUI_TOKEN=${NAPCAT_WEBUI_TOKEN:-04e9562f9a58}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - AI_MODEL_NAME=gpt-5-mini
-      - MEDIA_INSPECTOR_MODEL_NAME=${MEDIA_INSPECTOR_MODEL_NAME:-gpt-5-mini}
-      - SELF_EVOLUTION_MODEL_NAME=gpt-5.4
+      - AI_MODEL_NAME=LongCat-2.5-Preview
+      - MEDIA_INSPECTOR_MODEL_NAME=${MEDIA_INSPECTOR_MODEL_NAME:-LongCat-2.5-Preview}
+      - SELF_EVOLUTION_MODEL_NAME=LongCat-2.5-Preview
       - SELF_EVOLUTION_TIMEOUT_MS=90000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
@@ -209,17 +209,25 @@ services:
       - AGENT_DELEGATED_BROWSER_SKILL_PATH=/run/qqbot-private-agent-skills/delegated-browser/SKILL.md
       # 画图已迁到 Claude flow:image_task 走 openai-image-provider → cliproxyapi gpt-image-2(忽略 codex_base_request)
       - XIAONI_IMAGE_TASK_ENABLED=true
-      - AI_MODEL_NAME=gpt-5-mini
-      - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-opus-4-6}
-      - AGENT_SHERLOCK_MODEL=${AGENT_SHERLOCK_MODEL:-claude-sonnet-4-6}
-      - AGENT_SHERLOCK_CLASSIFIER_MODEL=${AGENT_SHERLOCK_CLASSIFIER_MODEL:-claude-sonnet-4-6}
+      # All Xiaoni text LLM work runs on LongCat (provider-service `longcat` provider,
+      # key LONGCAT_API_KEY in qqbot-compose.env). The Claude provider stays available:
+      # set these back to claude-* to switch.
+      - AI_MODEL_NAME=LongCat-2.5-Preview
+      - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-LongCat-2.5-Preview}
+      - AGENT_SHERLOCK_MODEL=${AGENT_SHERLOCK_MODEL:-LongCat-2.5-Preview}
+      - AGENT_SHERLOCK_CLASSIFIER_MODEL=${AGENT_SHERLOCK_CLASSIFIER_MODEL:-LongCat-2.5-Preview}
+      - XIAONI_OS_REWRITE_MODEL=${XIAONI_OS_REWRITE_MODEL:-LongCat-2.5-Preview}
+      - XIAONI_RECALL_JUDGE_MODEL=${XIAONI_RECALL_JUDGE_MODEL:-LongCat-2.5-Preview}
+      - XIAONI_RECALL_EXPANSION_MODEL=${XIAONI_RECALL_EXPANSION_MODEL:-LongCat-2.5-Preview}
+      # Anthropic Files API uploads use the Claude OAuth account; LongCat takes base64 only.
+      - ANTHROPIC_FILES_API_UPLOAD_ENABLED=${ANTHROPIC_FILES_API_UPLOAD_ENABLED:-false}
       # api.anthropic.com from this host is ~50% reliable + ~5s/attempt; allow the
       # provider's connection retries room before the heartbeat gives up.
       - AGENT_CACHE_HEARTBEAT_TIMEOUT_MS=${AGENT_CACHE_HEARTBEAT_TIMEOUT_MS:-60000}
       - AGENT_PRE_REPLY_MEMORY_REASONER_ENABLED=true
-      - AGENT_PRE_REPLY_MEMORY_REASONER_MODEL=gpt-5.4
+      - AGENT_PRE_REPLY_MEMORY_REASONER_MODEL=LongCat-2.5-Preview
       - AGENT_PRESENT_SELF_RECONSTRUCTION_ENABLED=true
-      - AGENT_PRESENT_SELF_RECONSTRUCTION_MODEL=gpt-5.4
+      - AGENT_PRESENT_SELF_RECONSTRUCTION_MODEL=LongCat-2.5-Preview
       # Custom web_search (client-executed in agent-service → Tavily/SearXNG, never
       # the Anthropic cloak). Replaces the removed server-side web_search. Static flag
       # so the cached tools prefix stays byte-stable. Tavily key comes from the
