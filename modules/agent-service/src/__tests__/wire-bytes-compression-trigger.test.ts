@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   estimateCanonicalRequestWireBytes,
@@ -9,6 +9,7 @@ import {
   isWireBytesOverrun,
   transcodeInputImageItemsToWebpLossless
 } from '../services/agent-loop-service';
+import { agentConfig } from '../config';
 
 // Unit coverage for the BYTE-side compression trigger (the image-heavy blind spot the token
 // trigger can't see) and the at-ingest WebP transcode. These are the pieces that keep the main
@@ -40,6 +41,10 @@ test('estimateCanonicalRequestWireBytes: unserializable input returns 0 (never f
 
 test('estimateCanonicalRequestWireBytes: a file_id image is counted at wire cost, NOT its base64', () => {
   setCompressionWireBytesCalibrationFactor(1.0);
+  // File references only reach the wire on the Claude endpoint.
+  const previousModel = agentConfig.xiaoniMainAgentModelName;
+  agentConfig.xiaoniMainAgentModelName = 'claude-opus-4-6';
+  after(() => { agentConfig.xiaoniMainAgentModelName = previousModel; });
   const bigBase64 = 'A'.repeat(4 * MiB);
   // Same image, two representations. With an anthropic_file_id the wire sends a ~60-byte file
   // reference, so the estimate must ignore the (retained, double-stored) base64 image_url —
@@ -108,4 +113,18 @@ test('WebP transcode: a non-PNG/JPEG data URL is left untouched', async () => {
   const gif = [{ type: 'input_image', image_url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', detail: 'auto' }] as never[];
   const out = await transcodeInputImageItemsToWebpLossless(gif);
   assert.deepEqual(out, gif, 'GIF (maybe animated) is out of scope — passthrough');
+});
+
+test('estimateCanonicalRequestWireBytes: on a non-Claude main model a file_id image counts its base64', () => {
+  setCompressionWireBytesCalibrationFactor(1.0);
+  const previousModel = agentConfig.xiaoniMainAgentModelName;
+  agentConfig.xiaoniMainAgentModelName = 'LongCat-2.5-Preview';
+  try {
+    const estimate = estimateCanonicalRequestWireBytes({
+      input: [{ type: 'input_image', image_url: `data:image/webp;base64,${'A'.repeat(4 * MiB)}`, anthropic_file_id: 'file_x', detail: 'original' }]
+    });
+    assert.ok(estimate > 4 * MiB, `LongCat receives the base64, estimate must count it, got ${estimate}`);
+  } finally {
+    agentConfig.xiaoniMainAgentModelName = previousModel;
+  }
 });

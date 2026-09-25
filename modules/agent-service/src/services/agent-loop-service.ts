@@ -325,7 +325,8 @@ type LeaseReleaseReason =
   | 'runtime_frame_yielded'
   | 'runtime_error'
   | 'prompt_binding_error'
-  | 'wire_bytes_overrun';
+  | 'wire_bytes_overrun'
+  | 'image_count_overrun';
 
 type LeaseReleaseRecord = {
   event_kind: 'lease_released';
@@ -1255,8 +1256,15 @@ const consecutiveOverWireTriggerBySession = new Map<string, number>();
 // the provider wire body (base64 images dominate and are ASCII, so .length ≈ UTF-8 bytes), scaled by
 // the calibration factor to correct the canonical→provider-wire transform bias. Returns 0 on any
 // serialization failure so a bad request can never falsely trip the halt.
+// Files API references only reach the wire on the Claude endpoint; every other provider
+// (LongCat) gets the base64 image_url, so the estimate must count it.
+function mainModelSendsAnthropicFileRefs(): boolean {
+  return /^claude/i.test(agentConfig.xiaoniMainAgentModelName || '')
+    && (process.env.ANTHROPIC_FILES_API_WIRE_ENABLED || 'true').trim() !== 'false';
+}
 export function estimateCanonicalRequestWireBytes(canonicalRequest: unknown): number {
   let raw = 0;
+  const projectFileRefs = mainModelSendsAnthropicFileRefs();
   try {
     // Project the canonical onto what actually goes on the wire before measuring: an
     // input_image that carries a Files API `file_id` is sent as a ~60-byte file reference,
@@ -1266,7 +1274,8 @@ export function estimateCanonicalRequestWireBytes(canonicalRequest: unknown): nu
     // from any file_id-bearing input_image so the estimate tracks the real wire body.
     raw = JSON.stringify(canonicalRequest, (_key, value) => {
       if (
-        value && typeof value === 'object' && !Array.isArray(value)
+        projectFileRefs
+        && value && typeof value === 'object' && !Array.isArray(value)
         && (value as { type?: unknown }).type === 'input_image'
         && typeof (value as { anthropic_file_id?: unknown }).anthropic_file_id === 'string'
         && (value as { anthropic_file_id: string }).anthropic_file_id.length > 0
@@ -1310,6 +1319,49 @@ function resetCompressionWireTriggerCounter(sessionKey: string): void {
 export function isWireBytesOverrun(estimatedWireBytes: number): boolean {
   return Number.isFinite(estimatedWireBytes)
     && estimatedWireBytes > COMPRESSION_TRIGGER_WIRE_BYTES + COMPRESSION_OVERRUN_MARGIN_BYTES;
+}
+// IMAGE-COUNT guard. LongCat rejects a request carrying more than 50 images (400 "Image count
+// exceeds limit"), and every computer_use screenshot / inspected image stays in the stack, so a
+// screenshot-heavy day can cross it while tokens and bytes are both far under their lines. The
+// compression fork clones the main request, so it must fire while the clone still fits:
+//   · SOFT line: > COMPRESSION_TRIGGER_IMAGE_COUNT images on a main turn arms run-boundary
+//     compression (OR'd with the token and byte triggers), folding old images out of the window.
+//   · HARD line: > IMAGE_COUNT_HARD_LIMIT images halts pre-send (the request would 400), same
+//     halt path as the byte overrun.
+// Timing/ops only — the count never enters the cacheable prefix.
+export const COMPRESSION_TRIGGER_IMAGE_COUNT = 30;
+export const IMAGE_COUNT_HARD_LIMIT = 48;
+const overImageCountTriggerBySession = new Map<string, boolean>();
+export function countCanonicalRequestImages(canonicalRequest: unknown): number {
+  let count = 0;
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry);
+      return;
+    }
+    if (!value || typeof value !== 'object') {
+      return;
+    }
+    if ((value as { type?: unknown }).type === 'input_image') {
+      count += 1;
+      return;
+    }
+    for (const entry of Object.values(value as Record<string, unknown>)) visit(entry);
+  };
+  visit(canonicalRequest);
+  return count;
+}
+function recordMainTurnImageCountForCompression(sessionKey: string, imageCount: number): void {
+  if (!sessionKey) {
+    return;
+  }
+  overImageCountTriggerBySession.set(sessionKey, imageCount > COMPRESSION_TRIGGER_IMAGE_COUNT);
+}
+export function shouldTriggerCompressionFromImageCount(sessionKey: string): boolean {
+  return overImageCountTriggerBySession.get(sessionKey) === true;
+}
+export function isImageCountOverrun(imageCount: number): boolean {
+  return imageCount > IMAGE_COUNT_HARD_LIMIT;
 }
 // test-only seam: seed the in-memory byte-trigger debounce so an integration test can arm the
 // run-boundary byte trigger without assembling two real >24MiB turns. Not used in production.
@@ -9019,6 +9071,23 @@ export class AgentLoopService {
         // cacheable prefix, and the request bytes are unchanged (we either send them or halt).
         const estimatedWireBytes = estimateCanonicalRequestWireBytes(currentCanonicalRequest);
         recordMainTurnWireBytesForCompression(getGlobalPromptContextSessionKey(), estimatedWireBytes);
+        const requestImageCount = countCanonicalRequestImages(currentCanonicalRequest);
+        recordMainTurnImageCountForCompression(getGlobalPromptContextSessionKey(), requestImageCount);
+        if (isImageCountOverrun(requestImageCount)) {
+          leaseRelease = buildLeaseReleaseRecord({
+            reason: 'image_count_overrun',
+            detail: 'Assembled request carries more images than the model endpoint accepts; request withheld and the runtime halted (run switch OFF, heartbeat warm) for a human to compress and re-enable.',
+            outcome: 'image_count_overrun_halted',
+            noVisibleDelivery: deliveredMessages.length === 0,
+            visibleDeliveryCommitted: deliveredMessages.length > 0,
+            source: 'runtime:image_count_overrun_halt'
+          });
+          await this.haltForWireBytesOverrun(getGlobalPromptContextSessionKey(), payload.traceId, estimatedWireBytes, {
+            reason: 'image_count_overrun',
+            imageCount: requestImageCount
+          });
+          break;
+        }
         if (isWireBytesOverrun(estimatedWireBytes)) {
           // The turn loop's invariant is that every `break` carries a non-null leaseRelease (see the
           // `if (!leaseRelease) continue` guard below) — the post-loop finalize dereferences it
@@ -10735,7 +10804,8 @@ export class AgentLoopService {
   private async haltForWireBytesOverrun(
     sessionKey: string,
     traceId: string,
-    estimatedWireBytes: number
+    estimatedWireBytes: number,
+    overrun: { reason: 'wire_bytes_overrun' | 'image_count_overrun'; imageCount?: number } = { reason: 'wire_bytes_overrun' }
   ): Promise<void> {
     const store = this.store as RuntimeStore & {
       haltRuntimeForCompressionOverrun?: (params: {
@@ -10751,17 +10821,19 @@ export class AgentLoopService {
     try {
       const result = await store.haltRuntimeForCompressionOverrun({
         identityKey: XIAONI_IDENTITY_KEY,
-        reason: 'wire_bytes_overrun'
+        reason: overrun.reason
       });
       if (result?.haltJustTriggered) {
-        moduleLogger.warn('Xiaoni runtime HALTED: wire bytes overrun (pre-send)', {
+        moduleLogger.warn(`Xiaoni runtime HALTED: ${overrun.reason} (pre-send)`, {
           traceId,
           sessionKey,
           estimatedWireBytes,
+          imageCount: overrun.imageCount ?? null,
+          imageCountHardLimit: IMAGE_COUNT_HARD_LIMIT,
           compressionTriggerWireBytes: COMPRESSION_TRIGGER_WIRE_BYTES,
           overrunMarginBytes: COMPRESSION_OVERRUN_MARGIN_BYTES,
           hardLineBytes: COMPRESSION_TRIGGER_WIRE_BYTES + COMPRESSION_OVERRUN_MARGIN_BYTES,
-          note: 'estimated wire bytes would exceed Anthropic 32MB cap; request NOT sent, run switch OFF, heartbeat kept warm. Manual compress + re-enable to resume.'
+          note: 'request would exceed the model endpoint limit; request NOT sent, run switch OFF, heartbeat kept warm. Manual compress + re-enable to resume.'
         });
       }
     } catch (error) {
@@ -10911,7 +10983,7 @@ export class AgentLoopService {
     // REQ1: 触发只看模型返回的真实 input_tokens —— 连续 N 轮 > 软线(内存计数器,
     // 重启清零)。不再用 tiktoken 估算 vs window 当判据。forceCompression(手动)照旧强压。
     // compressionPendingApply: 已经压了但主 loop 还没用上 → 不准再压(消掉空窗里的多余第二次)。
-    if (!params.forceCompression && ((!shouldTriggerCompressionFromRealInput(contextSessionKey) && !shouldTriggerCompressionFromWireBytes(contextSessionKey)) || compressionPendingApply || initialRetainedHistory.length === 0)) {
+    if (!params.forceCompression && ((!shouldTriggerCompressionFromRealInput(contextSessionKey) && !shouldTriggerCompressionFromWireBytes(contextSessionKey) && !shouldTriggerCompressionFromImageCount(contextSessionKey)) || compressionPendingApply || initialRetainedHistory.length === 0)) {
       return {
         requestInput,
         currentTurnInputItems,
@@ -13595,7 +13667,7 @@ export class AgentLoopService {
     snapshotCeilingStackIndex: number | null;
   }): Promise<void> {
     const key = params.contextSessionKey;
-    if (!shouldTriggerCompressionFromRealInput(key) && !shouldTriggerCompressionFromWireBytes(key)) {
+    if (!shouldTriggerCompressionFromRealInput(key) && !shouldTriggerCompressionFromWireBytes(key) && !shouldTriggerCompressionFromImageCount(key)) {
       return;
     }
     // A compression already committed but not yet switched in by the main loop. Scheduling a second

@@ -10,6 +10,12 @@ import {
   MIN_LONG_EDGE_PX,
   MAX_IMAGE_BYTES
 } from '../services/model-image-fit';
+import {
+  countCanonicalRequestImages,
+  isImageCountOverrun,
+  COMPRESSION_TRIGGER_IMAGE_COUNT,
+  IMAGE_COUNT_HARD_LIMIT
+} from '../services/agent-loop-service';
 
 function crc32(buf: Buffer): number {
   let crc = ~0;
@@ -111,4 +117,19 @@ test('fitInputImageItemsForModel only touches input_image items and keeps other 
   assert.equal(text, items[0]);
   assert.equal(image.detail, 'original');
   assert.equal(image.image_url, `data:image/webp;base64,${Buffer.from('w').toString('base64')}`);
+});
+
+test('image count guard: counts nested input_image parts; soft line below the hard line below LongCat 50', () => {
+  const image = { type: 'input_image', image_url: 'data:image/webp;base64,AA' };
+  const request = {
+    input: [
+      { type: 'message', role: 'user', content: [image, { type: 'input_text', text: 'x' }] },
+      { type: 'function_call_output', output: [image, image] }
+    ]
+  };
+  assert.equal(countCanonicalRequestImages(request), 3);
+  assert.ok(COMPRESSION_TRIGGER_IMAGE_COUNT < IMAGE_COUNT_HARD_LIMIT);
+  assert.ok(IMAGE_COUNT_HARD_LIMIT < 50);
+  assert.equal(isImageCountOverrun(IMAGE_COUNT_HARD_LIMIT), false);
+  assert.equal(isImageCountOverrun(IMAGE_COUNT_HARD_LIMIT + 1), true);
 });
