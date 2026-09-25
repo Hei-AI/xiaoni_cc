@@ -84,6 +84,7 @@ import {
 } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
 import { defaultCwebpEncoder } from './qq-send-image-service';
+import { fitInputImageItemsForModel } from './model-image-fit';
 import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
 import { fireActionStreamRecall, fireConsumedNotifyRecall } from './xiaoni-recall-hook';
 import {
@@ -15684,9 +15685,10 @@ export class AgentLoopService {
       // (1) lossless webp transcode (byte-smaller, byte-frozen), then (2) upload to the Files API
       // and stamp anthropic_file_id so the wire carries a ~60-byte reference instead of the base64.
       // Both are cache-safe because they run before first send and are frozen into the canonical.
-      const webpContent = await transcodeInputImageItemsToWebpLossless(
+      // (0) fit into the model endpoint's size/dimension limits first (model-image-fit.ts).
+      const webpContent = await transcodeInputImageItemsToWebpLossless(await fitInputImageItemsForModel(
         [{ type: 'input_image', image_url: imageUrl, detail: 'original' }] as OpenResponseInputItem[]
-      );
+      ));
       const imageContent = await externalizeInputImageItemsToAnthropicFile(webpContent);
       return {
         computer_action: actionName,
@@ -15715,9 +15717,9 @@ export class AgentLoopService {
     if (!materialized.dataUrl) {
       return { tool_error: true, error: `browser screenshot has no readable image data: ${imageId}` };
     }
-    const webpContent = await transcodeInputImageItemsToWebpLossless(
+    const webpContent = await transcodeInputImageItemsToWebpLossless(await fitInputImageItemsForModel(
       [{ type: 'input_image', image_url: materialized.dataUrl, detail: 'original' }] as OpenResponseInputItem[]
-    );
+    ));
     const imageContent = await externalizeInputImageItemsToAnthropicFile(webpContent);
     return {
       image_id: imageId,
@@ -16087,13 +16089,14 @@ export class AgentLoopService {
     // otherwise push this fork past the 32MB cap and self-lock). Reuses the same threshold/dedup/
     // degrade path as the screenshot ingest; on any degrade the file_id is null and the fork keeps
     // the base64. The image is a cache_volatile tail, so a per-build file_id is cache-safe.
-    const [externalizedImage] = await externalizeInputImageItemsToAnthropicFile([
+    const [externalizedImage] = await externalizeInputImageItemsToAnthropicFile(await fitInputImageItemsForModel([
       { type: 'input_image', image_url: materialized.dataUrl, detail: 'original' } as OpenResponseInputItem
-    ]);
+    ]));
     const inspectedFileId = (externalizedImage as { anthropic_file_id?: unknown })?.anthropic_file_id;
+    const fittedImageUrl = (externalizedImage as { image_url?: unknown })?.image_url;
     const forkRequest = buildImageVisionForkRequest(
       baseRequest,
-      materialized.dataUrl,
+      typeof fittedImageUrl === 'string' && fittedImageUrl ? fittedImageUrl : materialized.dataUrl,
       assetId,
       outputPath,
       existingObservation.text,
