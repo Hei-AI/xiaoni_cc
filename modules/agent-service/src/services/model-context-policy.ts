@@ -51,6 +51,13 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
     model: 'claude-opus-4-6',
     contextWindowTokens: 600000,
     maxOutputTokens: 64000
+  },
+  // LongCat (api.longcat.chat). Raw window is 1M like opus-4-6; same 600K effective
+  // budget so the compression cadence is unchanged by the provider switch.
+  'longcat-2.5-preview': {
+    model: 'longcat-2.5-preview',
+    contextWindowTokens: 600000,
+    maxOutputTokens: 64000
   }
 };
 
