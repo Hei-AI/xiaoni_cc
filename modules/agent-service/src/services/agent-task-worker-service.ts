@@ -10,6 +10,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
+import { assertXiaoniRuntimeRequestEnabled } from './xiaoni-runtime-request-gate';
 
 const moduleLogger = logger.createModuleLogger('agent-task-worker-service');
 
@@ -189,6 +190,7 @@ export class AgentTaskWorkerService {
   }
 
   private async callImageProvider(task: AgentTaskRecord): Promise<ImageProviderPayload> {
+    await assertXiaoniRuntimeRequestEnabled();
     const codexBaseRequest = getCodexBaseRequest(task.input_json);
     const body: Record<string, unknown> = {
       prompt: task.prompt,

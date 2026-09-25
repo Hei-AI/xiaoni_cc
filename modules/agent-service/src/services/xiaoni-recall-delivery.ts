@@ -583,7 +583,7 @@ export async function isXiaoniAsleep(now: number = Date.now()): Promise<boolean>
 async function defaultReadGate(): Promise<RecallDeliveryGate> {
   const control = await persistence.getAgentRuntimeControl({ identityKey: IDENTITY_KEY }, databaseConfig);
   return {
-    enabled: control.passiveRecallDeliveryEnabled === true
+    enabled: control.enabled !== false && control.passiveRecallDeliveryEnabled === true
   };
 }
 

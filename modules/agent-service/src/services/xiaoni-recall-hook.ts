@@ -14,6 +14,7 @@ import path from 'node:path';
 import * as persistence from '@qq-bot/persistence';
 
 import { callRecallLlmDetailed, type RecallPrompt } from './xiaoni-recall-llm-client';
+import { assertXiaoniRuntimeRequestEnabled } from './xiaoni-runtime-request-gate';
 import { readContextMenuTexts } from './xiaoni-context-menus';
 
 const IDENTITY_KEY = 'xiaoni';
@@ -155,6 +156,7 @@ export function isUnadmittedAssistantText(item: Record<string, unknown>): boolea
 }
 
 async function projectAndIngest(): Promise<void> {
+  await assertXiaoniRuntimeRequestEnabled();
   const feed = await persistence.getXiaoniActionStream({ identityKey: IDENTITY_KEY, limit: HEAD_LIMIT });
   const projected: Array<Record<string, unknown>> = Array.isArray((feed as any)?.items) ? (feed as any).items : [];
   const items = projected.filter((item) => !isUnadmittedAssistantText(item));
@@ -223,6 +225,7 @@ export function fireConsumedNotifyRecall(payload: Record<string, unknown> | null
       if (asleep) {
         return;
       }
+      await assertXiaoniRuntimeRequestEnabled();
       const result = await getIngest().runShadowRecall({
         landedText,
         landedRef,

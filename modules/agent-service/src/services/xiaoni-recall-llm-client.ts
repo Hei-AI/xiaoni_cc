@@ -8,6 +8,7 @@
 // **独立请求,绝不克隆主请求。** 这个栈的 fork 惯例是克隆主请求骑热前缀,但那意味着每次
 // 调用都要过一遍她那几十万 token 的上下文;一个几千 token 的独立请求便宜一个数量级。
 // 见 docs/adr/0006。
+import { assertXiaoniRuntimeRequestEnabled } from './xiaoni-runtime-request-gate';
 
 export interface RecallPrompt {
   system: string;
@@ -96,6 +97,7 @@ export async function callRecallLlmDetailed(prompt: RecallPrompt, options: Recal
 }
 
 async function callOnce(prompt: RecallPrompt, options: RecallLlmOptions): Promise<RecallLlmResult> {
+  await assertXiaoniRuntimeRequestEnabled();
   const model = options.model || 'claude-sonnet-4-6';
   const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
     method: 'POST',

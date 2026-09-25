@@ -1057,17 +1057,17 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
       </SectionPanel>
 
       <SectionPanel
-        title="睡眠 heartbeat"
-        description="暂停后，小腻睡眠恢复期间不会自动发送 provider cache heartbeat；手动调试入口仍可用。"
+        title="前缀缓存心跳"
+        description="独立于主运行开关。关闭后，睡眠续热、定时续热和手动心跳都不会发送 LLM 请求。"
         icon={<HeartPulse className="h-4 w-4 text-primary" />}
       >
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
-            <div className="text-sm font-medium text-foreground">暂停睡眠保温 heartbeat</div>
+            <div className="text-sm font-medium text-foreground">关闭前缀缓存心跳</div>
             <div className="text-sm text-muted-foreground">
               {cacheHeartbeatPaused
-                ? '已暂停，睡眠中不会按 5 分钟节奏自动续约 prompt cache。'
-                : '开启自动 heartbeat，睡眠中会按恢复会话 schedule 保温。'}
+                ? '已关闭，所有自动和手动心跳请求均不触发。'
+                : '已开启，睡眠续热和独立定时续热按各自节奏运行。'}
             </div>
             <div className="text-xs text-muted-foreground">暂停时间：{cacheHeartbeatPausedAt}</div>
           </div>
@@ -1077,7 +1077,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               checked={cacheHeartbeatPaused}
               disabled={controlQuery.isLoading || mutation.isPending}
               onCheckedChange={(checked) => mutation.mutate({ cacheHeartbeatPaused: Boolean(checked) })}
-              aria-label="暂停睡眠保温 heartbeat"
+              aria-label="关闭前缀缓存心跳"
             />
           </div>
         </div>
@@ -1196,20 +1196,20 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
 
       <SectionPanel
         title="调试保温 heartbeat"
-        description="停机 debug 期间手动保温 provider prompt cache。一次性按钮立刻打一发；设定间隔后由 agent-service 独立定时器周期触发，不受主循环开关和上面的睡眠暂停影响（0 = 关闭）。"
+        description="停机 debug 期间保温 provider prompt cache。独立于主运行开关，受前缀缓存心跳开关控制；周期触发间隔设为 0 时停用定时器。"
         icon={<HeartPulse className="h-4 w-4 text-primary" />}
       >
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
               <div className="text-sm font-medium text-foreground">立即执行一次</div>
-              <div className="text-sm text-muted-foreground">绕过停机/暂停闸，立刻发起一次 cache heartbeat（需等待一轮模型返回）。</div>
+              <div className="text-sm text-muted-foreground">主运行暂停时仍可执行；关闭前缀缓存心跳后不可执行。</div>
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => heartbeatMutation.mutate()}
-              disabled={heartbeatMutation.isPending}
+              disabled={heartbeatMutation.isPending || cacheHeartbeatPaused}
             >
               {heartbeatMutation.isPending
                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1236,7 +1236,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               <div className="text-sm font-medium text-foreground">周期触发间隔</div>
               <div className="text-sm text-muted-foreground">
                 {currentDebugHeartbeatIntervalMs > 0
-                  ? `当前：每 ${Math.round(currentDebugHeartbeatIntervalMs / 1000)} 秒自动保温一次（停机也生效）。`
+                  ? `当前：每 ${Math.round(currentDebugHeartbeatIntervalMs / 1000)} 秒自动保温一次（主运行暂停时也生效，受前缀缓存心跳开关控制）。`
                   : '当前：已关闭（仅靠一次性按钮）。'}
               </div>
               <div className="text-xs text-muted-foreground">单位：秒；0 = 关闭；调度精度约 10 秒，建议 ≥ 60 秒。</div>

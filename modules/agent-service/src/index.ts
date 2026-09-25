@@ -452,10 +452,10 @@ async function isRuntimeEnabled() {
     setIdlePlanSkillSubmissionEnabled(control.idlePlanSkillSubmissionEnabled);
     return control.enabled !== false;
   } catch (error) {
-    moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {
+    moduleLogger.warn('Failed to load Xiaoni runtime control; pausing requests', {
       error: error instanceof Error ? error.message : String(error)
     });
-    return true;
+    return false;
   }
 }
 
@@ -464,10 +464,10 @@ async function isCacheHeartbeatPaused() {
     const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
     return control.cacheHeartbeatPaused === true;
   } catch (error) {
-    moduleLogger.warn('Failed to load Xiaoni cache heartbeat pause control; defaulting heartbeat enabled', {
+    moduleLogger.warn('Failed to load Xiaoni cache heartbeat control; pausing heartbeat', {
       error: error instanceof Error ? error.message : String(error)
     });
-    return false;
+    return true;
   }
 }
 
@@ -613,7 +613,7 @@ const CLOCK_PING_SUPERVISOR_TICK_MS = 60_000;
 async function runClockPingLoop() {
   while (!stopping) {
     try {
-      const result = await loopService.ensureClockPingNotify();
+      const result = await isRuntimeEnabled() ? await loopService.ensureClockPingNotify() : null;
       if (result === 'enqueued') {
         moduleLogger.info('Enqueued clock ping notify', {
           intervalMs: agentConfig.clockPingIntervalMs
@@ -641,7 +641,7 @@ const OPEN_LOOPS_NOTIFY_TICK_MS = 15 * 60_000;
 async function runOpenLoopsNotifyLoop() {
   while (!stopping) {
     try {
-      const result = await sendOpenLoopsPointerNotifyOnce();
+      const result = await isRuntimeEnabled() ? await sendOpenLoopsPointerNotifyOnce() : null;
       if (result === 'sent') {
         moduleLogger.info('Open-loops pointer notify sent', { intervalHours: openLoopsNotifyConfig.intervalHours });
       }

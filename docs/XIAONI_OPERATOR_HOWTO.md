@@ -63,19 +63,24 @@ how-to layer.
 curl -sS -X POST http://127.0.0.1:8092/api/internal/runtime/cache-heartbeat
 ```
 
-The heartbeat writes Codex provider usage events. It does not claim Notify Bucket
-rows and does not append to the main stack.
+When the prefix-cache heartbeat switch is enabled, the heartbeat writes Codex
+provider usage events. It does not claim Notify Bucket rows or append to the main
+stack.
 
 ## How to adjust runtime controls
 
 Use the admin runtime settings page for live control rows backed by
 `agent_runtime_control`.
 
-- Main loop switch pauses or resumes Xiaoni's runtime loop.
+- Main loop switch pauses or resumes Xiaoni's runtime loop and gates all Xiaoni
+  agent and auxiliary LLM dispatches, including recall expansion and reranking.
+  Already submitted provider requests may finish; pending work checks the gate
+  again before dispatch. The prefix-cache heartbeat has its own switch.
 - Main model yield sets the wait, in milliseconds, before each main model slice.
   The default is `5000`.
-- Sleep heartbeat pause stops automatic provider cache heartbeat while Xiaoni is
-  in an active recovery session. The manual heartbeat endpoint above still works.
+- Prefix-cache heartbeat pause stops sleep, debug-interval, and manual provider
+  cache heartbeats. It is independent of the main loop switch. Setting the debug
+  interval to 0 also stops its periodic supervisor.
 - Post-compression pause arms a one-shot gate: after the next successful core
   memory compression write, the main loop pauses.
 - Manual recover ("手动恢复") is for getting Xiaoni moving again after a provider

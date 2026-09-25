@@ -7083,10 +7083,16 @@ export class AgentLoopService {
     try {
       return await this.options.isRuntimeEnabled() !== false;
     } catch (error) {
-      moduleLogger.warn('Failed to check Xiaoni runtime control during active loop; defaulting enabled', {
+      moduleLogger.warn('Failed to check Xiaoni runtime control during active loop; pausing requests', {
         error: error instanceof Error ? error.message : String(error)
       });
-      return true;
+      return false;
+    }
+  }
+
+  private async assertRuntimeEnabledForModelRequest() {
+    if (!await this.isRuntimeEnabledForLoop()) {
+      throw new Error('Xiaoni runtime is disabled');
     }
   }
 
@@ -7743,6 +7749,15 @@ export class AgentLoopService {
   }
 
   async triggerCacheHeartbeatForDebug(): Promise<CacheHeartbeatRunResult> {
+    if (typeof this.options.isCacheHeartbeatPaused === 'function') {
+      try {
+        if (await this.options.isCacheHeartbeatPaused()) {
+          return { triggered: false, reason: 'heartbeat_paused', executionMode: CACHE_HEARTBEAT_EXECUTION_MODE };
+        }
+      } catch {
+        return { triggered: false, reason: 'heartbeat_control_unavailable', executionMode: CACHE_HEARTBEAT_EXECUTION_MODE };
+      }
+    }
     // Acquire the shared single-flight lock. If a heartbeat (recovery, debug
     // supervisor, or another manual click) is already running, skip immediately
     // instead of firing a second concurrent 437K clone. The check and the
@@ -10327,6 +10342,7 @@ export class AgentLoopService {
     let responsePayload: ProviderAgentResponse | null = null;
     for (let attempt = 1; attempt <= COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
       try {
+        await this.assertRuntimeEnabledForModelRequest();
         const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -14339,6 +14355,7 @@ export class AgentLoopService {
     runtimePrompt: ResolvedAgentRuntimePrompt,
     forkTurn: number
   ) {
+    await this.assertRuntimeEnabledForModelRequest();
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
       headers: {
@@ -14400,6 +14417,7 @@ export class AgentLoopService {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
+        await this.assertRuntimeEnabledForModelRequest();
         const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
           method: 'POST',
           headers: {
@@ -14447,6 +14465,9 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     runtimePrompt: ResolvedAgentRuntimePrompt
   ) {
+    if (await this.options.isCacheHeartbeatPaused?.()) {
+      throw new Error('Xiaoni cache heartbeat is disabled');
+    }
     const timeoutMs = Math.max(1000, Number(agentConfig.cacheHeartbeatTimeoutMs) || 10_000);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -14780,6 +14801,7 @@ export class AgentLoopService {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
+        await this.assertRuntimeEnabledForModelRequest();
         const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
           method: 'POST',
           headers: {
@@ -16403,6 +16425,7 @@ export class AgentLoopService {
     forkRequest: CanonicalAgentTurnRequest,
     queueMessage: QueueMessageRecord['payload']
   ): Promise<ProviderAgentResponse> {
+    await this.assertRuntimeEnabledForModelRequest();
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
       headers: {
