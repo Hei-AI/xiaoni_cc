@@ -80,6 +80,14 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
     hardBufferRatio: DEFAULT_HARD_BUFFER_RATIO,
     softTriggerTokens: 200000
   },
+  'longcat-2.5-preview': {
+    model: 'longcat-2.5-preview',
+    contextWindowTokens: 1048576,
+    maxOutputTokens: 262144,
+    defaultReplyBudgetTokens: DEFAULT_REPLY_BUDGET_TOKENS,
+    softTriggerRatio: DEFAULT_SOFT_TRIGGER_RATIO,
+    hardBufferRatio: DEFAULT_HARD_BUFFER_RATIO
+  },
   'codex-mini-latest': {
     model: 'codex-mini-latest',
     contextWindowTokens: 200000,

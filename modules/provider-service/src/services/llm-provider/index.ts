@@ -36,6 +36,16 @@ export function createProviderClient(providerId: LLMProviderId): LLMProvider {
       return new AnthropicProvider(aiConfig, {
         defaultMaxTokens: Number(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS) || 64000
       });
+    case 'longcat':
+      // LongCat's Anthropic-compatible endpoint (api.longcat.chat): same Messages
+      // translation as Claude, static API key, LongCat wire dialect.
+      return new AnthropicProvider(aiConfig, {
+        id: 'longcat',
+        baseUrl: aiConfig.longcat_base_url || 'https://api.longcat.chat/anthropic',
+        apiKey: aiConfig.longcat_api_key || '',
+        dialect: 'longcat',
+        defaultMaxTokens: Number(process.env.LONGCAT_MAX_OUTPUT_TOKENS) || 64000
+      });
     case 'google':
     case 'google-legacy':
     case 'google-gemini-cli':

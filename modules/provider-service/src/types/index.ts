@@ -31,6 +31,8 @@ export interface AIConfig {
   anthropic_expires_at?: string | number;
   anthropic_oauth_path?: string;
   anthropic_base_url?: string;
+  longcat_api_key?: string;
+  longcat_base_url?: string;
   anthropic_client_version?: string;
   anthropic_beta?: string;
   anthropic_billing_header?: string;
@@ -68,7 +70,7 @@ export interface UnifiedLLMConfig {
   category: string;
   model: {
     name: string;
-    provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'codex-local' | 'anthropic' | 'custom';
+    provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'codex-local' | 'anthropic' | 'longcat' | 'custom';
     allowedTokenIds?: number[];
     providerSpecific?: Record<string, any>;
     fallbackModels?: string[];

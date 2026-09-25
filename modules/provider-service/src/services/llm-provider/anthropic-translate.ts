@@ -161,7 +161,7 @@ export interface AnthropicMessagesRequest {
   messages: AnthropicMessage[];
   tools?: AnthropicTool[];
   tool_choice?: AnthropicToolChoice;
-  thinking?: { type: 'adaptive' };
+  thinking?: { type: 'adaptive' } | { type: 'disabled' };
   metadata?: Record<string, string>;
 }
 
@@ -522,6 +522,64 @@ function serializeComputerTool(tool: OpenResponseToolDefinition, model: string |
   return out;
 }
 
+// Dialects without Anthropic's built-in (schema-less) computer tool get it as a plain
+// function tool named `computer` whose input mirrors the computer_20251124 action shape,
+// so the model's tool_use comes back as the same function_call the agent already
+// dispatches (name 'computer', input { action, coordinate, ... }).
+function serializeComputerAsFunctionTool(tool: OpenResponseToolDefinition): AnthropicTool | null {
+  if (tool.type !== 'computer_use') {
+    return null;
+  }
+  const width = tool.display_width_px;
+  const height = tool.display_height_px;
+  const coordinate = {
+    type: 'array',
+    items: { type: 'integer' },
+    minItems: 2,
+    maxItems: 2,
+    description: `[x, y] pixel on the ${width}x${height} screen; x in 0..${width - 1}, y in 0..${height - 1}.`
+  };
+  return {
+    name: 'computer',
+    description: [
+      `Control the computer's mouse and keyboard and take screenshots. The screen is ${width}x${height} pixels.`,
+      'The tool result of every action is a screenshot of the screen after the action.',
+      'Actions: screenshot; left_click / right_click / middle_click / double_click / triple_click at coordinate (text = modifier keys held during the click, e.g. "shift");',
+      'mouse_move to coordinate; left_click_drag from start_coordinate to coordinate; left_mouse_down / left_mouse_up;',
+      'type = type the text; key = press a key or xdotool-style combo in text (e.g. "Return", "ctrl+l"); hold_key = hold text key for duration seconds;',
+      'scroll at coordinate by scroll_amount wheel clicks in scroll_direction; wait for duration seconds; cursor_position;',
+      'zoom = screenshot of region [x1, y1, x2, y2] at full resolution.'
+    ].join(' '),
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [
+            'screenshot', 'left_click', 'right_click', 'middle_click', 'double_click', 'triple_click',
+            'mouse_move', 'left_click_drag', 'left_mouse_down', 'left_mouse_up',
+            'type', 'key', 'hold_key', 'scroll', 'wait', 'cursor_position', 'zoom'
+          ]
+        },
+        coordinate,
+        start_coordinate: coordinate,
+        text: { type: 'string' },
+        scroll_direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+        scroll_amount: { type: 'integer', minimum: 1 },
+        duration: { type: 'number', minimum: 0 },
+        region: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 4,
+          maxItems: 4,
+          description: '[x1, y1, x2, y2] for zoom.'
+        }
+      },
+      required: ['action']
+    }
+  };
+}
+
 function hasWebSearchDef(tools: OpenResponseToolDefinition[] | undefined): boolean {
   return Boolean(tools?.some((tool) => tool.type === 'web_search' || tool.type === 'web_search_preview'));
 }
@@ -530,7 +588,7 @@ function hasComputerDef(tools: OpenResponseToolDefinition[] | undefined): boolea
   return Boolean(tools?.some((tool) => tool.type === 'computer_use'));
 }
 
-function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
+function buildToolPlan(request: OpenResponseCreateRequest, dialect: AnthropicWireDialect = 'claude'): ToolPlan {
   const defs = Array.isArray(request.tools) ? request.tools : [];
   const choice: OpenResponseToolChoice | undefined = request.tool_choice;
 
@@ -549,9 +607,14 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
           }
         }
       } else if ((def.type === 'web_search' || def.type === 'web_search_preview') && allowWebSearch) {
-        result.push({ type: WEB_SEARCH_TOOL_TYPE, name: WEB_SEARCH_TOOL_NAME });
+        // Anthropic's server-side web search only exists on the Claude endpoint.
+        if (dialect === 'claude') {
+          result.push({ type: WEB_SEARCH_TOOL_TYPE, name: WEB_SEARCH_TOOL_NAME });
+        }
       } else if (def.type === 'computer_use' && allowComputer) {
-        const computer = serializeComputerTool(def, request.model);
+        const computer = dialect === 'claude'
+          ? serializeComputerTool(def, request.model)
+          : serializeComputerAsFunctionTool(def);
         if (computer) {
           result.push(computer);
         }
@@ -679,24 +742,36 @@ function placeCacheBreakpoints(
   place(lastDurable);
 }
 
+/**
+ * Which Messages endpoint the body is for:
+ *   claude  — the Claude Code subscription endpoint (cloak system blocks, server tools, Files API)
+ *   longcat — LongCat's Anthropic-compatible endpoint: no cloak blocks, no server tools,
+ *             computer tool as a plain function, thinking explicitly disabled
+ */
+export type AnthropicWireDialect = 'claude' | 'longcat';
+
 export interface TranslateOptions {
   /** force a specific model id; defaults to request.model */
   model?: string;
   /** default max_tokens when request.max_output_tokens is unset */
   defaultMaxTokens?: number;
+  /** target endpoint dialect; defaults to 'claude' */
+  dialect?: AnthropicWireDialect;
 }
 
 export function translateCanonicalToMessages(
   request: OpenResponseCreateRequest,
   options: TranslateOptions = {}
 ): TranslateResult {
-  const plan = buildToolPlan(request);
+  const dialect = options.dialect || 'claude';
+  const plan = buildToolPlan(request, dialect);
   // Thinking is gated by the global kill-switch FIRST (default off — see
   // ANTHROPIC_THINKING_GLOBALLY_ENABLED). When globally on, it also requires non-forced
   // tool use (forced tool_choice is incompatible with extended thinking). Off by default
   // keeps every request — including the compression fork — on one thinking-free, byte-
   // identical prefix so the fork rides the main loop's warm cache instead of cold-reading.
-  const thinkingEnabled = isAnthropicThinkingGloballyEnabled()
+  const thinkingEnabled = dialect === 'claude'
+    && isAnthropicThinkingGloballyEnabled()
     && !plan.forced
     && plan.toolChoice?.type !== 'none';
 
@@ -719,14 +794,19 @@ export function translateCanonicalToMessages(
   //   [2] the real instructions (Xiaoni)
   // Both cloak blocks are byte-stable; the cache breakpoint lands on the last block
   // (instructions), so the whole stable system prefix caches together.
-  const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: EphemeralCacheControl }> = [
-    { type: 'text', text: CLAUDE_BILLING_SYSTEM_BLOCK },
-    { type: 'text', text: CLAUDE_CODE_IDENTITY_PROMPT }
-  ];
+  // The cloak blocks exist only for the Claude subscription endpoint.
+  const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: EphemeralCacheControl }> = dialect === 'claude'
+    ? [
+        { type: 'text', text: CLAUDE_BILLING_SYSTEM_BLOCK },
+        { type: 'text', text: CLAUDE_CODE_IDENTITY_PROMPT }
+      ]
+    : [];
   if (typeof request.instructions === 'string' && request.instructions.trim().length > 0) {
     systemBlocks.push({ type: 'text', text: request.instructions });
   }
-  body.system = systemBlocks;
+  if (systemBlocks.length > 0) {
+    body.system = systemBlocks;
+  }
 
   if (plan.tools.length > 0) {
     body.tools = plan.tools;
@@ -737,6 +817,9 @@ export function translateCanonicalToMessages(
 
   if (thinkingEnabled) {
     body.thinking = { type: 'adaptive' };
+  } else if (dialect === 'longcat') {
+    // LongCat thinks unless told not to; keep it off like the Claude path.
+    body.thinking = { type: 'disabled' };
   }
 
   if (request.metadata && typeof request.metadata === 'object') {
@@ -750,7 +833,7 @@ export function translateCanonicalToMessages(
   // Must run last (after system/messages/tools/breakpoints are all set) so the checksum
   // covers the exact bytes that will be sent. Default OFF -> cch stays fixed at 00000
   // (byte-stable system[0]); see isClaudeBillingCchSigningEnabled.
-  if (isClaudeBillingCchSigningEnabled()) {
+  if (dialect === 'claude' && isClaudeBillingCchSigningEnabled()) {
     signClaudeBillingCch(body);
   }
 

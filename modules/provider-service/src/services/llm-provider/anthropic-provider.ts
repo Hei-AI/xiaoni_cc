@@ -33,7 +33,8 @@ import {
   extractTextFromMessagesResponse,
   translateCanonicalToMessages,
   translateMessagesResponseToCanonical,
-  type AnthropicMessagesResponse
+  type AnthropicMessagesResponse,
+  type AnthropicWireDialect
 } from './anthropic-translate';
 import {
   LLMProvider,
@@ -126,6 +127,40 @@ export interface AnthropicProviderOptions {
   baseUrl?: string;
   timeoutMs?: number;
   defaultMaxTokens?: number;
+  /** wire dialect of the target endpoint (default 'claude') */
+  dialect?: AnthropicWireDialect;
+  /**
+   * Static API key sent as `Authorization: Bearer`. When set, the Claude OAuth credential
+   * and Claude Code client headers are not used (third-party Anthropic-compatible endpoints).
+   */
+  apiKey?: string;
+}
+
+// A forced multi-tool choice (tool_choice any) that the endpoint does not enforce is
+// re-requested this many extra times when the reply carries no tool call.
+const FORCED_TOOL_CHOICE_RETRIES = 2;
+
+type ResolvedAuth = { headers: Record<string, string>; accountKey: string };
+
+// Third-party endpoints get no Files API: drop stamped Files API ids so the translator
+// sends the image_url (base64) the canonical item always keeps.
+function stripAnthropicFileIds<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripAnthropicFileIds(entry)) as unknown as T;
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'anthropic_file_id') continue;
+      out[key] = stripAnthropicFileIds(entry);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+function hasToolUse(response: AnthropicMessagesResponse): boolean {
+  return Array.isArray(response.content) && response.content.some((block) => block?.type === 'tool_use');
 }
 
 export class AnthropicProvider implements LLMProvider {
@@ -134,6 +169,8 @@ export class AnthropicProvider implements LLMProvider {
   private readonly baseUrl: string;
   private readonly timeoutMs?: number;
   private readonly defaultMaxTokens?: number;
+  private readonly dialect: AnthropicWireDialect;
+  private readonly apiKey?: string;
   private readonly moduleLogger = logger.createModuleLogger('llm-provider-anthropic');
   private lastWireExchange: WireExchangeMetadata | null = null;
 
@@ -143,6 +180,31 @@ export class AnthropicProvider implements LLMProvider {
     this.baseUrl = (options.baseUrl || aiConfig.anthropic_base_url || process.env.ANTHROPIC_BASE_URL || CLAUDE_API_BASE_URL).replace(/\/$/, '');
     this.timeoutMs = options.timeoutMs;
     this.defaultMaxTokens = options.defaultMaxTokens;
+    this.dialect = options.dialect || 'claude';
+    this.apiKey = options.apiKey;
+  }
+
+  private async resolveAuth(forceRefresh = false): Promise<ResolvedAuth> {
+    if (this.apiKey !== undefined) {
+      if (!this.apiKey) throw new Error(`${this.id} API key is not configured.`);
+      return {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json'
+        },
+        accountKey: `${this.id}:api-key`
+      };
+    }
+    const resolved = await resolveClaudeOAuthCredential(this.aiConfig, forceRefresh);
+    const accessToken = resolved.credential?.access;
+    if (!accessToken) {
+      throw new Error('Claude OAuth access token is unavailable (check ~/.claude/.credentials.json).');
+    }
+    return {
+      headers: buildClaudeHeaders(accessToken, this.aiConfig),
+      accountKey: claudeAccountKey(resolved.credential!)
+    };
   }
 
   async generateText(input: LLMProviderTextRequest): Promise<LLMProviderTextResult> {
@@ -164,12 +226,25 @@ export class AnthropicProvider implements LLMProvider {
   async generateContent(input: LLMProviderContentRequest): Promise<LLMProviderContentResult> {
     const callStartTime = Date.now();
     try {
-      const { body } = translateCanonicalToMessages(input.request, {
+      const request = this.dialect === 'claude' ? input.request : stripAnthropicFileIds(input.request);
+      const { body } = translateCanonicalToMessages(request, {
         model: input.modelName || input.request.model,
-        defaultMaxTokens: this.defaultMaxTokens
+        defaultMaxTokens: this.defaultMaxTokens,
+        dialect: this.dialect
       });
 
-      const response = await this.postMessages(body, input);
+      let response = await this.postMessages(body, input);
+      if (body.tool_choice?.type === 'any') {
+        for (let retry = 1; retry <= FORCED_TOOL_CHOICE_RETRIES && !hasToolUse(response); retry += 1) {
+          this.moduleLogger.warn('Forced tool_choice returned no tool call; re-requesting', {
+            provider: this.id,
+            modelName: input.modelName,
+            retry,
+            llmCallId: input.context?.llmCallId || null
+          });
+          response = await this.postMessages(body, input);
+        }
+      }
       const wireExchange = this.lastWireExchange;
 
       const text = extractTextFromMessagesResponse(response);
@@ -226,9 +301,7 @@ export class AnthropicProvider implements LLMProvider {
     const requestUrl = `${this.baseUrl}${CLAUDE_MESSAGES_PATH}`;
     const traceHeaders = buildTraceHeaders(input.context);
     const timeout = input.providerConfig?.performance.timeout || this.timeoutMs || DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
-    const initialCredential = (await resolveClaudeOAuthCredential(this.aiConfig)).credential;
-    if (!initialCredential?.access) throw new Error('Claude OAuth access token is unavailable.');
-    const initialAccountKey = claudeAccountKey(initialCredential);
+    const initialAccountKey = (await this.resolveAuth()).accountKey;
     const isMainRequest = input.context?.executionMode === 'agent_loop';
     if (!isMainRequest) {
       anthropicRetryWindow.assertReady(JSON.stringify([this.baseUrl, body.model, initialAccountKey]));
@@ -272,23 +345,17 @@ export class AnthropicProvider implements LLMProvider {
       let connAttempt = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        let resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
-        let accessToken = resolved.credential?.access;
-        if (!accessToken) {
-          throw new Error('Claude OAuth access token is unavailable (check ~/.claude/.credentials.json).');
-        }
-        const retryScope = JSON.stringify([this.baseUrl, body.model, claudeAccountKey(resolved.credential!)]);
+        let auth = await this.resolveAuth(refreshedOnce);
+        const retryScope = JSON.stringify([this.baseUrl, body.model, auth.accountKey]);
         // Only main requests own timed retry. Auxiliary calls fail promptly during
         // the same model/account window instead of maintaining their own timers.
         if (isMainRequest) {
           await anthropicRetryWindow.wait(retryScope, input.signal);
           // OAuth may expire or be switched while waiting hours for rate reset.
-          resolved = await resolveClaudeOAuthCredential(this.aiConfig);
-          if (!resolved.credential?.access) throw new Error('Claude OAuth access token is unavailable.');
-          if (retryScope !== JSON.stringify([this.baseUrl, body.model, claudeAccountKey(resolved.credential)])) continue;
-          accessToken = resolved.credential.access;
+          auth = await this.resolveAuth();
+          if (retryScope !== JSON.stringify([this.baseUrl, body.model, auth.accountKey])) continue;
         } else anthropicRetryWindow.assertReady(retryScope);
-        const headers = { ...buildClaudeHeaders(accessToken, this.aiConfig), ...traceHeaders };
+        const headers: Record<string, string> = { ...auth.headers, ...traceHeaders };
         // Computer use is gated behind a per-version beta flag. Derive it from the
         // computer_* tool type the translator placed in the body (model-resolved),
         // and append it so we never send the wrong/no computer-use beta. No-op when
@@ -298,7 +365,7 @@ export class AnthropicProvider implements LLMProvider {
               (t: any) => typeof t?.type === 'string' && t.type.startsWith('computer_')
             )?.type as string | undefined)
           : undefined;
-        if (computerToolType) {
+        if (computerToolType && this.dialect === 'claude') {
           const cuBeta = computerUseBeta(computerToolType);
           const existing = String(headers['anthropic-beta'] || '');
           if (cuBeta && !existing.split(',').includes(cuBeta)) {
@@ -369,7 +436,7 @@ export class AnthropicProvider implements LLMProvider {
           }
 
           // 401 -> refresh the OAuth token once and retry
-          if (status === 401 && !refreshedOnce) {
+          if (status === 401 && !refreshedOnce && this.apiKey === undefined) {
             refreshedOnce = true;
             continue;
           }

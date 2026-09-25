@@ -40,6 +40,8 @@ export const aiConfig: AIConfig = {
   anthropic_expires_at: process.env.ANTHROPIC_OAUTH_EXPIRES_AT || undefined,
   anthropic_oauth_path: process.env.ANTHROPIC_OAUTH_PATH || undefined,
   anthropic_base_url: process.env.ANTHROPIC_BASE_URL || undefined,
+  longcat_api_key: process.env.LONGCAT_API_KEY || undefined,
+  longcat_base_url: process.env.LONGCAT_BASE_URL || undefined,
   anthropic_client_version: process.env.ANTHROPIC_CLIENT_VERSION || undefined,
   anthropic_beta: process.env.ANTHROPIC_BETA || undefined,
   anthropic_billing_header: process.env.ANTHROPIC_BILLING_HEADER || undefined,
