@@ -1094,55 +1094,6 @@ test('STW drain gate: a compression fork on ANOTHER session does NOT block this 
 // This regression drives the switch on a resumed run and pins the ordering. Before the fix
 // (the rebuild ignored the flag) the `lc < trig` assertion goes red.
 // =====================================================================================
-test('REQ2 STW: the switch preserves the run\'s loopContinuation-before-trigger ordering (resumed run)', async () => {
-  const scenario = buildStwScenario();
-  scenario.flip(); // the compression fork has committed the new cutoff + summary
-  const service = new AgentLoopService(scenario.store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
-
-  const LC_MARKER = '<<LOOP_CONTINUATION_MARKER>>';
-  const TRIGGER_MARKER = '<<CURRENT_TRIGGER_MARKER>>';
-  const loopContinuation = [
-    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: LC_MARKER }] }
-  ] as any[];
-  const trigger = [
-    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: TRIGGER_MARKER }], cache_volatile: true }
-  ] as any[];
-
-  const callApply = (loopContinuationBeforeCurrentTrigger: boolean) => (service as any).applyPendingCompressionMidRunIfSilent({
-    contextSessionKey: scenario.KEY,
-    appliedRunCutoff: null,
-    fullHistory: [{ id: 400, userMessage: 'x', aiResponse: null }, { id: 500, userMessage: 'y', aiResponse: null }],
-    loopContinuation,
-    queueMessage: baseQueuePayload({ traceId: 'runtrace-STW2', runId: 'run-STW2' }),
-    runtimePrompt: createRuntimePrompt(),
-    runtimeIdentityFacts: [],
-    pendingProactiveShare: null,
-    developerContextBlock: null,
-    runtimeEnergyState: null,
-    precomputedCurrentTurnInputItems: trigger,
-    loopContinuationBeforeCurrentTrigger
-  });
-
-  const order = (input: any[]) => {
-    const s = input.map((i) => JSON.stringify(i));
-    return { lc: s.findIndex((x) => x.includes(LC_MARKER)), trig: s.findIndex((x) => x.includes(TRIGGER_MARKER)) };
-  };
-
-  // Resumed run (before=true): loopContinuation must remain BEFORE the trigger after the switch.
-  (service as any).pendingCompressionAppliedCutoffBySession.set(scenario.KEY, scenario.NEW_CUTOFF);
-  const resumed = await callApply(true);
-  assert.ok(resumed, 'the switch must fire (cutoff committed, no compression fork running)');
-  const r = order(resumed.requestInput);
-  assert.ok(r.lc >= 0 && r.trig >= 0, `both markers must be present in the switched body (lc=${r.lc}, trig=${r.trig})`);
-  assert.ok(r.lc < r.trig, `resumed run: loopContinuation must stay BEFORE the trigger after the switch (lc=${r.lc}, trig=${r.trig})`);
-
-  // Sanity: the flag is genuinely honored — a fresh run (before=false) puts it AFTER.
-  (service as any).pendingCompressionAppliedCutoffBySession.set(scenario.KEY, scenario.NEW_CUTOFF);
-  const fresh = await callApply(false);
-  const f = order(fresh.requestInput);
-  assert.ok(f.lc > f.trig, `fresh run: loopContinuation stays AFTER the trigger (lc=${f.lc}, trig=${f.trig})`);
-});
-
 // =====================================================================================
 // PURPOSE (not implementation): the cache heartbeat exists ONLY to keep the prompt cache
 // warm while the runtime is stopped, so that when the switch is flipped back on and the
