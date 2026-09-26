@@ -131,12 +131,20 @@ function fireDeliveryForRecall(anchorText: string, result: unknown): void {
   if (!record || typeof record !== 'object' || silent) {
     return;
   }
+  // 每个事件都记结果和排队/执行耗时。2026-09-25 23:44 → 09-26 12:38 落地召回浮现了上百次,
+  // 精排一次没被叫起来,而 disabled / asleep / none 几个出口都不留痕,容器重建后日志也没了,
+  // 查不出是哪一支。queuedMs 大 = 串行链被前一个事件堵住;outcome 直接说明停在哪个出口。
+  const firedAt = Date.now();
   deliveryChain = deliveryChain
-    .then(() => deliverPassiveRecallForEvent({ anchorText, row: record as { surfaced?: unknown; queryRef?: string | null } }))
-    .then((outcome) => {
-      if (outcome === 'delivered') {
-        moduleLogger.info('Passive recall surface delivered (event-driven)', { anchorChars: anchorText.length });
-      }
+    .then(async () => {
+      const startedAt = Date.now();
+      const outcome = await deliverPassiveRecallForEvent({ anchorText, row: record as { surfaced?: unknown; queryRef?: string | null } });
+      moduleLogger.info('Passive recall delivery outcome (event-driven)', {
+        outcome,
+        queuedMs: startedAt - firedAt,
+        elapsedMs: Date.now() - startedAt,
+        anchorChars: anchorText.length
+      });
     })
     .catch((error: unknown) => {
       moduleLogger.warn('Passive recall event-driven delivery failed', {
