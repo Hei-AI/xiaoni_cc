@@ -13993,7 +13993,8 @@ export class AgentLoopService {
           forkRequest,
           params.queueMessage,
           params.runtimePrompt,
-          forkTurn
+          forkTurn,
+          params.bypassRuntimeEnabledGate === true
         );
         const forkSliceId = modelResult.llm_request_slice_id
           || modelResult.llm_call_id
@@ -14426,9 +14427,14 @@ export class AgentLoopService {
     canonicalRequest: CanonicalAgentTurnRequest,
     queueMessage: QueueMessageRecord['payload'],
     runtimePrompt: ResolvedAgentRuntimePrompt,
-    forkTurn: number
+    forkTurn: number,
+    // Manual (operator) compression runs while the loop is stopped — it is the documented way out of
+    // a compression-overrun halt ("manual compress + re-enable"), so it must not hit the stopped gate.
+    bypassRuntimeEnabledGate = false
   ) {
-    await this.assertRuntimeEnabledForModelRequest();
+    if (!bypassRuntimeEnabledGate) {
+      await this.assertRuntimeEnabledForModelRequest();
+    }
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
       headers: {
