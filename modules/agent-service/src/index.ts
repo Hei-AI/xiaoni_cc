@@ -6,6 +6,7 @@ import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled, setIdlePlanSkillSubmissionEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { sendOpenLoopsPointerNotifyOnce, openLoopsNotifyConfig } from './services/xiaoni-open-loops-notify';
+import { warmRecallJudgeCache } from './services/xiaoni-recall-delivery';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
@@ -630,6 +631,29 @@ async function runClockPingLoop() {
   }
 }
 
+// 精排 system 预热 supervisor(见 xiaoni-recall-delivery.ts warmRecallJudgeCache)。无状态节拍:
+// 漏一拍只是某些副本凉一会儿,重启即续。默认 10 分钟(2026-09-26 实测:焐热后静置 10 / 20 分钟
+// 各 4/4 命中,10 分钟留一倍余量)。0 = 关。
+const RECALL_JUDGE_WARM_INTERVAL_MS = Number.parseInt(process.env.XIAONI_RECALL_JUDGE_WARM_INTERVAL_MS || '600000', 10);
+
+async function runRecallJudgeWarmLoop() {
+  if (!(RECALL_JUDGE_WARM_INTERVAL_MS > 0)) {
+    return;
+  }
+  while (!stopping) {
+    try {
+      await warmRecallJudgeCache();
+    } catch (error) {
+      moduleLogger.warn('Recall judge warm tick failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    if (!stopping) {
+      await wait(RECALL_JUDGE_WARM_INTERVAL_MS);
+    }
+  }
+}
+
 // 被动浮现投递不再有 supervisor(2026-08-28):改为事件驱动,召回 hook 写完 shadow 行就交精排 Agent,
 // 见 xiaoni-recall-hook.ts fireDeliveryForRecall / xiaoni-recall-delivery.ts deliverPassiveRecallForEvent。
 
@@ -741,6 +765,7 @@ async function start() {
     void wait(1100).then(() => runClockPingLoop());
   }
   void wait(1700).then(() => runOpenLoopsNotifyLoop());
+  void wait(1900).then(() => runRecallJudgeWarmLoop());
 }
 
 process.on('SIGINT', () => {

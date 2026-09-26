@@ -611,4 +611,41 @@ export function deliverPassiveRecallForEvent(event: RecallDeliveryEvent): Promis
   return defaultDelivery.deliverForEvent(event);
 }
 
+// ── 精排 system 预热 ────────────────────────────────────────────────────────
+// 精排是低频腿(一次投递事件才一次),而 LongCat 的前缀缓存分散在多个后端副本上、没有粘性路由:
+// 调用少的前缀大多数副本上是冷的。2026-09-26 实测:同一份 system、不同 user,冷时 7 次中 1 次,
+// 连打十几次之后 8 次中 6~8 次,焐热后静置 10 / 20 分钟仍 4/4 命中;频繁的展开腿 74 次中 57 次。
+// 所以按固定节拍发一条
+// 「精排 system + 固定极短 user」的请求,把 system 前缀在各副本上焐热。
+// system 用 buildJudgePrompt 现拼 —— 它是常量,和真精排逐字节一致,改一处两处都跟着变。
+// 闸与投递同一套:开关关着 / 投递关着 / 她睡着时精排本来就不跑,不必预热。
+// source_kind 单独落 recall_rerank_heartbeat(identity 落 xiaoni-internal),不混进精排统计和行动流。
+export type RecallJudgeWarmOutcome = 'disabled' | 'asleep' | 'warmed';
+
+const JUDGE_WARM_USER = '(预热,不用判,回 {"picks":[]})';
+
+export async function warmRecallJudgeCache(deps: {
+  readGate?: () => Promise<RecallDeliveryGate>;
+  isAsleep?: () => Promise<boolean>;
+  call?: typeof callRecallLlmDetailed;
+} = {}): Promise<RecallJudgeWarmOutcome> {
+  const gate = await (deps.readGate ?? defaultReadGate)().catch(() => ({ enabled: false }));
+  if (gate.enabled !== true) {
+    return 'disabled';
+  }
+  if (await (deps.isAsleep ?? (() => isXiaoniAsleep()))().catch(() => false)) {
+    return 'asleep';
+  }
+  const system = persistence.buildJudgePrompt([], '').system;
+  await (deps.call ?? callRecallLlmDetailed)({ system, user: JUDGE_WARM_USER }, {
+    model: JUDGE_MODEL,
+    maxTokens: 16,
+    timeoutMs: JUDGE_TIMEOUT_MS,
+    retries: 0,
+    label: 'recall-judge-warm',
+    executionMode: 'recall_rerank_heartbeat'
+  });
+  return 'warmed';
+}
+
 export const passiveRecallDeliveryLegs = DELIVERABLE_LEGS.map((entry) => entry.leg);
