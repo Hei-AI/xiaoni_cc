@@ -8985,20 +8985,12 @@ export class AgentLoopService {
         const midRunCompressionApply = await this.applyPendingCompressionMidRunIfSilent({
           contextSessionKey,
           appliedRunCutoff,
-          fullHistory: history,
-          loopContinuation,
           queueMessage: payload,
           runtimePrompt,
           runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
           pendingProactiveShare: budgetPlan.pendingProactiveShare,
           developerContextBlock,
-          runtimeEnergyState: initialRuntimeEnergyState,
-          precomputedCurrentTurnInputItems: budgetPlan.currentTurnInputItems,
-          // The STW rebuild inherits THIS run's trigger mode. A self-driven <xiaoni_plan> wake is
-          // now a normal durable notify (no special suppress mode), so the compressed requestInput
-          // carries the plan exactly like any other current-turn trigger.
-          triggerInputMode: options.triggerInputMode,
-          loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
+          runtimeEnergyState: initialRuntimeEnergyState
         });
         if (midRunCompressionApply) {
           requestInput = midRunCompressionApply.requestInput;
@@ -9056,11 +9048,7 @@ export class AgentLoopService {
           contextSessionKey: getGlobalPromptContextSessionKey(),
           baseRequest: currentCanonicalRequest,
           queueMessage: payload,
-          runtimePrompt,
-          // The snapshot this activation rebuilds from on an STW switch. Caps the planned cutoff so
-          // the switch can never leave evicted-but-still-sent items behind (see the ceiling note in
-          // the callee and in applyPendingCompressionMidRunIfSilent).
-          snapshotCeilingStackIndex: history.length > 0 ? history[history.length - 1]!.id : null
+          runtimePrompt
         });
         // BYTE-side guard (pre-send): images are token-cheap but byte-huge, so the token overrun valve
         // (below, turn-AFTER real input_tokens) is blind to an image burst that crosses Anthropic's hard
@@ -13534,28 +13522,12 @@ export class AgentLoopService {
   private async applyPendingCompressionMidRunIfSilent(params: {
     contextSessionKey: string;
     appliedRunCutoff: number | null;
-    fullHistory: StackBackedConversationTurn[];
-    loopContinuation: OpenResponseInputItem[];
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     runtimeIdentityFacts: RuntimeIdentityFactProjection[];
     pendingProactiveShare: string | null;
     developerContextBlock: string | null;
     runtimeEnergyState: RuntimeEnergyState | null;
-    precomputedCurrentTurnInputItems: OpenResponseInputItem[];
-    // The activation's OWN item-ordering flag (= initial build's
-    // options.initialLoopContinuationBeforeCurrentTrigger). The STW rebuild MUST reuse it so the
-    // switched live body orders items relative to the trigger identically to how this activation
-    // was originally built, and to how stack-replay will reconstruct it. Defaulting it to false
-    // would emit [history, trigger, …] where replay reconstructs [history, …, trigger] → an
-    // item-order divergence = the exact §3 byte-replay break this branch exists to prevent.
-    // (Still load-bearing after the re-read switch: the flag positions the trigger, which is not
-    // a stack item and therefore cannot be recovered from the rows.)
-    loopContinuationBeforeCurrentTrigger: boolean;
-    // 甲: the run's own trigger mode. suppress_current_trigger for a subconscious
-    // wake keeps the one-shot <xiaoni_plan> out of the rebuilt requestInput. Defaults
-    // to fresh_trigger (unchanged behavior) for every other run.
-    triggerInputMode?: RuntimeTriggerInputMode;
   }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
     const key = params.contextSessionKey;
     // Floor for "this run hasn't built/switched to any cutoff yet". stack_index is a
@@ -13581,30 +13553,23 @@ export class AgentLoopService {
     if (liveCutoff === null || liveCutoff < pending || liveCutoff <= priorCutoff) {
       return null; // commit not landed yet, or no real advance
     }
-    // Atomic context reorganization: drop history <= the new cutoff, swap in the new
-    // <xiaoni_status>, KEEP this activation's accumulated loopContinuation. Reuse the exact
-    // (cache_volatile) current-turn trigger so the rebuilt prefix is byte-stable — only THIS
-    // request cold-reads; every later request and every fork cloned afterwards hits the new
-    // warm cache.
-    //
-    // The retained tail is filtered out of the activation-start snapshot rather than re-read from
-    // the stack, and that is deliberate: the stack also holds this activation's trigger and its
-    // accumulated items, so a plain re-read would (a) re-supply the trigger that
-    // precomputedCurrentTurnInputItems adds below (duplicate) and (b) place the accumulated items
-    // BEFORE the trigger, while a fresh activation's live body orders them AFTER it — an item-order
-    // divergence from what stack-replay reconstructs, i.e. exactly the §3 byte-replay break the
-    // ordering flag below exists to prevent.
-    //
-    // Correctness of the snapshot therefore depends on the cutoff never landing above it. That is
-    // enforced at planning time (see maybeScheduleCompressionFromLiveStack's snapshot ceiling):
-    // every item loopContinuation holds sits strictly above the planned cutoff, so keeping it whole
-    // cannot retain something the ledger considers evicted.
-    const retainedHistory = params.fullHistory.filter((turn) => turn.id > liveCutoff);
+    // Atomic context reorganization: rebuild the WHOLE request from the stack over the new cutoff —
+    // exactly the frame the next request would be replayed from (same shape as the cache
+    // heartbeat's fresh frame: stack history, no in-memory tail, trigger suppressed). Everything
+    // this request sequence has produced so far (its trigger row, model outputs, tool results,
+    // folded notifies) is already on the stack by the time the loop comes back to this silent
+    // point, so it is either kept verbatim above the cutoff or evicted with the rest of the head.
+    // The cutoff may therefore land anywhere, including inside the items produced since the
+    // sequence started — compression's one cold read happens on THIS request; every later request
+    // extends this rebuilt body and stays warm, and a later replay from the stack rebuilds it
+    // byte-for-byte.
+    const liveHistory = await this.loadStackHistoryBlocks(cutoffState, params.queueMessage.traceId);
+    const retainedHistory = applyReadCutoff(liveHistory, cutoffState);
     const requestInput = buildLoopRequestInput({
       history: retainedHistory,
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation,
+      loopContinuation: [],
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary: cutoffState?.contextSummary ?? null,
       diaryIndexSnapshot: cutoffState?.diaryIndexSnapshot ?? null,
@@ -13612,9 +13577,7 @@ export class AgentLoopService {
       pendingProactiveShare: params.pendingProactiveShare,
       developerContextBlock: params.developerContextBlock,
       runtimeEnergyState: params.runtimeEnergyState,
-      triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
-      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger,
-      precomputedCurrentTurnInputItems: params.precomputedCurrentTurnInputItems
+      triggerInputMode: 'suppress_current_trigger'
     });
     // One-cold-only: clear the latch so the switch fires exactly once; reset the trigger
     // counter so the now-small context re-arms from scratch if still genuinely over line.
@@ -13662,9 +13625,6 @@ export class AgentLoopService {
     baseRequest: CanonicalAgentTurnRequest;
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
-    // Highest stack_index the running activation's history snapshot covers (its last block, or null
-    // for an empty snapshot). The planned cutoff is capped here — see the ceiling note below.
-    snapshotCeilingStackIndex: number | null;
   }): Promise<void> {
     const key = params.contextSessionKey;
     if (!shouldTriggerCompressionFromRealInput(key) && !shouldTriggerCompressionFromWireBytes(key) && !shouldTriggerCompressionFromImageCount(key)) {
@@ -13695,25 +13655,7 @@ export class AgentLoopService {
     if (liveHistory.length === 0) {
       return;
     }
-    // SNAPSHOT CEILING: the running activation rebuilds its body from the history snapshot it took
-    // at start, plus the items it has accumulated since (loopContinuation). Only the snapshot half
-    // is filtered by the cutoff, so a cutoff ABOVE the snapshot would leave accumulated items in the
-    // sent request that the ledger considers evicted — the live body and what the next activation
-    // replays from the stack would then disagree, which is a whole-prefix miss at the boundary.
-    // Planning against the live stack but capping at the snapshot keeps the two halves consistent
-    // without having to carry stack indexes on the in-memory copy.
-    //
-    // The cost is a real ceiling: items this activation produced itself cannot be evicted while it
-    // is still running, so a very long stretch still grows unbounded past this point and relies on
-    // maybeHaltForCompressionOverrun. Lifting it means teaching the rebuild to evict from the
-    // accumulated half too — deliberately out of scope here.
-    const plannable = params.snapshotCeilingStackIndex === null
-      ? liveHistory
-      : liveHistory.filter((turn) => turn.id <= params.snapshotCeilingStackIndex!);
-    if (plannable.length === 0) {
-      return;
-    }
-    const compressionPoint = planReadCutoffForForcedCompression(plannable);
+    const compressionPoint = planReadCutoffForForcedCompression(liveHistory);
     if (!compressionPoint) {
       return; // at/under the retained-tail floor, or no clean boundary that keeps it — nothing to evict
     }

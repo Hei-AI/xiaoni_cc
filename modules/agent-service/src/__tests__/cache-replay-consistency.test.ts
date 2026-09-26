@@ -2135,3 +2135,152 @@ test('people index: STW switch swaps the snapshot in the SAME frame as <xiaoni_s
     assertOrderedPrefix(stripVolatile(sentInputs[i]), stripVolatile(sentInputs[i + 1]), `post-switch turn ${i}->${i + 1} with people index (must stay warm)`);
   }
 });
+
+// =====================================================================================
+// PURPOSE (2026-09-26 overrun halt): one request sequence read a file 956 times in a row;
+// compression kept triggering but the cutoff could never land inside what that sequence had
+// itself produced, so the context climbed 136K -> 750K and the overrun valve halted her.
+// Compression's cutoff must be able to land ANYWHERE on the stack, including inside the
+// items produced since the sequence started, and the switch must still cost exactly one cold
+// read: every later request extends the switched body, and the next replay from the stack
+// reproduces it byte-for-byte.
+// =====================================================================================
+test('STW: the cutoff can land inside the running request sequence; one cold read, later requests + next replay stay warm', async () => {
+  const KEY = 'xiaoni:test-global';
+  const NEW_SUMMARY = '压缩后近况：读文件那一长串已经整理进来了';
+  const { store, stack } = createFaithfulStore({ foldsToServe: [] });
+  let cutoffState: any = null;
+  store.getSessionReadCutoffState = async () => cutoffState;
+  const timelineEvents: any[] = [];
+  store.logTimelineEvent = async (e: any) => { timelineEvents.push(e); };
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async (toolCall: any) => ({ success: true, output: `读到第 ${toolCall?.arguments ?? ''} 段`, message_type: 'tool_result' });
+
+  const TOOL_TURNS = 8;
+  const SWITCH_AFTER_TURN = 5;
+  let evictedThrough: number | null = null;
+  const sentInputs: any[][] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sentInputs.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn === SWITCH_AFTER_TURN) {
+      // A compression fork commits a cutoff INSIDE this sequence: everything this sequence
+      // produced up to now except the last two stack rows is folded into the new summary.
+      evictedThrough = Number(stack[stack.length - 3]!.stack_index);
+      cutoffState = { readCutoffAfterStackIndex: evictedThrough, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 };
+      (service as any).pendingCompressionAppliedCutoffBySession.set(KEY, evictedThrough);
+    }
+    if (turn <= TOOL_TURNS) {
+      return { success: true, llm_call_id: `llm-cut-${turn}`, llm_request_slice_id: `slice-cut-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `call-cut-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"sed -n ${turn}p diary.txt"}` }] } };
+    }
+    return { success: true, llm_call_id: `llm-cut-${turn}`, llm_request_slice_id: `slice-cut-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '读完了。' }] }] } };
+  };
+
+  const payload = baseQueuePayload({ traceId: 'runtrace-CUT', runId: 'run-CUT' });
+  const queueMessage = { id: 'run-CUT', traceId: 'runtrace-CUT', batchId: 'batch-CUT', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  const midrun = timelineEvents.filter((e) => e.eventName === 'core_memory_compression_applied_midrun');
+  assert.equal(midrun.length, 1, 'the switch must apply exactly once');
+  assert.equal(midrun[0].metadata.applied_read_cutoff, evictedThrough);
+
+  const has = (input: any[], needle: string) => JSON.stringify(input).includes(needle);
+  const firstNew = sentInputs.findIndex((input) => has(input, NEW_SUMMARY));
+  assert.equal(firstNew, SWITCH_AFTER_TURN, 'the request right after the commit is the switch request');
+
+  // The cut really landed inside this sequence: its trigger and its early reads are gone …
+  const switched = sentInputs[firstNew]!;
+  assert.equal(has(switched, '群里有人找你'), false, 'the sequence trigger (below the cutoff) must be evicted');
+  assert.equal(has(switched, 'call-cut-1'), false, 'early reads of this sequence (below the cutoff) must be evicted');
+  // … while the rows above the cutoff are kept.
+  for (const row of stack.filter((r) => Number(r.stack_index) > evictedThrough!)) {
+    const callId = (row.content as any)?.call_id;
+    if (typeof callId === 'string' && Number(row.stack_index) <= Number(stack[stack.length - 1]!.stack_index)) {
+      if (Number(callId.split('-').pop()) < SWITCH_AFTER_TURN) {
+        assert.equal(has(switched, callId), true, `kept row ${callId} (above the cutoff) must survive the switch`);
+      }
+    }
+  }
+  assert.ok(switched.length < sentInputs[firstNew - 1]!.length, 'the switch must shrink the request');
+
+  // One cold read only: every request after the switch extends the switched body.
+  for (let i = firstNew; i + 1 < sentInputs.length; i += 1) {
+    assertOrderedPrefix(stripVolatile(sentInputs[i]!), stripVolatile(sentInputs[i + 1]!), `post-switch request ${i}->${i + 1} (must stay warm)`);
+  }
+
+  // Next replay from the stack (what the next wake builds; the heartbeat builds the same frame)
+  // reproduces the last request byte-for-byte as its prefix.
+  const replay = await (service as any).buildCacheHeartbeatCanonicalRequest(payload);
+  assert.ok(replay, 'the heartbeat frame must build');
+  assertOrderedPrefix(
+    stripVolatile(sentInputs[sentInputs.length - 1]!),
+    stripVolatile(replay.canonicalRequest.input),
+    'next replay vs last live request (run boundary must stay warm)'
+  );
+});
+
+// The switch rebuilds from the stack, so the order of a resumed sequence (recovered
+// loopContinuation persisted BEFORE its trigger) is whatever the stack holds — the same
+// order the next replay reconstructs.
+test('STW: a resumed sequence keeps loopContinuation BEFORE the trigger across a switch (stack order)', async () => {
+  const KEY = 'xiaoni:test-global';
+  const NEW_SUMMARY = '压缩后近况：续跑';
+  const LC_MARKER = '<<RECOVERED_LOOP_CONTINUATION_STACK>>';
+  const { store, stack } = createFaithfulStore({ foldsToServe: [] });
+  // Older history + the recovered continuation, persisted before the sequence starts
+  // (settleRecoverySession writes it to the stack when the wake settles).
+  for (let i = 1; i <= 4; i += 1) {
+    await store.appendAgentStackItems({ traceId: `rt-old-${i}`, runId: `run-old-${i}`, items: [{
+      eventId: `old-${i}`, itemKind: 'runtime_input', visibility: 'model_visible',
+      content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史-${i}` }] }] }
+    }] });
+  }
+  const recoveredLoopContinuation = [
+    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: LC_MARKER }] }
+  ];
+  await store.appendAgentStackItems({ traceId: 'rt-RES', runId: 'run-RES', items: [{
+    eventId: 'recovered-lc', itemKind: 'runtime_input', visibility: 'model_visible',
+    content: { input_items: recoveredLoopContinuation }
+  }] });
+  let cutoffState: any = null;
+  store.getSessionReadCutoffState = async () => cutoffState;
+  const timelineEvents: any[] = [];
+  store.logTimelineEvent = async (e: any) => { timelineEvents.push(e); };
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sent: any[][] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sent.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn === 1) {
+      cutoffState = { readCutoffAfterStackIndex: 2, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 };
+      (service as any).pendingCompressionAppliedCutoffBySession.set(KEY, 2);
+      return { success: true, llm_call_id: 'res-1', llm_request_slice_id: 'ress-1',
+        canonical_response: { output: [{ type: 'function_call', call_id: 'call-res-1', name: EXEC_COMMAND_TOOL, arguments: '{"cmd":"echo 1"}' }] } };
+    }
+    return { success: true, llm_call_id: `res-${turn}`, llm_request_slice_id: `ress-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+  const queueMessage = { id: 'run-RES', traceId: 'rt-RES', batchId: 'b-RES', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-RES', runId: 'run-RES' }) };
+  await (service as any).processRuntimeFrame(queueMessage, {
+    queueBacked: true,
+    initialLoopContinuation: recoveredLoopContinuation,
+    initialLoopContinuationBeforeCurrentTrigger: true
+  });
+
+  assert.equal(timelineEvents.filter((e) => e.eventName === 'core_memory_compression_applied_midrun').length, 1);
+  const switched = sent[1]!;
+  const lcIdx = switched.findIndex((i: any) => JSON.stringify(i).includes(LC_MARKER));
+  const trigIdx = switched.findIndex((i: any) => JSON.stringify(i).includes('群里有人找你'));
+  assert.ok(lcIdx >= 0 && trigIdx >= 0, `both must survive the switch (lc=${lcIdx}, trig=${trigIdx})`);
+  assert.ok(lcIdx < trigIdx, `loopContinuation must stay BEFORE the trigger after the switch (lc=${lcIdx}, trig=${trigIdx})`);
+  assert.equal(JSON.stringify(switched).includes('历史-1'), false, 'history below the cutoff is evicted');
+  void stack;
+});

@@ -11107,13 +11107,12 @@ function buildPerRequestCompressionService(historyLength: number) {
 
 const PER_REQUEST_BASE_REQUEST = { model: 'test-model', input: [{ type: 'message', role: 'user', content: [] }] } as any;
 
-async function runPerRequestScheduleCheck(service: AgentLoopService, snapshotCeilingStackIndex: number | null = Number.MAX_SAFE_INTEGER) {
+async function runPerRequestScheduleCheck(service: AgentLoopService) {
   await (service as any).maybeScheduleCompressionFromLiveStack({
     contextSessionKey: 'xiaoni:test-global',
     baseRequest: PER_REQUEST_BASE_REQUEST,
     queueMessage: createRuntimeLoopPayload(),
-    runtimePrompt: createRuntimePrompt(),
-    snapshotCeilingStackIndex
+    runtimePrompt: createRuntimePrompt()
   });
 }
 
@@ -11175,43 +11174,22 @@ test('per-request compression does not schedule when the live stack is at or und
   assert.equal(scheduled.length, 0);
 });
 
-test('per-request compression caps the planned cutoff at the running activation snapshot', async () => {
-  // The activation rebuilds from its start-of-run snapshot + accumulated items, and only the
-  // snapshot half is filtered by the cutoff. A cutoff planned ABOVE the snapshot would leave
-  // accumulated items in the sent body that the ledger treats as evicted → live/replay divergence.
-  // Here the live stack is far above the snapshot; the plan must respect the ceiling.
-  const SNAPSHOT_CEILING = HISTORY_COMPACT_KEEP + COMPACT_EVICTED_HEAD;
-  const { service, scheduled } = buildPerRequestCompressionService(SNAPSHOT_CEILING + 50);
+test('per-request compression plans over the whole live stack, including the newest rows', async () => {
+  // The rows a long request sequence produced itself are ordinary stack rows: the plan must be
+  // free to evict them. (2026-09-26: capping the cutoff at the sequence start let 956 file reads
+  // pile up 136K -> 750K with compression armed the whole time.)
+  const LIVE_BLOCKS = HISTORY_COMPACT_KEEP + COMPACT_EVICTED_HEAD + 50;
+  const { service, scheduled } = buildPerRequestCompressionService(LIVE_BLOCKS);
   __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
   try {
-    await runPerRequestScheduleCheck(service, SNAPSHOT_CEILING);
+    await runPerRequestScheduleCheck(service);
   } finally {
     __clearCompressionTriggerCounterForTest('xiaoni:test-global');
   }
 
   assert.equal(scheduled.length, 1);
-  const planned = scheduled[0]?.compression?.readCutoffAfterStackIndex;
-  assert.ok(
-    planned <= SNAPSHOT_CEILING,
-    `planned cutoff ${planned} must not exceed the snapshot ceiling ${SNAPSHOT_CEILING}`
-  );
-  // Capped at the snapshot, the tail-KEEP plan over blocks 1..CEILING evicts exactly the head.
-  assert.equal(planned, COMPACT_EVICTED_HEAD);
-});
-
-test('per-request compression does not schedule when the snapshot itself is under the keep floor', async () => {
-  // A long stretch that has already compressed once: the snapshot is down to the floor and
-  // everything above it is this activation's own accumulated work, which it cannot evict while
-  // running. Must be a no-op, not a repeated cold-read.
-  const { service, scheduled } = buildPerRequestCompressionService(HISTORY_COMPACT_KEEP + 50);
-  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
-  try {
-    await runPerRequestScheduleCheck(service, HISTORY_COMPACT_KEEP);
-  } finally {
-    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
-  }
-
-  assert.equal(scheduled.length, 0);
+  // Tail-KEEP over all live blocks: everything but the newest HISTORY_COMPACT_KEEP is evicted.
+  assert.equal(scheduled[0]?.compression?.readCutoffAfterStackIndex, LIVE_BLOCKS - HISTORY_COMPACT_KEEP);
 });
 
 test('per-request compression survives a stack read failure without breaking the request', async () => {
