@@ -272,3 +272,22 @@ test('AgentPromptService: effective model from the resolver; null -> env default
   const cold = new AgentPromptService({ resolveMainAgentModelName: async () => { throw new Error('db down'); } });
   await assert.rejects(() => cold.resolveForQueueMessage(payload), /db down/, 'no known model yet -> fail so the snapshot is retried');
 });
+
+test('main agent effort rides on the 5.5 main request and every fork clone; other models unchanged', async () => {
+  const { buildCanonicalAgentTurnRequest, buildCacheHeartbeatForkRequest, buildSubconsciousAgentForkRequest } = await import('../services/agent-loop-service');
+  const previous = agentConfig.xiaoniMainAgentEffort;
+  agentConfig.xiaoniMainAgentEffort = 'high';
+  try {
+    const input = [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }] as any;
+    const main = buildCanonicalAgentTurnRequest('claude-sonnet-5-5', input, 'group') as any;
+    assert.deepEqual(main.reasoning, { effort: 'high' });
+    assert.deepEqual((buildCacheHeartbeatForkRequest(main) as any).reasoning, { effort: 'high' });
+    assert.deepEqual((buildSubconsciousAgentForkRequest(main, 1, []) as any).reasoning, { effort: 'high' });
+    const longcat = buildCanonicalAgentTurnRequest('LongCat-2.5-Preview', input, 'group') as any;
+    assert.equal(longcat.reasoning, undefined);
+    agentConfig.xiaoniMainAgentEffort = '';
+    assert.equal((buildCanonicalAgentTurnRequest('claude-sonnet-5-5', input, 'group') as any).reasoning, undefined);
+  } finally {
+    agentConfig.xiaoniMainAgentEffort = previous;
+  }
+});

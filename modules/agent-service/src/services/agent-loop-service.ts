@@ -6984,7 +6984,15 @@ function shouldUseReasoningReplay(modelName: string) {
   return slug === 'gpt-5.5' || slug === 'gpt-5.5-mini' || slug.startsWith('gpt-5.5-');
 }
 
+const CLAUDE_MAIN_AGENT_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
 function buildAgentReasoningConfig(modelName: string, parameters: AgentModelParameters) {
+  // Claude 5.5 main agent: only an effort (thinking is always on there; the provider maps it to
+  // output_config.effort). Other models keep the branches below unchanged.
+  if (/claude-(opus|sonnet)-5-5/i.test(modelName)) {
+    const effort = agentConfig.xiaoniMainAgentEffort;
+    return CLAUDE_MAIN_AGENT_EFFORTS.has(effort) ? { effort } : undefined;
+  }
   const providerSpecific = getProviderSpecificParameters(parameters);
   const explicitEffort = typeof providerSpecific.reasoningEffort === 'string' && providerSpecific.reasoningEffort.trim()
     ? providerSpecific.reasoningEffort.trim()

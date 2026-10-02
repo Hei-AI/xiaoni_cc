@@ -91,6 +91,10 @@ export const agentConfig = {
   xiaoniExecutorUrl: (process.env.XIAONI_EXECUTOR_URL || '').replace(/\/$/, ''),
   modelName: process.env.AI_MODEL_NAME || 'gpt-5-mini',
   xiaoniMainAgentModelName: process.env.XIAONI_MAIN_AGENT_MODEL || XIAONI_MAIN_AGENT_DEFAULT_MODEL,
+  // Thinking effort for the main agent on Claude 5.5 models (low|medium|high|xhigh|max). Carried on
+  // the main request, so every fork clone sends the same value. Part of the prompt-cache key:
+  // change it only together with a compression. Empty = the provider's per-model default.
+  xiaoniMainAgentEffort: (process.env.XIAONI_MAIN_AGENT_EFFORT || '').trim(),
   sherlockModelName: process.env.AGENT_SHERLOCK_MODEL?.trim() || '',
   sherlockClassifierModelName: process.env.AGENT_SHERLOCK_CLASSIFIER_MODEL?.trim() || '',
   helpHumanQqId: process.env.AGENT_HELP_HUMAN_QQ_ID?.trim() || '',

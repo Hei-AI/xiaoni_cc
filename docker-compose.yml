@@ -216,6 +216,9 @@ services:
       # name back to LongCat-2.5-Preview to use it.
       - AI_MODEL_NAME=claude-sonnet-5-5
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-sonnet-5-5}
+      # Main agent (and every fork clone) thinking effort on the 5.5 models. Part of the cache
+      # key: change it only together with a compression. Side legs keep the provider default.
+      - XIAONI_MAIN_AGENT_EFFORT=${XIAONI_MAIN_AGENT_EFFORT:-high}
       - AGENT_SHERLOCK_MODEL=${AGENT_SHERLOCK_MODEL:-claude-sonnet-5-5}
       - AGENT_SHERLOCK_CLASSIFIER_MODEL=${AGENT_SHERLOCK_CLASSIFIER_MODEL:-claude-sonnet-5-5}
       - XIAONI_OS_REWRITE_MODEL=${XIAONI_OS_REWRITE_MODEL:-claude-sonnet-5-5}
