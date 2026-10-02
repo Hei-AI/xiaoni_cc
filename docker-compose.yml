@@ -215,9 +215,12 @@ services:
       # LongCat stays available (provider `longcat`, key LONGCAT_API_KEY): set a model
       # name back to LongCat-2.5-Preview to use it.
       - AI_MODEL_NAME=claude-sonnet-5-5
+      # Main agent model / thinking effort. Both are part of the prompt-cache key, so these env values
+      # are ONLY seeds: agent-service copies them into agent_runtime_control while the columns are
+      # NULL, then never reads them for requests again. Change them in the admin panel (主 agent 模型与
+      # 思考等级): pending -> applied at the next compression commit. Editing them here does nothing.
+      # See the 缓存键铁律 block in modules/agent-service/src/services/agent-loop-service.ts.
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-sonnet-5-5}
-      # Main agent (and every fork clone) thinking effort on the 5.5 models. Part of the cache
-      # key: change it only together with a compression. Side legs keep the provider default.
       - XIAONI_MAIN_AGENT_EFFORT=${XIAONI_MAIN_AGENT_EFFORT:-medium}
       - AGENT_SHERLOCK_MODEL=${AGENT_SHERLOCK_MODEL:-claude-sonnet-5-5}
       - AGENT_SHERLOCK_CLASSIFIER_MODEL=${AGENT_SHERLOCK_CLASSIFIER_MODEL:-claude-sonnet-5-5}

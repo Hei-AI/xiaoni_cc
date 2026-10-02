@@ -120,6 +120,11 @@ export function isAlwaysThinkingClaudeModel(model: string | undefined): boolean 
 type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const CLAUDE_EFFORTS: ReadonlySet<string> = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
+// 缓存键铁律:见 modules/agent-service/src/services/agent-loop-service.ts buildCanonicalAgentTurnRequest
+// 上方。主 agent 的 effort 由 agent-service 在请求里带 reasoning.effort(运行时设置,压缩提交帧生效),
+// 优先于这里的 env;这里的 env 只管没带 effort 的旁路请求。本文件里其余从 env 读、会改缓存键的项
+// (THINKING_DISPLAY / CACHE_TTL / identity / billing block / Files API)目前是「重启即生效」,改它们
+// 只能走「先压缩 → 暂停 → 部署 provider-service(--no-deps)→ 恢复」。
 // Effort is part of the messages-tier cache key, so it is a pure function of the model id:
 // every request on one model (main loop, forks, heartbeat) gets the same value. Changing it
 // re-keys the cache the same way a model switch does — only change it together with a
