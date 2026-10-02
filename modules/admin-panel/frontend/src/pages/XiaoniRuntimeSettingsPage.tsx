@@ -288,7 +288,12 @@ type MainAgentModelState = {
   mainAgentModelPending: string | null;
   mainAgentModelPendingAt: string | null;
   mainAgentModelSwitchedAt: string | null;
+  mainAgentEffort: string | null;
+  mainAgentEffortPending: string | null;
+  mainAgentEffortPendingAt: string | null;
+  mainAgentEffortSwitchedAt: string | null;
   options: string[];
+  effortOptions: string[];
   compression?: { triggered?: boolean; status?: string; error?: string } | null;
 };
 
@@ -310,6 +315,19 @@ async function switchMainAgentModel(model: string | null): Promise<MainAgentMode
   const payload = await response.json() as ApiResponse<MainAgentModelState>;
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || 'Failed to switch main agent model');
+  }
+  return payload.data;
+}
+
+async function changeMainAgentEffort(effort: string | null): Promise<MainAgentModelState> {
+  const response = await fetch('/api/agent-runtime/main-agent-model', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ effort })
+  });
+  const payload = await response.json() as ApiResponse<MainAgentModelState>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to change main agent effort');
   }
   return payload.data;
 }
@@ -404,6 +422,14 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const [mainAgentModelChoice, setMainAgentModelChoice] = React.useState('');
   const mainAgentModelMutation = useMutation({
     mutationFn: switchMainAgentModel,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['xiaoni-main-agent-model'], data);
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+    }
+  });
+  const [mainAgentEffortChoice, setMainAgentEffortChoice] = React.useState('');
+  const mainAgentEffortMutation = useMutation({
+    mutationFn: changeMainAgentEffort,
     onSuccess: (data) => {
       queryClient.setQueryData(['xiaoni-main-agent-model'], data);
       void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
@@ -812,7 +838,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
       </SectionPanel>
 
       <SectionPanel
-        title="主 agent 模型"
+        title="主 agent 模型与思考等级"
         description="换模型会让整段上下文的前缀缓存失效，所以这里只登记目标模型并立刻触发一次核心记忆压缩；压缩提交那一帧（本来就要冷读、窗口刚压小）起才换成新模型。没有可压的内容时，切换保持待生效，等下一次压缩。"
         icon={<Brain className="h-4 w-4 text-primary" />}
       >
@@ -878,6 +904,71 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
         {mainAgentModelMutation.error ? (
           <div className="mt-3 text-sm text-destructive">
             {mainAgentModelMutation.error instanceof Error ? mainAgentModelMutation.error.message : '切换失败'}
+          </div>
+        ) : null}
+        <div className="mt-5 flex flex-col gap-4 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1 text-sm">
+            <div>
+              <span className="text-muted-foreground">思考等级（effort）：</span>
+              <span className="font-medium text-foreground">{mainAgentModelQuery.data?.mainAgentEffort ?? '—'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">待生效：</span>
+              {mainAgentModelQuery.data?.mainAgentEffortPending ? (
+                <>
+                  <StatusPill tone="warning">{mainAgentModelQuery.data.mainAgentEffortPending}</StatusPill>
+                  <span className="text-xs text-muted-foreground">登记于 {formatTimestamp(mainAgentModelQuery.data.mainAgentEffortPendingAt)}</span>
+                </>
+              ) : (
+                <span className="text-foreground">无</span>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              上次切换：{mainAgentModelQuery.data?.mainAgentEffortSwitchedAt ? formatTimestamp(mainAgentModelQuery.data.mainAgentEffortSwitchedAt) : '—'}
+              ；和模型一样是缓存键的一部分，同样只在压缩提交那一帧生效。
+            </div>
+            {mainAgentEffortMutation.data?.compression ? (
+              <div className="text-xs text-muted-foreground">
+                压缩：{mainAgentEffortMutation.data.compression.status ?? '—'}
+                {mainAgentEffortMutation.data.compression.error ? `（${mainAgentEffortMutation.data.compression.error}）` : ''}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              value={mainAgentEffortChoice}
+              onChange={(event) => setMainAgentEffortChoice(event.target.value)}
+              aria-label="目标思考等级"
+            >
+              <option value="">选择等级…</option>
+              {(mainAgentModelQuery.data?.effortOptions ?? []).map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              disabled={!mainAgentEffortChoice || mainAgentEffortMutation.isPending}
+              onClick={() => mainAgentEffortMutation.mutate(mainAgentEffortChoice)}
+            >
+              {mainAgentEffortMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              压缩并切换
+            </Button>
+            {mainAgentModelQuery.data?.mainAgentEffortPending ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={mainAgentEffortMutation.isPending}
+                onClick={() => mainAgentEffortMutation.mutate(null)}
+              >
+                取消待生效
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        {mainAgentEffortMutation.error ? (
+          <div className="mt-3 text-sm text-destructive">
+            {mainAgentEffortMutation.error instanceof Error ? mainAgentEffortMutation.error.message : '切换失败'}
           </div>
         ) : null}
       </SectionPanel>
