@@ -4820,6 +4820,10 @@ function renderSelfContinuationReminder() {
 //    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的；两者共用一个开关就是为了让
 //    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙，就是因为正文里根本没写规则)。
 // 潜意识填充 fork 的尾部指令。固定文本(文件读,mtime 缓存),追加在克隆请求尾部 cache_volatile 之后 → 不进可缓存前缀。
+export function renderXiaoniOsClosingRewriteReminder(): string {
+  return formatSystemReminderBlock(readPromptSnippet('xiaoni_os_closing_rewrite_reminder.md'));
+}
+
 export function renderXiaoniOsFillReminder(): string {
   return formatSystemReminderBlock(readPromptSnippet('xiaoni_os_fill_reminder.md'));
 }
@@ -9167,8 +9171,11 @@ export class AgentLoopService {
           .map((item) => structuredClone(item));
         if (PSYCH_ASSESSMENT_GATE_ENABLED) {
           const assistantTextItems = (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem);
+          // 这次输出没有工具调用 = 这段话让这一轮结束:有事没事都改写(见 runXiaoniOsRewriteLeg 的 closing)。
+          const turnEndsWithText = !(outputItems as OpenResponseInputItem[]).some((item) => item?.type === 'function_call');
           for (const assistantTextItem of assistantTextItems) {
             await this.runXiaoniOsRewriteForItem({
+              closing: turnEndsWithText,
               item: assistantTextItem as unknown as Record<string, unknown>,
               traceId: payload.traceId,
               runId: String(queueMessage.id),
@@ -14562,11 +14569,13 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     narrationItems: OpenResponseInputItem[];
+    // 收尾段的改写:用收尾版引导(去掉收尾意思、落到下一件事);不传 = 空转填充版。
+    closing?: boolean;
   }): Promise<XiaoniOsFillResult | null> {
     const forkRunId = `xiaoni-os-fill-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const baseForkMetadata = {
-      trigger: 'xiaoni_os_idle_fill',
+      trigger: params.closing ? 'xiaoni_os_closing_rewrite' : 'xiaoni_os_idle_fill',
       context_session_key: contextSessionKey,
       no_main_stack_persist: true,
       no_traffic_persist: true,
@@ -14585,7 +14594,7 @@ export class AgentLoopService {
         params.baseRequest,
         1,
         params.narrationItems,
-        renderXiaoniOsFillReminder()
+        params.closing ? renderXiaoniOsClosingRewriteReminder() : renderXiaoniOsFillReminder()
       );
       // 输出保险丝(与自驱动 fork 同理,顶层采样参数不在前缀里):一到三句 + 块壳,600 够;超长本来就 evict。
       forkRequest.max_output_tokens = XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS;
@@ -14707,7 +14716,7 @@ export class AgentLoopService {
     }
   }
 
-  // xiaoni_os 改写腿的单条编排:取正文 → runXiaoniOsRewriteLeg(分类 → 空转才改写) → 按结果就地冻结:
+  // xiaoni_os 改写腿的单条编排:取正文 → runXiaoniOsRewriteLeg(分类 → 空转才改写;收尾段不分类,直接改写) → 按结果就地冻结:
   //   kept / failed_open → 原文准入(text_admit);rewritten → 正文替换为改写版 + 准入;evicted → 不打 stamp(默认剥)。
   // 每次结果落 xiaoni_os_rewrites(原文 / 判定 / 改写 / 去向 / 两次 llm_call_id),既是观测面也是分类器训练集。
   // 留痕失败不挡准入决定(fail-open 记账)。
@@ -14717,6 +14726,8 @@ export class AgentLoopService {
     runId: string;
     agentTurn: number;
     sliceId: string;
+    // 这段是让这一轮结束的那段话(这次输出里没有工具调用)。
+    closing?: boolean;
     // 空转时起潜意识填充 fork 所需的三样(克隆哪份请求 / 哪个 run / 哪份 runtime prompt);null = 走改写腿小请求。
     fillFork?: {
       baseRequest: CanonicalAgentTurnRequest;
@@ -14734,7 +14745,8 @@ export class AgentLoopService {
         baseRequest: fillFork.baseRequest,
         queueMessage: fillFork.queueMessage,
         runtimePrompt: fillFork.runtimePrompt,
-        narrationItems: this.currentTurnOriginalNarrationItems
+        narrationItems: this.currentTurnOriginalNarrationItems,
+        closing: params.closing === true
       })
       : undefined;
     // 落点去重用的历史;读不到就不带(fail-open,不影响改写)。
@@ -14756,7 +14768,8 @@ export class AgentLoopService {
       rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt(),
       polishSystemPrompt: readXiaoniOsPolishSystemPrompt(),
       recentRewrittenTexts,
-      fetchFill
+      fetchFill,
+      closing: params.closing === true
     });
     if ((result.outcome === 'rewritten' || result.outcome === 'polished') && result.rewrittenText) {
       applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);

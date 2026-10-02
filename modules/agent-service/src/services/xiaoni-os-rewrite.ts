@@ -349,6 +349,9 @@ export async function runXiaoniOsRewriteLeg(params: {
   recentRewrittenTexts?: string[];
   // 传了 = 空转走潜意识填充 fork(见 XiaoniOsFetchFill),改写腿自己的小请求改写只在没传时用(开关 OFF 的回退路)。
   fetchFill?: XiaoniOsFetchFill;
+  // 这段是让这一轮结束的那段话(不带工具调用)。不管有没有事都改写:内容留下,收尾/汇报/等待的意思去掉,
+  // 落到下一件事——由看得到全部上下文的 fork 来改(fetchFill 传进来的就是收尾版引导)。不分类。
+  closing?: boolean;
   model?: string;
   now?: () => number;
 }): Promise<XiaoniOsRewriteLegResult> {
@@ -376,8 +379,11 @@ export async function runXiaoniOsRewriteLeg(params: {
   };
 
   // ① 分类:有没有事。整段只有「在。嗡。停。等。」这类填充句 → 不问模型,直接判空转。
+  // 收尾段不分类:有事没事都要改写,直接进 ③ 的 fork。
   let classify: XiaoniOsLlmCallResult;
-  if (isFillerOnlyText(params.text)) {
+  if (params.closing && params.fetchFill) {
+    classify = { text: '0', llmCallId: null, model: 'closing-rule' };
+  } else if (isFillerOnlyText(params.text)) {
     classify = { text: '0', llmCallId: null, model: 'filler-rule' };
   } else try {
     classify = await params.callLlm(buildXiaoniOsClassifyPrompt(params.text, params.classifySystemPrompt), {
