@@ -1849,10 +1849,11 @@ const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
 // retained only as an internal identifier for the commit artifact + timeline labels.
 
 const READ_FILE_DESCRIPTION = [
-  'Read a file (or a line range) from the filesystem, returned with line numbers.',
-  'Use /app as the filesystem root for repository paths (same root as exec_command).',
-  'Prefer this over exec_command cat/sed/tail/head when you just need to read a file — including reading back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output. Pass offset/limit to page through a large file.'
-].join(' ');
+  '读一个文件，或者其中一段，每行带行号。',
+  '只是读文件就用它，不用 exec_command 的 cat、sed、head、tail：长行不截断，读到第几行看行号就知道。',
+  '大文件用 offset（从第几行开始）和 limit（读几行）翻页；一次读得太多会停在中间，告诉你下一段从哪个 offset 接着读。',
+  'exec_command 输出太长被存到 /xiaoni-runtime/exec-output 的，也用它读回来。仓库里的文件用 /app 开头的路径，和 exec_command 一样。'
+].join('');
 
 const READ_FILE_TOOL: OpenResponseToolDefinition = {
   type: 'function',
@@ -1867,15 +1868,15 @@ const READ_FILE_TOOL: OpenResponseToolDefinition = {
       properties: {
         path: {
           type: 'string',
-          description: 'File path to read. Use /app for repository paths; absolute runtime paths (e.g. /xiaoni-runtime/...) are read as-is.'
+          description: '文件路径。仓库里的用 /app 开头；/xiaoni-runtime/... 这样的绝对路径原样读。'
         },
         offset: {
           type: 'number',
-          description: 'Line number to start reading from (1-based). Defaults to 1.'
+          description: '从第几行开始读，从 1 数起。默认 1。'
         },
         limit: {
           type: 'number',
-          description: 'Number of lines to read. Defaults to 200.'
+          description: '读几行。默认 200。'
         }
       },
       required: ['path'],
@@ -9034,6 +9035,8 @@ export class AgentLoopService {
       let runRestRejectedCount = 0;
       // 连续几次续跑提醒之后她都没动手(见 LOOP_CONTINUATION_MAX);一动手就归零。
       let loopContinuationCount = 0;
+      // exec_command 用法提醒(open-loops 直接写 / 单纯读文件)每种每个 run 只发一次,不然她每读一次就多一条同样的话。
+      const execUsageRemindedInRun = new Set<string>();
 
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
@@ -9662,11 +9665,23 @@ export class AgentLoopService {
             }
           }
         }
-        // 这一批里有 exec_command 绕过 todo 直接写 open-loops.md:命令照常执行、结果原样返回,
-        // 这批工具结果之后另起一条 developer(wire 上是 system)提醒,下次用 todo。先落 stack 再进请求。
-        if (toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.execCommand && isDirectOpenLoopsWrite(item.toolCall.args?.cmd))) {
+        // exec_command 用法提醒:命令照常执行、结果原样返回,这批工具结果之后另起一条 developer
+        // (wire 上是 system)。绕过 todo 直接写 open-loops.md → 下次用 todo;单纯读一个文件 → 下次用
+        // read_file。先落 stack 再进请求。
+        const execCmds = toolReplayItems
+          .filter((item) => item.toolCall.name === TOOL_NAMES.execCommand)
+          .map((item) => item.toolCall.args?.cmd);
+        const execUsageReminders: Array<{ source: string; snippet: string }> = [];
+        if (!execUsageRemindedInRun.has('open_loops_direct_write') && execCmds.some((cmd) => isDirectOpenLoopsWrite(cmd))) {
+          execUsageReminders.push({ source: 'open_loops_direct_write', snippet: 'exec_command_open_loops_direct_write.md' });
+        }
+        if (!execUsageRemindedInRun.has('prefer_read_file') && execCmds.some((cmd) => isPureFileReadCommand(cmd))) {
+          execUsageReminders.push({ source: 'prefer_read_file', snippet: 'exec_command_prefer_read_file.md' });
+        }
+        for (const reminder of execUsageReminders) {
+          execUsageRemindedInRun.add(reminder.source);
           const reminderItem = buildDeveloperInputItem([
-            formatSystemReminderBlock(readPromptSnippet('exec_command_open_loops_direct_write.md'))
+            formatSystemReminderBlock(readPromptSnippet(reminder.snippet))
           ]);
           await this.appendAgentStackItemsSafe({
             traceId: payload.traceId,
@@ -9678,7 +9693,7 @@ export class AgentLoopService {
                 queueMessage: payload,
                 runId: queueMessage.id,
                 turn,
-                source: 'open_loops_direct_write',
+                source: reminder.source,
                 inputItem: reminderItem
               }) as Record<string, unknown>
             ]
@@ -20282,6 +20297,24 @@ export function isDirectOpenLoopsWrite(rawCmd: unknown): boolean {
     || /\btee\b[^|;&]*open-loops/.test(rawCmd)
     || /\b(python3?|perl|node)\b/.test(rawCmd)
     || /\b(mv|cp|rm|truncate)\b[^|;&]*open-loops/.test(rawCmd);
+}
+
+// exec_command 只是在读一个文件:可选的 `cd 目录 &&|;` 开头,然后一条 sed -n / cat / head / tail,
+// 后面最多接一个 cut。拼了别的命令(ls、wc、写文件……)的不算——那不是 read_file 能替的。
+export function isPureFileReadCommand(rawCmd: unknown): boolean {
+  if (typeof rawCmd !== 'string') {
+    return false;
+  }
+  const cmd = rawCmd.trim().replace(/^cd\s+\S+\s*(?:&&|;)\s*/, '');
+  if (/[;&<>`$]|\n/.test(cmd)) {
+    return false;
+  }
+  const [head, ...rest] = cmd.split('|').map((part) => part.trim());
+  if (rest.length > 1 || (rest.length === 1 && !/^cut\s/.test(rest[0]))) {
+    return false;
+  }
+  return /^sed\s+-n\s+['"]?\d+(,\d+)?p['"]?\s+\S+$/.test(head)
+    || /^(cat|head|tail)(\s+-n?\s*\+?\d+)?\s+\S+$/.test(head);
 }
 
 function shellSingleQuote(value: string): string {
