@@ -97,7 +97,7 @@ import {
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
 import { stripExecCommandCommentsInCanonicalResponse } from './exec-command-comments';
-import { readOpenLoopsOpenCount } from './xiaoni-open-loops-notify';
+import { readOpenLoopsOpenCount, readOpenLoopsOpenLines } from './xiaoni-open-loops-notify';
 import { pickRecallLeadForContinuation } from './xiaoni-recall-delivery';
 import {
   applyXiaoniOsRewriteInPlace,
@@ -1629,7 +1629,9 @@ const TOOL_NAMES = {
   // 引擎不判定「这一轮有没有推进目标」——四家主流 harness 都不判,见 docs/adr/0010-*。
   getDeepDive: 'get_deep_dive',
   createDeepDive: 'create_deep_dive',
-  updateDeepDive: 'update_deep_dive'
+  updateDeepDive: 'update_deep_dive',
+  // 她的待办清单,底下就是 open-loops.md;add / done 走 memory_write.py 的 loops add / done(查重、匹配都在那边)。
+  todo: 'todo'
 } as const;
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
@@ -1640,6 +1642,7 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.execCommand]: 0.002,
   [TOOL_NAMES.readFile]: 0.001,
   [TOOL_NAMES.askLiAhua]: 0.002,
+  [TOOL_NAMES.todo]: 0.000,
   [TOOL_NAMES.recoverEnergy]: 0.000,
   [TOOL_NAMES.compressCoreMemory]: 0.020,
   [TOOL_NAMES.webSearch]: 0.030,
@@ -2061,6 +2064,34 @@ export const ASK_LI_AHUA_TOOL = {
         help_id: { type: 'string', description: '同一件事继续求助时，原样带回上次返回的编号；首次求助不填。' }
       },
       required: ['request', 'context'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const TODO_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.todo,
+    description: `你的待办清单,存在 open-loops.md 里。
+
+- add:记一件你要做的事。text 写这件事本身(要做什么、在等什么、还差什么),tag 写这件事的名字,同一件事一直用同一个。跟已经开着的某条像,它会列出来问你;真是另一件事,带上 confirm_new 再记一次。
+- done:划掉一件。match 写那条里的几个字,或者 #标签。做完了就划;不做了也划,带上 give_up。note 可以顺手记一句怎么完的。
+- list:看现在还开着的。
+
+想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一轮以文字收尾时,这里还有没划掉的,会有人提醒你一句。`,
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['add', 'done', 'list'] },
+        text: { type: 'string', description: 'add 用:这件事本身。' },
+        tag: { type: 'string', description: 'add 用:这件事的名字,只用中英文、数字、-、_。' },
+        confirm_new: { type: 'boolean', description: 'add 用:确认跟已有的那条是两件事。' },
+        match: { type: 'string', description: 'done 用:那条里的几个字,或者 #标签。' },
+        note: { type: 'string', description: 'done 用:怎么完的,一句话。' },
+        give_up: { type: 'boolean', description: 'done 用:不做了。' }
+      },
+      required: ['action'],
       additionalProperties: false
     }
   }
@@ -3089,7 +3120,8 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
     GET_DEEP_DIVE_TOOL,
     CREATE_DEEP_DIVE_TOOL,
     UPDATE_DEEP_DIVE_TOOL,
-    ASK_LI_AHUA_TOOL
+    ASK_LI_AHUA_TOOL,
+    TODO_TOOL
   ];
 }
 
@@ -3135,6 +3167,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   tools.push({ type: 'function', name: TOOL_NAMES.createDeepDive });
   tools.push({ type: 'function', name: TOOL_NAMES.updateDeepDive });
   tools.push({ type: 'function', name: TOOL_NAMES.askLiAhua });
+  tools.push({ type: 'function', name: TOOL_NAMES.todo });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
   // allowed-tools prefix aligned with the tool definitions across loop + forks.
   if (agentConfig.computerUseEnabled) {
@@ -9245,7 +9278,9 @@ export class AgentLoopService {
         // recover_energy 例外:不在发出时判,按执行【结果】判(见 toolResult 处)——接受才算,被拒不算。
         // exec_command 例外:只跑注释/echo/true/sleep 的不算(见 isNoOpExecCommand)——那是空转的
         // 伪装,不是产出。
+        // todo 也不算:记一笔、划一笔是记账,事情本身是别的工具做的。
         if (toolReplayItems.some((item) => item.toolCall.name !== TOOL_NAMES.recoverEnergy
+          && item.toolCall.name !== TOOL_NAMES.todo
           && !(item.toolCall.name === TOOL_NAMES.execCommand && isNoOpExecCommand(item.toolCall.args?.cmd)))) {
           runTouchedWorld = true;
         }
@@ -15436,6 +15471,8 @@ export class AgentLoopService {
       // fork 调不到这三个:每个 fork 的执行循环都有自己的 allowedToolNames 白名单
       // (潜意识 {} 或 {exec_command}、压缩 {exec_command,read_file}、看图 exec 之外一律
       // 返回纠正输出),这三个名字不在任何一张白名单里 —— 结构性拒绝,不需要额外判断。
+      case TOOL_NAMES.todo:
+        return this.runTodoTool(toolCall, queueMessage);
       case TOOL_NAMES.getDeepDive: {
         // getCurrentDeepDive 而不是 getActiveDeepDive:只认 active 的话,paused / blocked 的目标
         // 她**永远拿不到 deep_dive_id 和 revision**,而 update_deep_dive 必须带这两个 ——
@@ -15840,6 +15877,37 @@ export class AgentLoopService {
       image_content: imageContent,
       ...(materialized.executorPath ? { saved_path: materialized.executorPath } : {})
     };
+  }
+
+  private async runTodoTool(
+    toolCall: AgentToolCall,
+    queueMessage: QueueMessageRecord['payload']
+  ): Promise<Record<string, unknown>> {
+    const args = toolCall.args || {};
+    const str = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+    const action = str(args.action);
+    if (action === 'list') {
+      const open = await readOpenLoopsOpenLines();
+      return { ok: true, open_count: open.length, open };
+    }
+    let cliArgs: string[];
+    if (action === 'add') {
+      cliArgs = ['loops', 'add', '--text', str(args.text), '--tag', str(args.tag)];
+      if (args.confirm_new === true) cliArgs.push('--confirm-new');
+    } else if (action === 'done') {
+      cliArgs = ['loops', 'done', '--match', str(args.match)];
+      if (str(args.note)) cliArgs.push('--note', str(args.note));
+      if (args.give_up === true) cliArgs.push('--give-up');
+    } else {
+      return { ok: false, message: 'action 只有 add、done、list。' };
+    }
+    const cmd = ['python3', `${XIAONI_MEMORY_WRITE_SKILL_DIR}/memory_write.py`, ...cliArgs].map(shellSingleQuote).join(' ');
+    const result = await this.executeCommand({ cmd, login: false }, toolCall, queueMessage);
+    const output = [result.stdout, result.stderr]
+      .map((part) => (typeof part === 'string' ? part.trim() : ''))
+      .filter(Boolean)
+      .join('\n');
+    return { ok: result.exit_code === 0, output };
   }
 
   private async executeCommand(
@@ -20143,6 +20211,10 @@ function normalizeExecEnv(value: unknown): Record<string, string> {
     env[key] = String(entry);
   }
   return env;
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function buildExecCommandRuntimeEnv(

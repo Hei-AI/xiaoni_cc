@@ -50,7 +50,8 @@ const GROUP_LOOP_TOOLS = [
   GET_DEEP_DIVE_TOOL,
   CREATE_DEEP_DIVE_TOOL,
   UPDATE_DEEP_DIVE_TOOL,
-  'ask_li_ahua'
+  'ask_li_ahua',
+  'todo'
 ];
 const GROUP_ALLOWED_TOOLS = [
   WEB_SEARCH_TOOL,
@@ -64,7 +65,8 @@ const GROUP_ALLOWED_TOOLS = [
   GET_DEEP_DIVE_TOOL,
   CREATE_DEEP_DIVE_TOOL,
   UPDATE_DEEP_DIVE_TOOL,
-  'ask_li_ahua'
+  'ask_li_ahua',
+  'todo'
 ];
 const DIRECT_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
@@ -79,7 +81,8 @@ const DIRECT_LOOP_TOOLS = [
   GET_DEEP_DIVE_TOOL,
   CREATE_DEEP_DIVE_TOOL,
   UPDATE_DEEP_DIVE_TOOL,
-  'ask_li_ahua'
+  'ask_li_ahua',
+  'todo'
 ];
 const DIRECT_ALLOWED_TOOLS = [
   WEB_SEARCH_TOOL,
@@ -93,7 +96,8 @@ const DIRECT_ALLOWED_TOOLS = [
   GET_DEEP_DIVE_TOOL,
   CREATE_DEEP_DIVE_TOOL,
   UPDATE_DEEP_DIVE_TOOL,
-  'ask_li_ahua'
+  'ask_li_ahua',
+  'todo'
 ];
 const EAST8_TIME_PREFIX_PATTERN = /\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
 

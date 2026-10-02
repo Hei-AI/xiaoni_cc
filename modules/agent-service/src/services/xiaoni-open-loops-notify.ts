@@ -195,6 +195,15 @@ async function defaultReadEnabled(): Promise<boolean> {
 
 const defaultNotify = createOpenLoopsNotify(persistence as unknown as OpenLoopsNotifyDeps);
 
+// todo 工具 list 用:没划掉的那几行原样返回。读不到 = 空。
+export async function readOpenLoopsOpenLines(): Promise<string[]> {
+  const markdown = await defaultReadOpenLoops();
+  if (typeof markdown !== 'string') {
+    return [];
+  }
+  return markdown.split('\n').filter((line) => /^\s*-\s*\[ \]/.test(line)).map((line) => line.trim());
+}
+
 // 主 loop 续跑用:open-loops.md 里还有几条没划掉。读不到 = 0(不续跑,交给潜意识 fork)。
 export async function readOpenLoopsOpenCount(): Promise<number> {
   return countOpenLoops(await defaultReadOpenLoops());

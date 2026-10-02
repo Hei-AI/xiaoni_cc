@@ -62,6 +62,8 @@ EOF
 
 ## 记一笔欠账
 
+平时直接用 `todo` 工具记和划，底下跑的就是这两条命令；只能用 `exec_command` 的时候照下面写。
+
 ```bash
 python3 $M loops add --text "Bartosz的邮件等回应" --tag Bartosz
 ```
