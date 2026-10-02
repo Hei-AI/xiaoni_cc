@@ -508,22 +508,7 @@ function createAgentRuntimeControlPersistence(deps) {
               ELSE agent_runtime_control.open_loops_notify_enabled
             END,
             updated_at = NOW()
-          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
-            post_compression_pause_armed,
-            post_compression_pause_armed_at,
-            post_compression_pause_triggered_at,
-            post_compression_pause_reason,
-            main_agent_pre_model_yield_ms,
-            debug_cache_heartbeat_interval_ms,
-            compression_trigger_input_tokens,
-            compression_trigger_wire_bytes,
-            strip_xiaoni_os_from_requests,
-            psych_assessment_gate_enabled,
-            fork_idle_escalation_enabled,
-            plan_void_on_idle_enabled,
-            idle_plan_skill_submission_enabled,
-            passive_recall_delivery_enabled,
-            open_loops_notify_enabled
+          RETURNING *
         `,
         [
           identityKey,
@@ -608,12 +593,7 @@ function createAgentRuntimeControlPersistence(deps) {
           DO UPDATE SET
             energy_policy_json = ?::jsonb,
             updated_at = NOW()
-          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
-            post_compression_pause_armed, post_compression_pause_armed_at,
-            post_compression_pause_triggered_at, post_compression_pause_reason,
-            main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms,
-            compression_trigger_input_tokens, compression_trigger_wire_bytes,
-            strip_xiaoni_os_from_requests, psych_assessment_gate_enabled, energy_policy_json
+          RETURNING *
         `,
         [identityKey, jsonParam, jsonParam]
       );
@@ -734,18 +714,7 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN agent_runtime_control.post_compression_pause_armed THEN NOW()
               ELSE agent_runtime_control.updated_at
             END
-          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
-            post_compression_pause_armed,
-            post_compression_pause_armed_at,
-            post_compression_pause_triggered_at,
-            post_compression_pause_reason,
-            main_agent_pre_model_yield_ms,
-            debug_cache_heartbeat_interval_ms,
-            compression_trigger_input_tokens,
-            compression_trigger_wire_bytes,
-            strip_xiaoni_os_from_requests,
-            psych_assessment_gate_enabled,
-            (SELECT was_armed FROM prev) AS pause_just_triggered
+          RETURNING agent_runtime_control.*, (SELECT was_armed FROM prev) AS pause_just_triggered
         `,
         [identityKey, identityKey, reason]
       );
@@ -807,14 +776,7 @@ function createAgentRuntimeControlPersistence(deps) {
               ELSE ?
             END,
             updated_at = NOW()
-          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
-            post_compression_pause_armed, post_compression_pause_armed_at,
-            post_compression_pause_triggered_at, post_compression_pause_reason,
-            main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms, compression_trigger_input_tokens,
-            compression_trigger_wire_bytes,
-            strip_xiaoni_os_from_requests,
-            psych_assessment_gate_enabled,
-            (SELECT was_enabled FROM prev) AS was_enabled
+          RETURNING agent_runtime_control.*, (SELECT was_enabled FROM prev) AS was_enabled
         `,
         [identityKey, identityKey, reason, heartbeatIntervalMs, reason, heartbeatIntervalMs]
       );

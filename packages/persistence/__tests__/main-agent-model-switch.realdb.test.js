@@ -12,6 +12,8 @@ const assert = require('node:assert/strict');
 const {
   createSqlAdapter,
   getAgentRuntimeControl,
+  updateAgentRuntimeControl,
+  triggerPostCompressionRuntimePause,
   requestMainAgentModelSwitch,
   promotePendingMainAgentModel
 } = require('../index');
@@ -86,4 +88,17 @@ test('request -> pending only; promote -> effective; second promote is a no-op; 
   const read = await getAgentRuntimeControl({ identityKey: IDENTITY }, CONFIG);
   assert.equal(read.mainAgentModel, 'claude-opus-5-5');
   assert.equal(read.enabled, true);
+});
+
+test('the other runtime-control writers return the full row (model columns included)', async (t) => {
+  if (!dbReady) {
+    t.skip('qqbot_cache_test unreachable');
+    return;
+  }
+  const toggled = await updateAgentRuntimeControl({ identityKey: IDENTITY, enabled: true }, CONFIG);
+  assert.equal(toggled.mainAgentModel, 'claude-opus-5-5', 'the run-switch PATCH must not blank the model');
+  assert.equal(toggled.enabled, true);
+  const paused = await triggerPostCompressionRuntimePause({ identityKey: IDENTITY }, CONFIG);
+  assert.equal(paused.mainAgentModel, 'claude-opus-5-5');
+  assert.equal(typeof paused.pauseJustTriggered, 'boolean');
 });
