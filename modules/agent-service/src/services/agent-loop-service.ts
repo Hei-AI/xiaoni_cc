@@ -225,7 +225,9 @@ const XIAONI_OS_FILL_FORK_ENABLED = process.env.XIAONI_OS_FILL_FORK_ENABLED !== 
 // 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑,最多这么多次;
 // 超过就照旧结束这一轮、交给潜意识 fork。官方无人值守 agent 指南:同一件事自动续 2~3 次后停。
 const LOOP_CONTINUATION_MAX = Math.max(0, Number.parseInt(process.env.XIAONI_LOOP_CONTINUATION_MAX || '3', 10) || 0);
-const XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS = 600;
+// fork 克隆主请求,effort 也跟着主 agent(high):thinking 也算在这个上限里。600/800 是按 low 定的,
+// 10-02 实测 high 下 thinking 一口气吃满 600、正文 0 字。4000 和 sherlock 同值;超长正文照样由清洗那步拦。
+const XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS = 4000;
 // 同一份 seed 最多重试这么多次。到顶就丢弃,退回「等下一个主 run 或 clock_ping(≤2h)」。
 // 5 次 × 60s ≈ 5 分钟的自愈窗口,再往后大概率不是瞬时故障,不值得每分钟烧一个 ~490K 的 fork 请求。
 const SUBCONSCIOUS_AGENT_FORK_MAX_CONSECUTIVE_FAILURES = 5;
@@ -1761,7 +1763,8 @@ const SHERLOCK_FORK_MAX_OUTPUT_TOKENS = 4000;
 const SHERLOCK_MODEL_PLACEHOLDER = '';
 // 查不到东西时的固定出口。开头命中就不投递 —— 不拿「我尽力了」去占她一次唤醒。
 const SHERLOCK_NO_DIRECTION = 'NO_DIRECTION';
-const SUBCONSCIOUS_AGENT_FORK_MAX_OUTPUT_TOKENS = 800;
+// 同上(effort 跟主 agent,thinking 算在上限里)。
+const SUBCONSCIOUS_AGENT_FORK_MAX_OUTPUT_TOKENS = 4000;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
 const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
   'Heartbeat.',
