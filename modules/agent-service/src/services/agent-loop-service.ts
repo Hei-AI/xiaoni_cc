@@ -4678,8 +4678,11 @@ function formatTaggedBlock(tagName: string, attributes: Record<string, unknown>,
   ].join('\n');
 }
 
+// Same spelling as Claude Code's <system-reminder> (hyphen), the form current Claude models have
+// seen from Anthropic's own harness. Stored history keeps the older <system_reminder> spelling;
+// readers accept both.
 function formatSystemReminderBlock(body: string) {
-  return formatTaggedBlock('system_reminder', {}, String(body || '').trim());
+  return formatTaggedBlock('system-reminder', {}, String(body || '').trim());
 }
 
 function extractTaggedBlockBody(content: string, tagName: string) {

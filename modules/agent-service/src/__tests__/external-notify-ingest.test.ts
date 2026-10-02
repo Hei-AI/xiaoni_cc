@@ -177,7 +177,7 @@ test('来源标记机械拼接，正文原样透传', () => {
   );
 });
 
-test('模板正文不自带标签——<system_reminder> 包裹由消费端做', () => {
+test('模板正文不自带标签——<system-reminder> 包裹由消费端做', () => {
   // renderSystemReminder → formatSystemReminderBlock 会包裹并转义 body。模板里写标签会让她收到
   // 字面量 &lt;system_reminder&gt; 套在真标签里面。
   const text = renderExternalNotify('check-email', '收件箱有 3 封新邮件');

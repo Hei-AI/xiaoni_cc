@@ -40,7 +40,7 @@ python3 /workspace/qq_bot/modules/agent-service/skills/notify/scripts/notify.py 
 你会看到的是：
 
 ```
-<system_reminder>【check-email】收件箱有 3 封新邮件，最新一封来自 xxx</system_reminder>
+<system-reminder>【check-email】收件箱有 3 封新邮件，最新一封来自 xxx</system-reminder>
 ```
 
 ## 参数

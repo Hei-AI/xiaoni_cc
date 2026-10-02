@@ -509,12 +509,12 @@ function expectedCurrentInputMessage() {
     LATEST_SUMMARY: '问问@{Bob(@404)} 今天玩什么'
   }).trim();
   return [
-    '<system_reminder>',
+    '<system-reminder>',
     renderXiaoniPromptTemplate('phone_notification_reminder.md', {
       UNREAD_DELTA: 1,
       DIRECT_CUE_LINES: cueLine
     }).trim(),
-    '</system_reminder>'
+    '</system-reminder>'
   ].join('\n');
 }
 
@@ -542,11 +542,11 @@ function promptLinePattern(
 const PHONE_REMINDER_PATTERN = promptLinePattern('phone_notification_reminder.md');
 
 function isPhoneNotificationReminderContent(content: string) {
-  return content.includes('<system_reminder>') && PHONE_REMINDER_PATTERN.test(content);
+  return content.includes('<system-reminder>') && PHONE_REMINDER_PATTERN.test(content);
 }
 
 function isImageTaskNotificationReminderContent(content: string) {
-  return content.includes('<system_reminder>')
+  return content.includes('<system-reminder>')
     && promptLinePattern('image_task_notification.md').test(content);
 }
 
@@ -1540,7 +1540,7 @@ test('buildInitialInput never synthesizes raw xiaoni_os into model-visible histo
     {
       type: 'function_call_output',
       call_id: 'call-recover-1',
-      output: '<system_reminder>自然醒来</system_reminder>'
+      output: '<system-reminder>自然醒来</system-reminder>'
     }
   ]);
 
@@ -1576,7 +1576,7 @@ test('buildInitialInput replays stack runtime_input wrapper items in original or
           role: 'developer',
           content: [{
             type: 'input_text',
-            text: '<system_reminder>\n上一轮真实进入 LLM 的 developer reminder。\n</system_reminder>'
+            text: '<system-reminder>\n上一轮真实进入 LLM 的 developer reminder。\n</system-reminder>'
           }]
         }]
       }
@@ -1666,7 +1666,7 @@ test('buildInitialInput appends self continuation after terminal final_answer on
   const reminderIndex = loopInput.findIndex((item: any) => (
     item.type === 'message'
     && item.role === 'developer'
-    && getMessageContent(item).includes('<system_reminder>')
+    && getMessageContent(item).includes('<system-reminder>')
   ));
 
   assert.ok(reminderIndex >= 0);
@@ -1736,7 +1736,7 @@ test('buildInitialInput pairs persisted recover_energy call with wake callback o
     [{
       type: 'function_call_output',
       call_id: 'call-recover-existing',
-      output: '<system_reminder>醒来了</system_reminder>'
+      output: '<system-reminder>醒来了</system-reminder>'
     }]
   );
 
@@ -1780,7 +1780,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /BatchId:/);
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
-  assert.match(currentPrompt, /<system_reminder>/);
+  assert.match(currentPrompt, /<system-reminder>/);
   assert.doesNotMatch(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
   assert.match(currentPrompt, PHONE_REMINDER_PATTERN);
   assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
@@ -1844,7 +1844,7 @@ test('buildInitialInput emits ordinary system reminders without a current-time p
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, /<system-reminder>/);
   assert.doesNotMatch(rendered, EAST8_TIME_PREFIX_PATTERN);
   assert.match(rendered, /该压缩记忆了。/);
   assert.equal(loopInput.some((item: any) => (
@@ -1920,7 +1920,7 @@ test('buildInitialInput renders subconscious agent notify template as developer 
   assert.equal((subconsciousInput as any)?.role, 'developer');
   assert.match(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
   assert.match(subconsciousContent, /<xiaoni_plan>/);
-  assert.doesNotMatch(subconsciousContent, /<system_reminder>/);
+  assert.doesNotMatch(subconsciousContent, /<system-reminder>/);
   assert.doesNotMatch(subconsciousContent, /&lt;xiaoni_plan&gt;/);
 });
 
@@ -1984,7 +1984,7 @@ test('buildInitialInput keeps non-template subconscious system reminders as deve
 
   assert.equal((subconsciousInput as any)?.type, 'message');
   assert.equal((subconsciousInput as any)?.role, 'developer');
-  assert.match(getMessageContent(subconsciousInput), /<system_reminder>/);
+  assert.match(getMessageContent(subconsciousInput), /<system-reminder>/);
 });
 
 test('buildInitialInput renders attention lease reminders from the prompt template', () => {
@@ -2024,7 +2024,7 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, /<system-reminder>/);
   assert.match(rendered, promptLinePattern('attention_lease_reminder.md'));
   assert.match(rendered, /群 Test Group\(101\)/);
   assert.match(rendered, promptLinePattern('attention_lease_reminder.md', { UNREAD_DELTA: 3 }));
@@ -2077,7 +2077,7 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
   }));
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, /<system-reminder>/);
   assert.doesNotMatch(rendered, EAST8_TIME_PREFIX_PATTERN);
   // 身份由模板推导;其余只断言【运行时数据】有没有落进去,不断言文案怎么排版。
   assert.match(rendered, promptLinePattern('image_task_notification.md'));
@@ -2659,9 +2659,9 @@ test('buildInitialInput renders current bucket messages as one user content arra
   assert.equal((currentInput as any)?.type, 'message');
   assert.equal((currentInput as any)?.role, 'user');
   assert.equal(parts.length, 2);
-  assert.match(parts[0], /<system_reminder>/);
+  assert.match(parts[0], /<system-reminder>/);
   assert.match(parts[0], new RegExp(systemText));
-  assert.match(parts[1], /<system_reminder>/);
+  assert.match(parts[1], /<system-reminder>/);
   assert.match(parts[1], PHONE_REMINDER_PATTERN);
   assert.match(parts[1], new RegExp(phoneText));
 });
@@ -3874,7 +3874,7 @@ test('real core memory compression commit enqueues the compression-done notify o
   assert.equal(call.message.dedupeKey, 'core-memory-compression-done:xiaoni:test-global:171');
   assert.equal(call.payload.systemReminder.reason, 'core_memory_compression_done');
   // The reminder body carries the event line + a frozen East-8 stamp (raw, unwrapped — the
-  // consume-time renderSystemReminder wraps it in <system_reminder>).
+  // consume-time renderSystemReminder wraps it in <system-reminder>).
   assert.match(String(call.payload.systemReminder.reminder), /刚整理过一次记忆。/);
   assert.match(String(call.payload.systemReminder.reminder), /东八区 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
 });
@@ -6614,7 +6614,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   const reminderIndex = capturedInput.findIndex((item: any) => (
     item.type === 'message'
     && item.role === 'developer'
-    && getMessageContent(item).includes('<system_reminder>')
+    && getMessageContent(item).includes('<system-reminder>')
   ));
   assert.ok(reminderIndex >= 0);
   assert.equal(executeAgentTurnCalled, true);
@@ -6628,7 +6628,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   assert.ok(selfContinuationStackBatch);
   assert.equal(selfContinuationStackBatch.items[0].role, 'developer');
   assert.deepEqual(selfContinuationStackBatch.items[0].content.input_items[0], capturedInput[reminderIndex]);
-  assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system_reminder>/);
+  assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system-reminder>/);
   assert.equal(storeCalls.updateLlmRequestSliceStackLinks[0]?.inputEndIndex, 1001);
 });
 
@@ -6642,7 +6642,7 @@ test('no-notify continuation does not append self continuation after tool output
   const generatedReminder = buildInitialInput([
     { id: 994, stackReplayItems: [priorFinalAnswerReplay] } as any
   ], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true)
-    .find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<system_reminder>'));
+    .find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<system-reminder>'));
   assert.ok(generatedReminder);
   const priorToolCallReplay = {
     type: 'function_call',
@@ -6736,7 +6736,7 @@ test('no-notify continuation does not append self continuation after tool output
   const reminderItems = capturedInput.filter((item: any) => (
     item.type === 'message'
     && item.role === 'developer'
-    && getMessageContent(item).includes('<system_reminder>')
+    && getMessageContent(item).includes('<system-reminder>')
   ));
   assert.equal(reminderItems.length, 1);
   assert.equal(capturedInput[capturedInput.length - 1]?.type, 'function_call_output');
@@ -8279,7 +8279,7 @@ test('applyToolResultToLoopInput replays recover_energy system reminder as funct
     sleep_minutes: 30,
     energy: 0.75,
     max_energy: 1,
-    system_reminder: '<system_reminder>醒了。</system_reminder>',
+    system_reminder: '<system-reminder>醒了。</system-reminder>',
     xiaoni_os: '不接，把边界记下来。'
   };
 
@@ -8294,10 +8294,10 @@ test('applyToolResultToLoopInput replays recover_energy system reminder as funct
   assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
   assert.equal(continuation.inputItems[0]?.call_id, 'call-2');
   const output = String(continuation.inputItems[0]?.output || '');
-  assert.match(output, /^<system_reminder>/);
+  assert.match(output, /^<system-reminder>/);
   assert.doesNotMatch(output, EAST8_TIME_PREFIX_PATTERN);
   assert.match(output, /醒了。/);
-  assert.match(output, /<\/system_reminder>$/);
+  assert.match(output, /<\/system-reminder>$/);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
 });
@@ -8498,7 +8498,7 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
   assert.match(result.reason, /还没到可以休息的线/);
   assert.equal(result.energy, 1);
   assert.equal(result.max_energy, 1);
-  assert.match(String(result.system_reminder), /<system_reminder>/);
+  assert.match(String(result.system_reminder), /<system-reminder>/);
   assert.doesNotMatch(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
   assert.match(String(result.system_reminder), /失眠|睡不着/);
   assert.equal(result.xiaoni_os, '其实已经不累了。');
@@ -10134,7 +10134,7 @@ test('runtime iteration settles persisted recovery session after restart with or
   assert.equal(frames[0]?.options?.initialLoopContinuation?.length, 1);
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call_output');
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.call_id, 'call-recover-restart');
-  assert.match(String(frames[0]?.options?.initialLoopContinuation?.[0]?.output), /<system_reminder>/);
+  assert.match(String(frames[0]?.options?.initialLoopContinuation?.[0]?.output), /<system-reminder>/);
 });
 
 test('runtime iteration batches settled recovery callback with a queued notification', async () => {

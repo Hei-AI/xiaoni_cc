@@ -133,12 +133,12 @@ test('升级段: 轮数与上一份 plan 原文都要真的进去,且原文完�
   assert.doesNotMatch(rendered, /\{\{[A-Z0-9_]+\}\}/, '不许留未替换的占位符');
   // 原文正文仍在:升级是【追加】,不是把她自己的引导 prompt 换掉。
   // 结构性断言,不用哨兵字符串。renderSubconsciousForkReminder 把各段 join('\n\n') 后包进
-  // 一个 <system_reminder>,基础正文永远是 sections[0] —— 所以「基础块去掉收尾标签」必须是
+  // 一个 <system-reminder>,基础正文永远是 sections[0] —— 所以「基础块去掉收尾标签」必须是
   // 升级块的前缀。这比挑一句原文当哨兵强:它验的是【整段正文逐字节存活】,而不是某个短语还在,
   // 而且 prompt 文案怎么改都不会把这条断言改红(挑哨兵已经踩红过两次)。
   const baseBlock = renderSelfContinuationReminderForTest();
-  const baseWithoutClosingTag = baseBlock.slice(0, baseBlock.lastIndexOf('\n</system_reminder>'));
-  assert.ok(baseWithoutClosingTag.length > 0, '基础块必须是 <system_reminder> 包裹的');
+  const baseWithoutClosingTag = baseBlock.slice(0, baseBlock.lastIndexOf('\n</system-reminder>'));
+  assert.ok(baseWithoutClosingTag.length > 0, '基础块必须是 <system-reminder> 包裹的');
   assert.ok(rendered.startsWith(baseWithoutClosingTag), '原引导正文必须原样保留在开头,升级段是追加不是替换');
   setForkIdleEscalationEnabled(false);
 });

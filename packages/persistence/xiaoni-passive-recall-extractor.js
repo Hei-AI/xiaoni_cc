@@ -211,7 +211,7 @@ function normalizeRecallText(value) {
     return '';
   }
   // 4) <system_reminder>…</system_reminder> = 注入模板(非她记忆)→ 整块移除(变量摘要另有 inbound cue)。
-  t = t.replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, ' ');
+  t = t.replace(/<system[_-]reminder>[\s\S]*?<\/system[_-]reminder>/g, ' ');
   // 5) <xiaoni_plan> 包壳 + 固定模板句 → 剥壳,留她真 plan。
   t = t.replace(/<\/?xiaoni_plan>/g, ' ');
   t = t.replace(/歇了一下，脑子里冒出来接下来想干嘛的念头（要不要照做随你）：/g, ' ');

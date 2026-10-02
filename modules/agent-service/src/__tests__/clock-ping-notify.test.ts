@@ -52,7 +52,7 @@ test('reminder carries both the current time and the gap since the last real wak
   assert.match(text, /^系统报时: /);
 });
 
-test('reminder is raw body — the <system_reminder> wrapper is added at consume time', () => {
+test('reminder is raw body — the <system-reminder> wrapper is added at consume time', () => {
   // renderSystemReminder → formatSystemReminderBlock wraps this text and HTML-escapes its body.
   // A tag written into the template therefore reaches her as literal &lt;system_reminder&gt;
   // nested inside the real one. The template must stay tag-free.

@@ -81,7 +81,7 @@ export function summarizeProviderRequestInputBody(body: unknown): ProviderReques
 
   for (let index = input.length - 1; index >= 0; index -= 1) {
     const text = readInputItemText(input[index]);
-    if (text.includes('<system_reminder>')) {
+    if (text.includes('<system_reminder>') || text.includes('<system-reminder>')) {
       lastSystemReminderIndex = index;
       lastSystemReminderText = truncateText(text);
       break;
