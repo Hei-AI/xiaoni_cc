@@ -6928,7 +6928,7 @@ export function applyToolResultToLoopInput(
     ? (computerSavedPath
         ? [...computerImageContent, {
             type: 'input_text',
-            text: `截图已存到 ${computerSavedPath}（executor 容器内可读）。要发到 QQ：用 $qq-send-image 发这个路径。`
+            text: `截图已存到 ${computerSavedPath}。`
           }]
         : computerImageContent)
     : null;

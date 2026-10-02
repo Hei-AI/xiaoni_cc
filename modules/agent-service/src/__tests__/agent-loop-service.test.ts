@@ -3519,7 +3519,8 @@ test('applyToolResultToLoopInput surfaces a persisted computer-use screenshot pa
   assert.equal(output[0]?.type, 'input_image');
   assert.equal(output[1]?.type, 'input_text');
   assert.match(String(output[1]?.text), /xiaoni-computer-20260628T110011Z\.png/);
-  assert.match(String(output[1]?.text), /qq-send-image/);
+  // the path is the data; how to send an image lives once in <skills_instructions> (qq-send-image)
+  assert.doesNotMatch(String(output[1]?.text), /qq-send-image/);
 
   const withoutPath = applyToolResultToLoopInput({
     name: 'computer',

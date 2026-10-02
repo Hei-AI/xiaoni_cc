@@ -594,7 +594,7 @@ export class QqUsageService {
         thread_key: threadKey.trim(),
         content: formatTaggedBlock('IM_INBOX_WINDOW', {
           mode: 'closed'
-        }, 'QQ 已放下。未读以你打开看过的为准——没打开的会话仍留未读。')
+        }, 'QQ 已放下。')
       };
     }
     await this.store.clearQqUsageActiveSurface();
