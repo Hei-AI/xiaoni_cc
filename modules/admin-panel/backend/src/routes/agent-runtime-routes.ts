@@ -34,6 +34,7 @@ import {
   updateAgentRuntimeControl,
   setAgentEnergyPolicy,
   requestMainAgentModelSwitch,
+  requestMainAgentEffortChange,
   recordAgentLifeEvent,
   getActiveAgentRecoverySession,
   finalizeAgentRecoverySession,
@@ -2090,19 +2091,31 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
   // compressed context (the cold read compression costs anyway) — never a cold read of the full
   // window. If there is nothing to compress the switch stays pending until the next compression.
   const MAIN_AGENT_MODEL_OPTIONS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'LongCat-2.5-Preview'];
+  // Thinking effort (Claude 5.5 output_config.effort) is part of the cache key too, so it follows the
+  // exact same pending -> compression-commit path as the model. Same endpoint, `effort` field.
+  const MAIN_AGENT_EFFORT_OPTIONS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+  function mainAgentCacheKeySettingsView(control: Awaited<ReturnType<typeof getAgentRuntimeControl>>) {
+    return {
+      mainAgentModel: control.mainAgentModel,
+      mainAgentModelPending: control.mainAgentModelPending,
+      mainAgentModelPendingAt: control.mainAgentModelPendingAt,
+      mainAgentModelSwitchedAt: control.mainAgentModelSwitchedAt,
+      mainAgentEffort: control.mainAgentEffort,
+      mainAgentEffortPending: control.mainAgentEffortPending,
+      mainAgentEffortPendingAt: control.mainAgentEffortPendingAt,
+      mainAgentEffortSwitchedAt: control.mainAgentEffortSwitchedAt,
+      options: MAIN_AGENT_MODEL_OPTIONS,
+      effortOptions: MAIN_AGENT_EFFORT_OPTIONS
+    };
+  }
 
   router.get('/agent-runtime/main-agent-model', async (_req, res) => {
     try {
       const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' });
       res.json({
         success: true,
-        data: {
-          mainAgentModel: control.mainAgentModel,
-          mainAgentModelPending: control.mainAgentModelPending,
-          mainAgentModelPendingAt: control.mainAgentModelPendingAt,
-          mainAgentModelSwitchedAt: control.mainAgentModelSwitchedAt,
-          options: MAIN_AGENT_MODEL_OPTIONS
-        },
+        data: mainAgentCacheKeySettingsView(control),
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -2119,8 +2132,15 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
         ? req.body as Record<string, unknown>
         : {};
+      const hasModel = Object.prototype.hasOwnProperty.call(body, 'model');
+      const hasEffort = Object.prototype.hasOwnProperty.call(body, 'effort');
+      if (!hasModel && !hasEffort) {
+        res.status(400).json({ success: false, error: 'model or effort is required', timestamp: new Date().toISOString() });
+        return;
+      }
       const model = body.model === null ? null : trimmedString(body.model);
-      if (model !== null && !MAIN_AGENT_MODEL_OPTIONS.includes(model)) {
+      const effort = body.effort === null ? null : trimmedString(body.effort);
+      if (hasModel && model !== null && !MAIN_AGENT_MODEL_OPTIONS.includes(model)) {
         res.status(400).json({
           success: false,
           error: `model must be one of ${MAIN_AGENT_MODEL_OPTIONS.join(', ')} (or null to cancel a pending switch)`,
@@ -2128,9 +2148,23 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         });
         return;
       }
-      const control = await requestMainAgentModelSwitch({ identityKey: 'xiaoni', model });
+      if (hasEffort && effort !== null && !MAIN_AGENT_EFFORT_OPTIONS.includes(effort)) {
+        res.status(400).json({
+          success: false,
+          error: `effort must be one of ${MAIN_AGENT_EFFORT_OPTIONS.join(', ')} (or null to cancel a pending change)`,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      let control = await getAgentRuntimeControl({ identityKey: 'xiaoni' });
+      if (hasModel) {
+        control = await requestMainAgentModelSwitch({ identityKey: 'xiaoni', model });
+      }
+      if (hasEffort) {
+        control = await requestMainAgentEffortChange({ identityKey: 'xiaoni', effort });
+      }
       let compression: Record<string, unknown> | null = null;
-      if (model !== null && body.compressNow !== false) {
+      if (((hasModel && model !== null) || (hasEffort && effort !== null)) && body.compressNow !== false) {
         const response = await axios.post(`${AGENT_SERVICE_URL}/api/internal/runtime/core-memory-compression/trigger`, {}, {
           timeout: AGENT_REQUEST_TIMEOUT_MS,
           validateStatus: () => true
@@ -2145,11 +2179,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.json({
         success: true,
         data: {
-          mainAgentModel: control.mainAgentModel,
-          mainAgentModelPending: control.mainAgentModelPending,
-          mainAgentModelPendingAt: control.mainAgentModelPendingAt,
-          mainAgentModelSwitchedAt: control.mainAgentModelSwitchedAt,
-          options: MAIN_AGENT_MODEL_OPTIONS,
+          ...mainAgentCacheKeySettingsView(control),
           compression
         },
         timestamp: new Date().toISOString()
