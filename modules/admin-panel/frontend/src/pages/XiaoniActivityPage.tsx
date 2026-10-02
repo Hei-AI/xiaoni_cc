@@ -2332,6 +2332,175 @@ function StreamRow({
   );
 }
 
+// ── LLM 请求视图(默认)───────────────────────────────────────────────────────
+// 看板关心的只有三件事:哪个 Agent 发了一次 LLM 请求、被什么触发、花了多少 token(in / cached / out)。
+// 其余事件(工具、生活事件、输出正文……)只在「全部事件」视图里出现;这里每次请求一行,点开看原始报文。
+function isLlmRequestItem(item: XiaoniActivityFeedItem): boolean {
+  const source = item.source || '';
+  return source === 'llm_request' || source.endsWith('_llm_request') || source === 'cache_heartbeat';
+}
+
+function streamItemKind(item: XiaoniActivityFeedItem): string {
+  return (typeof item.metadata?.itemKind === 'string' ? item.metadata.itemKind : null) || item.kind || '';
+}
+
+function oneLine(text: string, max = 80): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+// 主 agent 一次请求的触发 = 它和上一次请求之间进来的东西:新输入(通知 / 提醒 / 续跑提示)优先,
+// 否则是上一轮的工具结果。inputs 按时间倒序(紧挨着这次请求的在前)。
+function mainRequestTrigger(inputs: XiaoniActivityFeedItem[]): string {
+  const fresh = inputs.filter((item) => item.source === 'queue_message' || streamItemKind(item) === 'runtime_input');
+  if (fresh.length) {
+    const item = fresh[0];
+    const prefix = item.source === 'queue_message' ? '通知' : '输入';
+    return `${prefix} · ${oneLine(streamSnippet(item))}`;
+  }
+  const toolNames = Array.from(new Set(inputs
+    .filter((item) => ['function_call', 'function_call_output'].includes(streamItemKind(item)))
+    .map((item) => metadataText(item.metadata, 'toolName') || (item.title || '').replace(/^(请求工具|工具结果)[:：]\s*/, ''))
+    .filter(Boolean)));
+  if (toolNames.length) {
+    return `工具结果 · ${toolNames.join(', ')}`;
+  }
+  return '接着上一轮';
+}
+
+function forkRequestTrigger(kind: string, item: XiaoniActivityFeedItem): string {
+  const turn = metadataNumber(item.metadata, 'agentTurn');
+  switch (kind) {
+    case 'xiaoni_os_fill':
+      return '她以文字收尾 → 改写这段收尾 xiaoni_os';
+    case 'subconscious_agent':
+      return '她停在纯文字 → 自驱动给下一步';
+    case 'compression_memory':
+      return turn !== null && turn > 1 ? `整理记忆 · 第 ${turn} 轮` : '上下文到阈值 → 压缩记忆';
+    case 'cache_heartbeat':
+      return '空闲时保温缓存';
+    case 'recall_rerank':
+      return '召回精排';
+    case 'recall_expand':
+      return '召回判弱 → 换问法重取';
+    case 'xiaoni_os_rewrite': {
+      const stage = metadataText(item.metadata, 'stage');
+      if (stage === 'classify') return '她写了 xiaoni_os → 分类有没有事';
+      if (stage === 'rewrite') return '判为空转 → 改写';
+      if (stage === 'polish') return '有事但夹填充 → 润色';
+      return item.title || 'xiaoni_os 监督';
+    }
+    case 'psych_assessment':
+      return '心理评估';
+    case 'failure_review':
+      return '她宣布卡住 → 复核';
+    case 'image_vision':
+      return '收到图片 → 看图';
+    default:
+      return item.title || '—';
+  }
+}
+
+interface LlmRequestEntry {
+  entry: StreamEntry;
+  agentKind: string;
+  agentLabel: string;
+  trigger: string;
+}
+
+function buildLlmRequestEntries(entries: StreamEntry[]): LlmRequestEntry[] {
+  const result: LlmRequestEntry[] = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!isLlmRequestItem(entry.item)) {
+      continue;
+    }
+    if (entry.lane === 'main') {
+      const inputs: XiaoniActivityFeedItem[] = [];
+      for (let older = index + 1; older < entries.length; older += 1) {
+        const candidate = entries[older];
+        if (candidate.lane !== 'main') {
+          continue;
+        }
+        if (isLlmRequestItem(candidate.item)) {
+          break;
+        }
+        inputs.push(candidate.item);
+      }
+      result.push({ entry, agentKind: 'main', agentLabel: '主 agent', trigger: mainRequestTrigger(inputs) });
+      continue;
+    }
+    const kind = entry.fork?.kind || 'fork';
+    result.push({ entry, agentKind: kind, agentLabel: forkAgentLabel(kind), trigger: forkRequestTrigger(kind, entry.item) });
+  }
+  return result;
+}
+
+function LlmRequestTimeline({
+  requests,
+  density,
+  expandedId,
+  onToggleExpand,
+}: {
+  requests: LlmRequestEntry[];
+  density: 'compact' | 'comfortable';
+  expandedId: string | null;
+  onToggleExpand: (id: string) => void;
+}) {
+  if (!requests.length) {
+    return null;
+  }
+  return (
+    <div className="rounded-lg border border-border bg-card px-2 py-2">
+      <div className={cn(density === 'compact' ? 'space-y-px' : 'space-y-1')}>
+        {requests.map(({ entry, agentKind, agentLabel, trigger }, index) => {
+          const day = formatDateOnly(entry.timestamp);
+          const previousDay = index > 0 ? formatDateOnly(requests[index - 1].entry.timestamp) : null;
+          const expanded = expandedId === entry.id;
+          const { item } = entry;
+          const modelName = metadataText(item.metadata, 'modelName');
+          const inputTokens = formatTokenCount(metadataNumber(item.metadata, 'inputTokens'));
+          const cachedTokens = formatTokenCount(metadataNumber(item.metadata, 'cachedInputTokens'));
+          const outputTokens = formatTokenCount(metadataNumber(item.metadata, 'outputTokens'));
+          return (
+            <React.Fragment key={entry.id}>
+              {day !== previousDay ? (
+                <div className="flex justify-center py-1">
+                  <span className="rounded-full border border-border bg-background/90 px-3 py-0.5 text-[11px] font-semibold text-muted-foreground">{day}</span>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onToggleExpand(entry.id)}
+                id={eventElementId(item.eventId || item.id)}
+                data-event-id={item.eventId || item.id}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-2 text-left text-[11px] hover:bg-muted/50',
+                  density === 'compact' ? 'py-0.5' : 'py-1.5',
+                  expanded && 'bg-muted/50'
+                )}
+              >
+                <time className="shrink-0 font-mono tabular-nums text-muted-foreground">{formatTimeOnly(entry.timestamp)}</time>
+                <span className={cn(
+                  'w-32 shrink-0 truncate rounded border px-1.5 text-center text-[10px] font-bold',
+                  agentKind === 'main' ? 'border-sky-300 bg-sky-50 text-sky-800' : forkChipClass(agentKind)
+                )}>{agentLabel}</span>
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground/90" title={trigger}>{trigger}</span>
+                {modelName ? <span className="hidden shrink-0 text-muted-foreground xl:inline">{modelName}</span> : null}
+                <span className="w-16 shrink-0 text-right font-mono"><span className="text-muted-foreground">in</span> <span className="text-sky-700">{inputTokens ?? '—'}</span></span>
+                <span className="w-24 shrink-0 text-right font-mono"><span className="text-muted-foreground">cached</span> <span className="text-emerald-700">{cachedTokens ?? '—'}</span></span>
+                <span className="w-16 shrink-0 text-right font-mono"><span className="text-muted-foreground">out</span> <span className="text-violet-700">{outputTokens ?? '—'}</span></span>
+                <span className="shrink-0 text-xs text-muted-foreground">{expanded ? '▾' : '▸'}</span>
+              </button>
+              {expanded ? <StreamRowDetail item={item} /> : null}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StreamTimeline({
   entries,
   focusEventId,
@@ -2491,6 +2660,8 @@ export const XiaoniActivityPage: React.FC = () => {
   const startTime = searchParams.get('start_time') || '';
   const endTime = searchParams.get('end_time') || '';
   const density: 'compact' | 'comfortable' = searchParams.get('density') === 'comfortable' ? 'comfortable' : 'compact';
+  // 默认只看 LLM 请求;?view=all 才是完整事件流(排查用)。
+  const streamView: 'llm' | 'all' = searchParams.get('view') === 'all' ? 'all' : 'llm';
   const splitPct = (() => {
     const raw = Number.parseInt(searchParams.get('split') || '', 10);
     return Number.isFinite(raw) ? Math.max(22, Math.min(72, raw)) : 35;
@@ -2638,6 +2809,7 @@ export const XiaoniActivityPage: React.FC = () => {
     const visible = new Set(forkSelected);
     return streamEntries.filter((entry) => entry.lane === 'main' || (entry.fork && visible.has(entry.fork.runId)));
   }, [streamEntries, forkSelected]);
+  const llmRequests = React.useMemo(() => buildLlmRequestEntries(visibleEntries), [visibleEntries]);
   const forkCount = forkRuns.length;
   const rangeBadge = timeRange === 'custom'
     ? [startTime || '开始', endTime || '现在'].join(' - ')
@@ -2688,6 +2860,16 @@ export const XiaoniActivityPage: React.FC = () => {
         nextParams.delete('density');
       } else {
         nextParams.set('density', next);
+      }
+    });
+  }, [updateSearchParam]);
+
+  const handleStreamViewChange = React.useCallback((next: 'llm' | 'all') => {
+    updateSearchParam((nextParams) => {
+      if (next === 'llm') {
+        nextParams.delete('view');
+      } else {
+        nextParams.set('view', next);
       }
     });
   }, [updateSearchParam]);
@@ -2961,6 +3143,23 @@ export const XiaoniActivityPage: React.FC = () => {
               onShowAll={handleForkShowAll}
             />
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">视图</span>
+              <div className="inline-flex overflow-hidden rounded-md border border-border">
+                <button
+                  type="button"
+                  className={cn('px-2.5 py-1', streamView === 'llm' ? 'bg-primary text-primary-foreground' : 'bg-background')}
+                  onClick={() => handleStreamViewChange('llm')}
+                >
+                  LLM 请求
+                </button>
+                <button
+                  type="button"
+                  className={cn('px-2.5 py-1', streamView === 'all' ? 'bg-primary text-primary-foreground' : 'bg-background')}
+                  onClick={() => handleStreamViewChange('all')}
+                >
+                  全部事件
+                </button>
+              </div>
               <span className="font-semibold text-foreground">密度</span>
               <div className="inline-flex overflow-hidden rounded-md border border-border">
                 <button
@@ -2978,17 +3177,30 @@ export const XiaoniActivityPage: React.FC = () => {
                   舒适
                 </button>
               </div>
-              <span className="ml-auto font-mono">左 {splitPct}% / 右 {100 - splitPct}% · 拖动中线调整</span>
+              {streamView === 'all' ? (
+                <span className="ml-auto font-mono">左 {splitPct}% / 右 {100 - splitPct}% · 拖动中线调整</span>
+              ) : (
+                <span className="ml-auto font-mono">{llmRequests.length} 次请求</span>
+              )}
             </div>
-            <StreamTimeline
-              entries={visibleEntries}
-              focusEventId={focusEvent || undefined}
-              density={density}
-              splitPct={splitPct}
-              onSplitChange={handleSplitChange}
-              expandedId={expandedId}
-              onToggleExpand={handleToggleExpand}
-            />
+            {streamView === 'all' ? (
+              <StreamTimeline
+                entries={visibleEntries}
+                focusEventId={focusEvent || undefined}
+                density={density}
+                splitPct={splitPct}
+                onSplitChange={handleSplitChange}
+                expandedId={expandedId}
+                onToggleExpand={handleToggleExpand}
+              />
+            ) : (
+              <LlmRequestTimeline
+                requests={llmRequests}
+                density={density}
+                expandedId={expandedId}
+                onToggleExpand={handleToggleExpand}
+              />
+            )}
             {hasNextPage ? (
               <div className="flex justify-center border-t border-border pt-4">
                 <Button
