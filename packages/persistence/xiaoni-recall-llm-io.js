@@ -16,19 +16,36 @@
 // 返回 null = 没抠出来 —— 两个调用方对 null 的处置**不同**,所以这里只负责解析:
 //   展开侧 fail-open(退回单 query,放宽失败的后果是回到现状)
 //   判官侧要区分「答了但说不值得」和「没答上来」,见 parseJudgeVerdict 的 parsed 字段
+// Returns the LAST JSON object in the text that parses on its own (nested objects inside it are
+// not counted separately). Models sometimes write a draft object, or reasoning that contains
+// braces, before the final answer; taking everything from the first `{` to the last `}` would
+// glue those together and fail to parse. (Official Sonnet 5.5 guidance: parse the last JSON value.)
 function extractFirstJsonObject(raw) {
   const text = typeof raw === 'string' ? raw : '';
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) {
-    return null;
+  let last = null;
+  let i = text.indexOf('{');
+  while (i >= 0) {
+    let found = null;
+    let j = text.indexOf('}', i);
+    while (j >= 0) {
+      try {
+        const parsed = JSON.parse(text.slice(i, j + 1));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          found = { value: parsed, end: j };
+        }
+        break;
+      } catch {
+        j = text.indexOf('}', j + 1);
+      }
+    }
+    if (found) {
+      last = found.value;
+      i = text.indexOf('{', found.end + 1);
+    } else {
+      i = text.indexOf('{', i + 1);
+    }
   }
-  try {
-    const parsed = JSON.parse(text.slice(start, end + 1));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  return last;
 }
 
 // 从解析结果里取一个字符串数组,去空、trim、封顶。两处都要这一步。

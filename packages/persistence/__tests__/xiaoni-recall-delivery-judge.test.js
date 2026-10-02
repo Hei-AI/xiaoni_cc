@@ -172,9 +172,19 @@ test('解析:宽松路抠出的 id 同样只认序号,越界 / 编的照丢,但 
   assert.deepEqual(out.picks, []);
 });
 
-test('解析:JSON 坏了但明确写着 "picks":[] → 算答了(静默),不当成没答上来', () => {
+test('解析:JSON 后面跟了废话和多余的 } → 仍读出完整对象,不算宽松兜底', () => {
   const out = parseJudgeVerdict('{"picks":[]} 顺便说一句}', ['a']);
+  assert.deepEqual(out, { parsed: true, recovered: false, picks: [] });
+});
+
+test('解析:JSON 坏了但明确写着 "picks":[] → 算答了(静默),不当成没答上来', () => {
+  const out = parseJudgeVerdict('{"picks":[] 顺便说一句', ['a']);
   assert.deepEqual(out, { parsed: true, recovered: true, picks: [] });
+});
+
+test('解析:先写草稿再写最终 JSON → 取最后那一份', () => {
+  const out = parseJudgeVerdict('草稿 {"picks":[{"id":1,"hook":"旧"}]} 改一下\n{"picks":[]}', ['a']);
+  assert.deepEqual(out, { parsed: true, recovered: false, picks: [] });
 });
 
 test('解析:垃圾文本 / 没有 hook 形状 → 仍然 parsed=false(不许把读不出猜成不值得)', () => {
