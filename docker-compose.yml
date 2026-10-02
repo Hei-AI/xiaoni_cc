@@ -219,8 +219,10 @@ services:
       - XIAONI_OS_REWRITE_MODEL=${XIAONI_OS_REWRITE_MODEL:-LongCat-2.5-Preview}
       - XIAONI_RECALL_JUDGE_MODEL=${XIAONI_RECALL_JUDGE_MODEL:-LongCat-2.5-Preview}
       - XIAONI_RECALL_EXPANSION_MODEL=${XIAONI_RECALL_EXPANSION_MODEL:-LongCat-2.5-Preview}
-      # Anthropic Files API uploads use the Claude OAuth account; LongCat takes base64 only.
-      - ANTHROPIC_FILES_API_UPLOAD_ENABLED=${ANTHROPIC_FILES_API_UPLOAD_ENABLED:-false}
+      # Images entering her context are uploaded to the Claude Files API (OAuth account) and
+      # referenced by file_id; the base64 stays in the canonical as the fallback, so a switch to
+      # LongCat (base64 only) still works: the provider drops file_ids for non-Claude dialects.
+      - ANTHROPIC_FILES_API_UPLOAD_ENABLED=${ANTHROPIC_FILES_API_UPLOAD_ENABLED:-true}
       # api.anthropic.com from this host is ~50% reliable + ~5s/attempt; allow the
       # provider's connection retries room before the heartbeat gives up.
       - AGENT_CACHE_HEARTBEAT_TIMEOUT_MS=${AGENT_CACHE_HEARTBEAT_TIMEOUT_MS:-60000}
