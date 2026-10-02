@@ -908,8 +908,71 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns, ...recallExpandRuns, ...xiaoniOsRewriteRuns]
+  return condenseForkRuns([...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns, ...recallRerankRuns, ...recallExpandRuns, ...xiaoniOsRewriteRuns])
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
+}
+
+// 看板只留有效信息 = 和 LLM 相关的行:模型请求、模型说了什么、调了什么工具、工具回了什么、结论。
+// 下面这些不带信息,一律不出行:
+//   - fork 每轮的「当前输入」(runtime_input):就是克隆的主请求,模型请求那一行点开就有;
+//   - 正文为空的「模型输出」(只有 thinking 的那一块);
+//   - fork 的 tool_execution:同一次调用已经有「请求工具」+「工具结果」两行;
+//   - xiaoni_os 监督者里不发请求的规则判定(收尾段 closing-rule);
+//   - 收尾改写:监督者那条和填充 fork 是同一件事、同一次请求。合成一条 —— 只留填充 fork,
+//     把「去向」写进它的输出行。
+function isForkNoiseEvent(event: CompressionForkEvent): boolean {
+  const source = event.source || '';
+  if (source.endsWith('_fork_tool_execution')) {
+    return true;
+  }
+  if (source.endsWith('_fork_item')) {
+    if (event.kind === 'runtime_input') {
+      return true;
+    }
+    if (event.kind === 'assistant_message' && !(event.body || '').trim()) {
+      return true;
+    }
+  }
+  if (source === 'xiaoni_os_rewrite_llm_request' && metadataBoolean(event.metadata || {}, 'ruleOnly')) {
+    return true;
+  }
+  return false;
+}
+
+function condenseForkRuns(runs: ForkAgentRun[]): ForkAgentRun[] {
+  const fillOutcomeByForkRunId = new Map<string, string>();
+  for (const run of runs) {
+    if (run.forkKind !== 'xiaoni_os_rewrite') {
+      continue;
+    }
+    const fillForkRunId = metadataText(run.metadata, 'fillForkRunId');
+    if (fillForkRunId) {
+      fillOutcomeByForkRunId.set(fillForkRunId, metadataText(run.metadata, 'outcomeLabel') || '—');
+    }
+  }
+  const fillForkRunIds = new Set(runs.filter((run) => run.forkKind === 'xiaoni_os_fill').map((run) => run.forkRunId));
+  const condensed: ForkAgentRun[] = [];
+  for (const run of runs) {
+    // 监督者那条只在填充 fork 也在本页时才并掉;填充 fork 翻到下一页去了就照旧留着,不丢「去向」。
+    if (run.forkKind === 'xiaoni_os_rewrite') {
+      const fillForkRunId = metadataText(run.metadata, 'fillForkRunId');
+      if (fillForkRunId && fillForkRunIds.has(fillForkRunId)) {
+        continue;
+      }
+    }
+    const outcomeLabel = run.forkKind === 'xiaoni_os_fill' ? fillOutcomeByForkRunId.get(run.forkRunId) : undefined;
+    const events = (run.events || [])
+      .filter((event) => !isForkNoiseEvent(event))
+      .map((event) => (outcomeLabel && event.source.endsWith('_fork_item') && (event.body || '').trim()
+        && (event.kind === 'final_answer' || event.kind === 'assistant_message')
+        ? { ...event, body: `去向：${outcomeLabel}\n${event.body}` }
+        : event));
+    if (events.length === 0 && !buildForkResultItem(run)) {
+      continue;
+    }
+    condensed.push({ ...run, events });
+  }
+  return condensed;
 }
 
 // Short, meaningful disambiguator for a fork run. forkRunId looks like
@@ -953,72 +1016,6 @@ function forkChipClass(kind: string): string {
     default:
       return 'border-border bg-muted text-muted-foreground';
   }
-}
-
-// Synthesize a "trigger" event from the fork run's metadata so the timeline
-// shows WHY 小腻 entered this fork (notify doorbell / read-cutoff / media / timer).
-function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
-  const forkKind = run.forkKind || forkKindForRun(run);
-  let body: string | null = null;
-  if (forkKind === 'subconscious_agent') {
-    const notifyId = metadataText(run.metadata, 'notifyQueueMessageId')
-      ?? (metadataNumber(run.metadata, 'notifyQueueMessageId') !== null
-        ? String(metadataNumber(run.metadata, 'notifyQueueMessageId'))
-        : null);
-    const sessionKey = metadataText(run.metadata, 'contextSessionKey');
-    body = notifyId
-      ? `由 Notify Bucket #${notifyId} (phone_notification) 唤醒`
-      : '自驱动自主触发';
-    if (sessionKey) {
-      body += ` · ${sessionKey}`;
-    }
-  } else if (forkKind === 'compression_memory') {
-    const to = run.readCutoffAfterConversationId;
-    const from = run.previousReadCutoffAfterConversationId;
-    body = to ? `核心记忆压缩 · read-cutoff ${from || '-'} → ${to}` : '核心记忆压缩触发';
-  } else if (forkKind === 'image_vision') {
-    body = '收到图片 → 触发图像视觉 fork';
-  } else if (forkKind === 'cache_heartbeat') {
-    body = '缓存心跳定时触发 · 续 cache TTL';
-  } else if (forkKind === 'recall_rerank') {
-    const candidateCount = metadataNumber(run.metadata, 'candidateCount');
-    body = candidateCount === null
-      ? '投递闸定时触发'
-      : `投递闸定时触发 · ${candidateCount} 条候选送去精排`;
-  } else if (forkKind === 'recall_expand') {
-    body = '这次召回判弱 → 让小模型换几种问法重取';
-  } else if (forkKind === 'xiaoni_os_fill') {
-    body = '她以文字收尾 → 克隆主请求改写这段收尾 xiaoni_os(不产 plan,不写 Notify Bucket)';
-  } else if (forkKind === 'xiaoni_os_rewrite') {
-    const original = metadataText(run.metadata, 'originalPreview');
-    const turn = metadataNumber(run.metadata, 'agentTurn');
-    body = `她写了 xiaoni_os${turn !== null ? `(turn ${turn})` : ''} → 监督者分类有没有事${original ? `：${original}` : ''}`;
-  } else {
-    body = 'fork 触发';
-  }
-  return {
-    id: `forktrig:${run.id}`,
-    source: 'fork_trigger',
-    kind: 'fork_trigger',
-    title: '触发',
-    body,
-    status: run.status || null,
-    actor: 'system',
-    actorName: run.agentLabel || null,
-    timestamp: run.startedAt,
-    occurredAt: run.startedAt,
-    sessionKey: null,
-    peerName: null,
-    traceId: run.traceId,
-    traceTarget: null,
-    tone: 'info',
-    metadata: {
-      forkKind,
-      forkRunId: run.forkRunId,
-      notifyQueueMessageId: run.metadata?.notifyQueueMessageId ?? null,
-    },
-    tags: [],
-  };
 }
 
 // 心理评估 fork 专用:把「模型返回的判定结论」合成为流里独立的一行,直显 keep/evict,不用点进 trace。
@@ -1132,17 +1129,6 @@ function buildStreamEntries(
     const eventSeqs = (run.events || [])
       .map((event) => streamMetaNumber(event.metadata?.orderSeq))
       .filter((seq) => Number.isFinite(seq));
-    const trigger = buildForkTriggerItem(run);
-    if (trigger) {
-      // The trigger explains why 小腻 entered the fork, so it leads (sits just
-      // below the fork's oldest event in newest-first order). Stamp it with the
-      // fork's minimum event orderSeq − 0.5 so it sorts inline with the fork
-      // instead of sinking to the un-stamped historical tier at the very bottom.
-      if (eventSeqs.length) {
-        trigger.metadata = { ...trigger.metadata, orderSeq: Math.min(...eventSeqs) - 0.5 };
-      }
-      entries.push({ id: trigger.id, lane: 'fork', timestamp: run.startedAt, item: trigger, fork: ref });
-    }
     for (const event of run.events || []) {
       entries.push({
         id: `fork:${run.forkRunId}:${event.id}`,
@@ -1200,7 +1186,7 @@ function buildForkRoster(forkRuns: ForkAgentRun[]): ForkRosterEntry[] {
       runId: run.forkRunId,
       kind: run.forkKind || forkKindForRun(run),
       label: forkLabelForRun(run),
-      count: (run.events?.length || 0) + 1,
+      count: (run.events?.length || 0) + (buildForkResultItem(run) ? 1 : 0),
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
 }
