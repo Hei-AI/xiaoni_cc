@@ -101,6 +101,16 @@ function normalizeRuntimeControl(row) {
     // Partial energy-policy overrides object (or null = all code defaults). Merged over the
     // agent-service DEFAULT_RECOVER_ENERGY_POLICY at read time. See energy_policy_json column.
     energyPolicy: parseJsonObject(row?.energy_policy_json),
+    // 小腻主 agent 跑在哪个模型上。null = 用 agent-service 的 XIAONI_MAIN_AGENT_MODEL。
+    // 切模型只写 pending:模型是缓存键的一部分,换了就是整窗冷读,所以 agent-service 只在
+    // 压缩提交那一帧(本来就要冷读一次、而且窗口刚变小)把 pending 提升为 effective。
+    // 见 promotePendingMainAgentModel。
+    mainAgentModel: typeof row?.main_agent_model === 'string' && row.main_agent_model.trim() ? row.main_agent_model.trim() : null,
+    mainAgentModelPending: typeof row?.main_agent_model_pending === 'string' && row.main_agent_model_pending.trim()
+      ? row.main_agent_model_pending.trim()
+      : null,
+    mainAgentModelPendingAt: serializeTimestampForApi(row?.main_agent_model_pending_at),
+    mainAgentModelSwitchedAt: serializeTimestampForApi(row?.main_agent_model_switched_at),
     updatedAt: serializeTimestampForApi(row?.updated_at)
   };
 }
@@ -148,6 +158,10 @@ function createAgentRuntimeControlPersistence(deps) {
         passive_recall_delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         open_loops_notify_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         energy_policy_json JSONB,
+        main_agent_model TEXT,
+        main_agent_model_pending TEXT,
+        main_agent_model_pending_at TIMESTAMPTZ(3),
+        main_agent_model_switched_at TIMESTAMPTZ(3),
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -173,6 +187,12 @@ function createAgentRuntimeControlPersistence(deps) {
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
     // the cacheable LLM request prefix, so changing it has zero prompt-cache impact.
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS energy_policy_json JSONB');
+    // Main-agent model switch (effective + pending). Model id is part of the prompt-cache key, so the
+    // pending value is only promoted at a core-memory-compression commit (see promotePendingMainAgentModel).
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model TEXT');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model_pending TEXT');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model_pending_at TIMESTAMPTZ(3)');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model_switched_at TIMESTAMPTZ(3)');
     await sql.execute(`
       DO $$
       BEGIN
@@ -263,6 +283,10 @@ function createAgentRuntimeControlPersistence(deps) {
             , passive_recall_delivery_enabled
             , open_loops_notify_enabled
             , energy_policy_json
+            , main_agent_model
+            , main_agent_model_pending
+            , main_agent_model_pending_at
+            , main_agent_model_switched_at
           FROM agent_runtime_control
           WHERE identity_key = ?
           LIMIT 1
@@ -599,6 +623,67 @@ function createAgentRuntimeControlPersistence(deps) {
     }
   }
 
+  // Record the model the main agent should switch to. Pass model=null to cancel a pending switch.
+  // Only the pending column is written: the effective model changes in promotePendingMainAgentModel,
+  // which agent-service calls when a core-memory compression commits.
+  async function requestMainAgentModelSwitch(input = {}, config = {}) {
+    const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
+      ? input.identityKey.trim()
+      : 'xiaoni';
+    const model = typeof input.model === 'string' && input.model.trim() ? input.model.trim() : null;
+    const sql = createSqlAdapter(config);
+    try {
+      await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      const rows = await sql.query(
+        `
+          INSERT INTO agent_runtime_control (identity_key, enabled, main_agent_model_pending, main_agent_model_pending_at, updated_at)
+          VALUES (?, TRUE, ?, CASE WHEN ?::text IS NULL THEN NULL ELSE NOW() END, NOW())
+          ON CONFLICT (identity_key)
+          DO UPDATE SET
+            main_agent_model_pending = EXCLUDED.main_agent_model_pending,
+            main_agent_model_pending_at = EXCLUDED.main_agent_model_pending_at,
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [identityKey, model, model]
+      );
+      return normalizeRuntimeControl(rows[0]);
+    } finally {
+      await sql.close();
+    }
+  }
+
+  // Atomically make the pending model effective. Returns { promoted: false } when nothing is pending.
+  async function promotePendingMainAgentModel(input = {}, config = {}) {
+    const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
+      ? input.identityKey.trim()
+      : 'xiaoni';
+    const sql = createSqlAdapter(config);
+    try {
+      await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      const rows = await sql.query(
+        `
+          UPDATE agent_runtime_control
+          SET main_agent_model = main_agent_model_pending,
+              main_agent_model_pending = NULL,
+              main_agent_model_pending_at = NULL,
+              main_agent_model_switched_at = NOW(),
+              updated_at = NOW()
+          WHERE identity_key = ?
+            AND main_agent_model_pending IS NOT NULL
+          RETURNING *
+        `,
+        [identityKey]
+      );
+      if (!rows[0]) {
+        return { promoted: false, control: null };
+      }
+      return { promoted: true, control: normalizeRuntimeControl(rows[0]) };
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function triggerPostCompressionRuntimePause(input = {}, config = {}) {
     const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
       ? input.identityKey.trim()
@@ -746,6 +831,8 @@ function createAgentRuntimeControlPersistence(deps) {
     getAgentRuntimeControl,
     updateAgentRuntimeControl,
     setAgentEnergyPolicy,
+    requestMainAgentModelSwitch,
+    promotePendingMainAgentModel,
     triggerPostCompressionRuntimePause,
     haltRuntimeForCompressionOverrun
   };

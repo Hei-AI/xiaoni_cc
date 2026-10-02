@@ -2646,12 +2646,18 @@ export type AgentRuntimeControlProjection = {
   passiveRecallDeliveryEnabled: boolean;
   openLoopsNotifyEnabled: boolean;
   energyPolicy: Record<string, number> | null;
+  mainAgentModel: string | null;
+  mainAgentModelPending: string | null;
+  mainAgentModelPendingAt: string | null;
+  mainAgentModelSwitchedAt: string | null;
   updatedAt: string | null;
 };
 export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function getAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function updateAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function setAgentEnergyPolicy(input?: { identityKey?: string; energyPolicy?: Record<string, number> | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function requestMainAgentModelSwitch(input?: { identityKey?: string; model?: string | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function promotePendingMainAgentModel(input?: { identityKey?: string }, config?: DatabaseUrlConfig): Promise<{ promoted: boolean; control: AgentRuntimeControlProjection | null }>;
 export function triggerPostCompressionRuntimePause(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { pauseJustTriggered: boolean }>;
 export function haltRuntimeForCompressionOverrun(input?: { identityKey?: string; reason?: string; heartbeatIntervalMs?: number }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { haltJustTriggered: boolean }>;
 
