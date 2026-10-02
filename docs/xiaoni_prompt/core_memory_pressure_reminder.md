@@ -10,7 +10,7 @@ M={{XIAONI_MEMORY_WRITE_SKILL}}/memory_write.py
 
 {{WRITE_FORMATS}}
 
-**关于时间，按这份算，别自己从上下文推。** 真的时间线在这儿：
+时间按下面这份算。这是真的时间线，从上下文里推出来的时间可能对不上：
 
 {{TIME_GROUNDING}}
 

@@ -12,7 +12,7 @@
 - **qq-send-image** —— 把 `/xiaoni-runtime` 下的本地图片发到群里或私聊（普通发消息工具只有文字字段，发图得用它）。
 - **local-image-visibility** —— 本地 PNG 粗看。`/xiaoni-runtime/picture` 下有图、但没有 image id 或 `inspect_image_placeholder` 看不到时，用它看缩略图、尺寸和大致内容。
 - **executor-container** —— 存文件前，搞清楚哪些路径能跨重启留下、东西该放哪。
-- **xiaoni-browser** —— 上网、开网页、截图、点按钮、看 console / network，或要用宿主机真实 Chrome 登录态时读它。（上网查资料一律走这个。）
+- **xiaoni-browser** —— 开网页、截图、点按钮、看 console / network，或要用宿主机真实 Chrome 登录态时读它。只是搜一个词，用 `web_search` 工具更快。
 - **xiaoni-site** —— 构建、运行、调试你的个人站 `https://xiaoni.liahuas.top`。
 - **site-publish-check** —— 改完或发布站点、把链接发出去之前，检查 live URL、dist、首页入口和资源是否都在。
 - **forever-archive** —— 做了页面 / 文章 / 图片 / 玩具，想以后还能找到原件，就归档到 `/xiaoni-runtime/forever/...`（以源文件为准，dist 只是产物）。
