@@ -1486,14 +1486,17 @@ test('subconscious fork keeps the stripped sent prefix byte-identical and re-inj
   const basePrefix = forkRequest.input.slice(0, baseRequest.input.length);
   assert.deepEqual(basePrefix, baseRequest.input, 'fork prefix is byte-identical to the warm sent request');
 
-  // 2) The settling narration D appears ONLY after the cloned prefix (never inside it), and the
-  //    reminder follows D.
-  const dIndex = forkRequest.input.findIndex((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接'));
+  // 2) The settling narration D appears ONLY after the cloned prefix (never inside it). It is
+  //    quoted inside the steering message itself (one developer item: <xiaoni_recent_narration>
+  //    + reminder), so on the 5.5 models the steering message follows the cloned user tail and
+  //    can go out as a mid-conversation role:system message.
+  const dIndex = forkRequest.input.findIndex((item: any) => item.type === 'message' && getMessageContent(item).includes('等小伊接'));
   // 结构性:reminder 永远是追加在【最尾】的那个 item(buildSubconsciousAgentForkRequest 最后一个 push)。
   // 原来挑 prompt 里的一句话当哨兵,文案一改就误红 —— 这个文件今天已经因此红过两次。
   const reminderIndex = forkRequest.input.length - 1;
   assert.ok(dIndex >= baseRequest.input.length, 'D is re-injected at the tail, not in the warm prefix');
-  assert.ok(reminderIndex > dIndex, 'reminder is appended after the re-injected D');
+  assert.equal(dIndex, reminderIndex, 'D is quoted inside the steering (reminder) item');
+  assert.equal((forkRequest.input[reminderIndex] as any).role, 'developer');
 
   // 3) The cloned prefix carries no assistant-text item at all (the sent request was stripped).
   const assistantTextInPrefix = basePrefix.some((item: any) => item.type === 'message' && item.role === 'assistant');

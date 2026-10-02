@@ -3284,6 +3284,15 @@ export function buildCoreMemoryCompressionForkRequest(
 // `reminderText` 默认就是主 agent 那份续航提醒 —— 不传时与改动前逐字节一致。空转升级时由调用方
 // (runSubconsciousAgentFork)【算好一次】再传进来：同一次 fork 的所有 turn 必须共用同一份字节，
 // 否则 fork 自己的多 turn 前缀会分叉、turn-2 起冷读。
+// Her settling-turn narration (assistant text), quoted for a fork's steering message.
+function renderRecentNarrationBlock(items: OpenResponseInputItem[]): string[] {
+  const text = items
+    .map((item) => (isOpenResponseMessageInputItem(item) ? flattenMessageContent(item.content).trim() : ''))
+    .filter(Boolean)
+    .join('\n\n');
+  return text ? [`<xiaoni_recent_narration>\n${text}\n</xiaoni_recent_narration>`] : [];
+}
+
 export function buildSubconsciousAgentForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   forkTurn: number,
@@ -3305,16 +3314,19 @@ export function buildSubconsciousAgentForkRequest(
     ...forkRequest.input,
     // Re-inject the most recent assistant narration (D) at the TAIL. D is stripped from
     // the shared cache-warm prefix (baseRequest.input), so the fork keeps the continuity
-    // it needs to see — "what she just narrated" — as a small cold tail, the same pattern
-    // as the reminders below, without diverging the cache lineage from the main loop.
-    // Mark cache_volatile: these are assistant messages (durable by role), so without it the
-    // last one becomes `lastDurable` (anthropic-translate :343) and drags the tail cache_control
-    // breakpoint off the shared warm history — the same cold-read shape the image-vision fork hit.
-    ...recentNarrationItems.map((item) => ({
-      ...(item as Record<string, unknown>),
-      cache_volatile: true
-    }) as unknown as OpenResponseInputItem),
-    buildDeveloperInputItem([reminderText])
+    // it needs to see — "what she just narrated" — as a small cold tail, without diverging
+    // the cache lineage from the main loop.
+    // D is quoted INSIDE the steering message (<xiaoni_recent_narration> + reminder, one
+    // developer item) instead of riding as assistant items in front of it. A developer item
+    // that directly follows an assistant turn can't go out as a mid-conversation
+    // role:"system" message on the 5.5 models (it must follow a user turn), so the steering
+    // prompt used to fall back into a user turn — the shape the fill fork refused as an
+    // injection. Following the cloned request's user tail, it now goes out as system.
+    // Developer is non-durable, so the tail breakpoint stays on the shared warm history.
+    buildDeveloperInputItem([
+      ...renderRecentNarrationBlock(recentNarrationItems),
+      reminderText
+    ])
   ]);
   // Cache-alignment (Layer 1): inherit the main loop's auto tool_choice/tools and share
   // the same stripped prefix, so the fork's prefix is byte-identical and rides the warm
