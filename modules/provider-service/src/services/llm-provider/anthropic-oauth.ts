@@ -29,7 +29,7 @@ export const CLAUDE_API_BASE_URL = 'https://api.anthropic.com';
 // CLI sends it). Without it the request can be rejected as not-Claude-Code.
 export const CLAUDE_MESSAGES_PATH = '/v1/messages?beta=true';
 
-const DEFAULT_CLIENT_VERSION = '2.1.77';
+const DEFAULT_CLIENT_VERSION = '2.1.285';
 // Match the current Claude Code CLI beta set so the request looks like the official
 // client (the endpoint server-side-validates this). Beta flags are opt-in enablers;
 // having them in the header does not change behavior unless the body opts in.

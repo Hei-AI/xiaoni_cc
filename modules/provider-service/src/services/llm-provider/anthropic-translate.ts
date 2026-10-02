@@ -67,9 +67,8 @@ function ephemeralCacheControl(): EphemeralCacheControl {
 // prompt) so behavioral bleed into Xiaoni's persona is minimal; the real instructions
 // follow as the next, more-specific system block. Static -> stays a cache-stable
 // prefix. Env-overridable in case Anthropic changes the required string.
-// Match the identity string of the CLI version we claim (cc_version=2.1.77 -> the
-// current "Claude Agent SDK" wording, verified against a working CC-subscription
-// proxy). If the endpoint ever 403s on this, flip CLAUDE_CODE_IDENTITY_PROMPT to the
+// Match the identity string of the CLI version we claim (the "Claude Agent SDK"
+// wording, verified against a working CC-subscription proxy). If the endpoint ever 403s on this, flip CLAUDE_CODE_IDENTITY_PROMPT to the
 // classic "You are Claude Code, Anthropic's official CLI for Claude." without a rebuild.
 const CLAUDE_CODE_IDENTITY_PROMPT =
   process.env.CLAUDE_CODE_IDENTITY_PROMPT || "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -81,9 +80,12 @@ const CLAUDE_CODE_IDENTITY_PROMPT =
 // info) not to affect subscription-pool metering. To restore per-request signing,
 // flip ANTHROPIC_CCH_SIGNING_ENABLED=true (see isClaudeBillingCchSigningEnabled).
 // The whole block is also env-overridable.
+// The endpoint gates newer models on the claimed cc_version: claude-opus-5-5 returns 400
+// claude_code_version_too_old for 2.1.77 ("version 2.1.280 or newer is required"); the gate
+// reads this block, not the user-agent (verified 2026-10-02). Keep the claim current.
 const CLAUDE_BILLING_SYSTEM_BLOCK =
   process.env.CLAUDE_BILLING_SYSTEM_BLOCK
-  || 'x-anthropic-billing-header: cc_version=2.1.77.e19; cc_entrypoint=claude-vscode; cch=ed218;';
+  || 'x-anthropic-billing-header: cc_version=2.1.285.e19; cc_entrypoint=claude-vscode; cch=ed218;';
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20260209';
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 
