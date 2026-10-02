@@ -626,6 +626,10 @@ function metadataText(metadata: Record<string, unknown>, key: string): string | 
 
 function metadataNumber(metadata: Record<string, unknown>, key: string): number | null {
   const value = metadata[key];
+  // Number(null) / Number('') 是 0:缺字段会被读成「花了 0 token」。缺就是缺。
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -825,6 +829,9 @@ function forkAgentLabel(forkKind: string) {
   if (forkKind === 'xiaoni_os_rewrite') {
     return 'xiaoni_os 监督者';
   }
+  if (forkKind === 'xiaoni_os_fill') {
+    return 'xiaoni_os 填充 Fork';
+  }
   return 'Memory Compress Fork';
 }
 
@@ -941,6 +948,7 @@ function forkChipClass(kind: string): string {
     case 'recall_expand':
       return 'border-teal-200 bg-teal-50 text-teal-700';
     case 'xiaoni_os_rewrite':
+    case 'xiaoni_os_fill':
       return 'border-rose-200 bg-rose-50 text-rose-700';
     default:
       return 'border-border bg-muted text-muted-foreground';
@@ -979,6 +987,8 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
       : `投递闸定时触发 · ${candidateCount} 条候选送去精排`;
   } else if (forkKind === 'recall_expand') {
     body = '这次召回判弱 → 让小模型换几种问法重取';
+  } else if (forkKind === 'xiaoni_os_fill') {
+    body = '她以文字收尾 → 克隆主请求改写这段收尾 xiaoni_os(不产 plan,不写 Notify Bucket)';
   } else if (forkKind === 'xiaoni_os_rewrite') {
     const original = metadataText(run.metadata, 'originalPreview');
     const turn = metadataNumber(run.metadata, 'agentTurn');
