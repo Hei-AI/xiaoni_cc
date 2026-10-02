@@ -208,3 +208,63 @@ test('response: refusal settles as final_answer', () => {
   const msg = canonical.output.find((o) => o.type === 'message') as any;
   assert.equal(msg.phase, 'final_answer');
 });
+
+// ---------------------------------------------------------------------------
+// Mid-conversation role:"system" for developer/system items (5.5 models)
+// ---------------------------------------------------------------------------
+
+const U = (text: string) => ({ type: 'message', role: 'user', content: [{ type: 'input_text', text }] });
+const D = (text: string) => ({ type: 'message', role: 'developer', content: text });
+const A = (text: string) => ({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
+
+function wireRoles(model: string, input: any[]) {
+  const { body } = translateCanonicalToMessages(req(model, { tool_choice: 'auto', input }));
+  return body.messages.map((m) => `${m.role}:${m.content.map((b: any) => b.text ?? b.type).join('+')}`);
+}
+
+test('developer items become role:system only between a user turn and an assistant turn (or at the end)', () => {
+  const roles = wireRoles('claude-opus-5-5', [
+    D('head'), U('u1'), D('d1'), A('a1'), D('after-assistant'), U('u2'), D('tail1'), D('tail2')
+  ]);
+  assert.deepEqual(roles, [
+    'user:head+u1',
+    'system:d1',
+    'assistant:a1',
+    'user:after-assistant+u2',
+    'system:tail1+tail2'
+  ]);
+});
+
+test('a developer run followed by a user item stays a user turn (API: system must precede assistant or end)', () => {
+  assert.deepEqual(wireRoles('claude-sonnet-5-5', [U('u1'), D('d1'), U('u2')]), ['user:u1+d1+u2']);
+});
+
+test('pre-5.5 Claude keeps every developer item in the user turn', () => {
+  assert.deepEqual(wireRoles('claude-opus-4-6', [U('u1'), D('d1'), A('a1')]), ['user:u1+d1', 'assistant:a1']);
+});
+
+test('fork clones that append a developer reminder or an assistant item keep the main prefix byte-identical', () => {
+  const main = translateCanonicalToMessages(req('claude-opus-5-5', { tool_choice: 'auto', input: [U('u1'), A('a1'), U('u2'), D('trigger')] as any })).body;
+  for (const tail of [[D('fork reminder')], [A('fork prefill')]]) {
+    const fork = translateCanonicalToMessages(req('claude-opus-5-5', { tool_choice: 'auto', input: [U('u1'), A('a1'), U('u2'), D('trigger'), ...tail] as any })).body;
+    for (let m = 0; m < main.messages.length; m += 1) {
+      const mainMsg = main.messages[m]!;
+      const forkMsg = fork.messages[m]!;
+      assert.equal(forkMsg.role, mainMsg.role);
+      // block-level prefix (cache_control placement differs by design; compare text/type only)
+      const strip = (b: any) => JSON.stringify({ ...b, cache_control: undefined });
+      mainMsg.content.forEach((b, k) => assert.equal(strip(forkMsg.content[k]), strip(b)));
+    }
+  }
+});
+
+test('tool results followed by a reminder: the reminder becomes system, tool_result stays in the user turn', () => {
+  const roles = wireRoles('claude-opus-5-5', [
+    U('u1'),
+    { type: 'function_call', call_id: 'c1', name: 'exec_command', arguments: '{"cmd":"ls"}' },
+    { type: 'function_call_output', call_id: 'c1', output: 'a.txt' },
+    D('notify'),
+    A('done')
+  ]);
+  assert.deepEqual(roles, ['user:u1', 'assistant:tool_use', 'user:tool_result', 'system:notify', 'assistant:done']);
+});

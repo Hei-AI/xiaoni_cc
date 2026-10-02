@@ -165,6 +165,87 @@ export function usesComputerToolset(model: string | undefined): boolean {
   return isAlwaysThinkingClaudeModel(model);
 }
 
+// Mid-conversation `role: "system"` messages (supported on the 5.5 models; verified live
+// 2026-10-02) are the operator channel: unlike a <system_reminder> inside a user turn, the model
+// can tell they come from the runtime and nothing in user/tool content can forge them. A run of
+// consecutive developer/system items becomes one system message only where the API accepts it:
+//   - it follows a user turn ("must follow a 'user' message"), and
+//   - the next wire item is an assistant turn or there is none ("must precede an 'assistant'
+//     message or end the array").
+// Everywhere else (the frozen head before the first user turn, a reminder right after an
+// assistant turn) it stays a user turn exactly as before. The rule only reads the canonical, so
+// live build, replay and fork clones agree. A trailing system run that is later followed by a
+// user item instead of an assistant (a run that died before the model answered) falls back to a
+// user turn from then on — one tail miss, never a 400.
+export function supportsMidConversationSystem(model: string | undefined): boolean {
+  return isAlwaysThinkingClaudeModel(model);
+}
+
+type WireRole = 'user' | 'assistant' | 'dev';
+
+function isTextOnlyContent(content: string | OpenResponseMessageContentPart[]): boolean {
+  if (typeof content === 'string') {
+    return true;
+  }
+  return Array.isArray(content) && content.every((part) => part?.type === 'input_text' || part?.type === 'output_text');
+}
+
+// Which wire role an item lands in, mirroring itemToRoleBlocks' drop rules (null = not sent).
+function wireRoleOf(item: OpenResponseInputItem, thinkingEnabled: boolean): WireRole | null {
+  if (item.type === 'message') {
+    if (contentToBlocks(item.content).length === 0) {
+      return null;
+    }
+    if (item.role === 'assistant') {
+      return 'assistant';
+    }
+    if ((item.role === 'developer' || item.role === 'system') && isTextOnlyContent(item.content)) {
+      return 'dev';
+    }
+    return 'user';
+  }
+  if (item.type === 'function_call') {
+    return item.call_id || item.id ? 'assistant' : null;
+  }
+  if (item.type === 'function_call_output') {
+    return 'user';
+  }
+  if (item.type === 'reasoning') {
+    return thinkingEnabled && decodeAnthropicReasoning(item.encrypted_content) ? 'assistant' : null;
+  }
+  return null;
+}
+
+// Indexes of the items that go out as role:"system".
+function planSystemRoleItems(items: OpenResponseInputItem[], thinkingEnabled: boolean): Set<number> {
+  const roles = items.map((item) => wireRoleOf(item, thinkingEnabled));
+  const systemItems = new Set<number>();
+  let i = 0;
+  while (i < roles.length) {
+    if (roles[i] !== 'dev') {
+      i += 1;
+      continue;
+    }
+    const runStart = i;
+    while (i < roles.length && (roles[i] === 'dev' || roles[i] === null)) {
+      i += 1;
+    }
+    let prev: WireRole | null = null;
+    for (let j = runStart - 1; j >= 0 && prev === null; j -= 1) {
+      prev = roles[j] ?? null;
+    }
+    const next = i < roles.length ? roles[i] : null;
+    if (prev === 'user' && (next === 'assistant' || next === null)) {
+      for (let j = runStart; j < i; j += 1) {
+        if (roles[j] === 'dev') {
+          systemItems.add(j);
+        }
+      }
+    }
+  }
+  return systemItems;
+}
+
 function computerCallToToolsetToolUse(id: string, args: Record<string, any>): AnthropicContentBlock {
   const { action, ...input } = args;
   return {
@@ -209,7 +290,7 @@ export type AnthropicContentBlock =
   | { type: 'redacted_thinking'; data: string };
 
 export interface AnthropicMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: AnthropicContentBlock[];
 }
 
@@ -413,13 +494,17 @@ interface ComputerToolsetReplay {
 function itemToRoleBlocks(
   item: OpenResponseInputItem,
   thinkingEnabled: boolean,
-  computerToolset: ComputerToolsetReplay | null = null
-): { role: 'user' | 'assistant'; blocks: AnthropicContentBlock[] } | null {
+  computerToolset: ComputerToolsetReplay | null = null,
+  asSystem = false
+): { role: 'user' | 'assistant' | 'system'; blocks: AnthropicContentBlock[] } | null {
   if (item.type === 'message') {
     const role = item.role;
     const blocks = contentToBlocks(item.content);
     if (role === 'assistant') {
       return { role: 'assistant', blocks };
+    }
+    if (asSystem) {
+      return { role: 'system', blocks };
     }
     // user / system / developer all become a user turn (4.6 has no mid-convo system role)
     return { role: 'user', blocks };
@@ -490,7 +575,8 @@ interface BlockRef {
 function buildMessages(
   input: OpenResponseInputItem[],
   thinkingEnabled: boolean,
-  computerToolset: boolean = false
+  computerToolset: boolean = false,
+  midConversationSystem: boolean = false
 ): { messages: AnthropicMessage[]; tail: BlockRef | null; lastDurable: BlockRef | null; prevTurnBoundary: BlockRef | null } {
   const messages: AnthropicMessage[] = [];
   const computerReplay: ComputerToolsetReplay | null = computerToolset ? { callIds: new Set() } : null;
@@ -516,8 +602,9 @@ function buildMessages(
   let lastDurable: BlockRef | null = null;
   let lastAssistantMsgIdx = -1;
 
-  for (const item of input) {
-    const mapped = itemToRoleBlocks(item, thinkingEnabled, computerReplay);
+  const systemItems = midConversationSystem ? planSystemRoleItems(input, thinkingEnabled) : new Set<number>();
+  for (const [itemIndex, item] of input.entries()) {
+    const mapped = itemToRoleBlocks(item, thinkingEnabled, computerReplay, systemItems.has(itemIndex));
     if (!mapped || mapped.blocks.length === 0) {
       continue;
     }
@@ -888,7 +975,8 @@ export function translateCanonicalToMessages(
   const { messages, tail, lastDurable, prevTurnBoundary } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
     thinkingEnabled,
-    dialect === 'claude' && usesComputerToolset(model)
+    dialect === 'claude' && usesComputerToolset(model),
+    dialect === 'claude' && supportsMidConversationSystem(model)
   );
 
   const body: AnthropicMessagesRequest = {
