@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAgentRuntimeControl, promotePendingMainAgentModel, triggerPostCompressionRuntimePause } from '@qq-bot/persistence';
+import { getAgentRuntimeControl, promotePendingMainAgentCacheKeySettings, seedMainAgentCacheKeySettings, triggerPostCompressionRuntimePause } from '@qq-bot/persistence';
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
@@ -18,8 +18,25 @@ import { XiaoniPromptReloadPolicy } from './prompts/xiaoni-prompt-reload-policy'
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
+// Cache-key settings (model, effort) come from the runtime control row, never straight from env.
+// The env values only seed the row while a column is still NULL, so a restart cannot change the
+// cache key; changes go through pending -> promoted at a compression commit. See the 缓存键铁律
+// block above buildCanonicalAgentTurnRequest (services/agent-loop-service.ts).
+async function readMainAgentCacheKeySettings() {
+  const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+  if (control.mainAgentModel !== null && control.mainAgentEffort !== null) {
+    return control;
+  }
+  return seedMainAgentCacheKeySettings({
+    identityKey: 'xiaoni',
+    model: agentConfig.xiaoniMainAgentModelName,
+    effort: agentConfig.xiaoniMainAgentEffort
+  }, databaseConfig);
+}
+
 const loopService = new AgentLoopService(store, new AgentPromptService({
-  resolveMainAgentModelName: async () => (await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig)).mainAgentModel
+  resolveMainAgentModelName: async () => (await readMainAgentCacheKeySettings()).mainAgentModel,
+  resolveMainAgentEffort: async () => (await readMainAgentCacheKeySettings()).mainAgentEffort
 }), {
   isRuntimeEnabled,
   isCacheHeartbeatPaused,
@@ -509,21 +526,25 @@ async function triggerRuntimePauseAfterCoreMemoryCompression() {
 }
 
 async function handleCoreMemoryCompressionCommitted() {
-  // A requested main-agent model switch becomes effective here: this commit is followed by the
-  // STW frame that cold-reads the (now small) compressed context anyway, so the new model's first
-  // request is that frame. The fork that just committed already ran on the old model's warm cache.
+  // Requested cache-key changes (model, effort) become effective here, together: this commit is
+  // followed by the STW frame that cold-reads the (now small) compressed context anyway, so the new
+  // values' first request is that frame. The fork that just committed already ran on the old warm
+  // cache. This is the ONLY place they may change — see the 缓存键铁律 block in agent-loop-service.ts.
   try {
-    const switched = await promotePendingMainAgentModel({ identityKey: 'xiaoni' }, databaseConfig);
+    const switched = await promotePendingMainAgentCacheKeySettings({ identityKey: 'xiaoni' }, databaseConfig);
     if (switched.promoted) {
-      const invalidated = loopService.invalidateStableRuntimePrompt('main_agent_model_switched_after_core_memory_compression');
-      moduleLogger.warn('Xiaoni main agent model switched at core memory compression commit', {
+      const invalidated = loopService.invalidateStableRuntimePrompt('main_agent_cache_key_settings_switched_after_core_memory_compression');
+      moduleLogger.warn('Xiaoni main agent cache-key settings switched at core memory compression commit', {
         model: switched.control?.mainAgentModel ?? null,
+        effort: switched.control?.mainAgentEffort ?? null,
+        promotedModel: switched.promotedModel,
+        promotedEffort: switched.promotedEffort,
         invalidated
       });
     }
   } catch (error) {
-    // Leaves the switch pending; the next compression commit retries it.
-    moduleLogger.warn('Failed to promote pending Xiaoni main agent model', {
+    // Leaves the change pending; the next compression commit retries it.
+    moduleLogger.warn('Failed to promote pending Xiaoni main agent cache-key settings', {
       error: error instanceof Error ? error.message : String(error)
     });
   }

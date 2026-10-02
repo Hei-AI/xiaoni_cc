@@ -3206,11 +3206,38 @@ function resolveFeedbackWriterToolChoice(loopInput: OpenResponseInputItem[], mod
   ]);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 缓存键铁律(do not violate)
+//
+// 凡是会改变 prompt-cache 键的东西 —— 模型、思考等级(effort)、thinking 设置、tools 列表、
+// system prompt / skills_instructions、beta 头、缓存断点 TTL —— 一律【只许在压缩提交那一帧生效】:
+//   改动 = 只写 pending(或只改文件/只记一笔)→ 压缩提交 → 同一帧提升为 effective、作废稳定快照
+//   → STW 冷读那一帧主请求、所有 fork 克隆、心跳一起换到新值。
+// 那一帧本来就要冷读,而且窗口刚压到最小;别的任何时刻换,都是在 40 万的大窗口上白白冷读一整遍。
+//
+// 不许的做法:
+//   - 从 env / config 每次请求现读、或在进程启动时直接生效。重启(包括 compose 因为依赖顺手重建
+//     agent-service)就会绕过压缩帧。2026-10-02 23:53 就是这样:effort 走 env,部署管理端时
+//     agent-service 被顺带重建,effort 先换、压缩被杀,心跳在未压缩的 400K 窗口上冷读了一次。
+//   - 读库失败时退回 env 默认值(等于悄悄换键)。失败就沿用本进程正在用的值。
+//
+// 现状:
+//   - 模型、effort:runtime control 行里的 effective + pending,promotePendingMainAgentCacheKeySettings
+//     在压缩提交钩子(index.ts handleCoreMemoryCompressionCommitted)里一起提升;env 只在库里为
+//     NULL 时播种一次(seedMainAgentCacheKeySettings),之后改 env 不再影响请求。
+//   - system prompt / skills_instructions:XiaoniPromptReloadPolicy 记下文件变更,压缩提交时才作废快照。
+//   - 仍然是「重启即生效」的(新增同类配置时必须收进上面的机制,不许再加这种):
+//     agent-service 的 AGENT_WEB_SEARCH_ENABLED / AGENT_COMPUTER_USE_ENABLED(tools 列表);
+//     provider-service 的 ANTHROPIC_EFFORT(_BY_MODEL) / ANTHROPIC_THINKING_DISPLAY / ANTHROPIC_CACHE_TTL /
+//     ANTHROPIC_BETA / CLAUDE_CODE_IDENTITY_PROMPT / CLAUDE_BILLING_SYSTEM_BLOCK / ANTHROPIC_FILES_API_WIRE_ENABLED。
+//     改它们只能走「先压缩 → 压缩提交后暂停 → 部署 → 恢复」,并且部署单个服务一律 --no-deps。
+// ─────────────────────────────────────────────────────────────────────────────
 export function buildCanonicalAgentTurnRequest(
   modelName: string,
   loopInput: OpenResponseInputItem[],
   chatType: 'group' | 'direct',
-  parameters?: AgentModelParameters
+  parameters?: AgentModelParameters,
+  mainAgentEffort?: string
 ): CanonicalAgentTurnRequest {
   void chatType;
   const [firstItem, ...remainingItems] = loopInput;
@@ -3230,7 +3257,7 @@ export function buildCanonicalAgentTurnRequest(
     tools,
     tool_choice: toolChoice,
     parallel_tool_calls: true,
-    ...(buildAgentReasoningConfig(modelName, parameters) ? { reasoning: buildAgentReasoningConfig(modelName, parameters) } : {}),
+    ...(buildAgentReasoningConfig(modelName, parameters, mainAgentEffort) ? { reasoning: buildAgentReasoningConfig(modelName, parameters, mainAgentEffort) } : {}),
     ...(buildAgentTextConfig(modelName, parameters) ? { text: buildAgentTextConfig(modelName, parameters) } : {}),
     ...(buildAgentInclude(modelName, parameters) ? { include: buildAgentInclude(modelName, parameters) } : {})
   };
@@ -3254,7 +3281,8 @@ function buildMainAgentCanonicalRequest(
       runtimePrompt.modelName,
       wireInput,
       queueMessage.chatType,
-      runtimePrompt.parameters as Record<string, unknown> | undefined
+      runtimePrompt.parameters as Record<string, unknown> | undefined,
+      runtimePrompt.mainAgentEffort
     ),
     metadata: buildAgentTurnMetadata(queueMessage, runtimePrompt),
     prompt_cache_key: buildPromptCacheKey(queueMessage, runtimePrompt),
@@ -7036,11 +7064,13 @@ function shouldUseReasoningReplay(modelName: string) {
 
 const CLAUDE_MAIN_AGENT_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
-function buildAgentReasoningConfig(modelName: string, parameters: AgentModelParameters) {
+function buildAgentReasoningConfig(modelName: string, parameters: AgentModelParameters, mainAgentEffort?: string) {
   // Claude 5.5 main agent: only an effort (thinking is always on there; the provider maps it to
   // output_config.effort). Other models keep the branches below unchanged.
+  // 生产路径(buildMainAgentCanonicalRequest)永远传快照里的 runtimePrompt.mainAgentEffort;
+  // 只有没传(单测、直接调用)才退回 env —— 见 buildCanonicalAgentTurnRequest 上方的缓存键铁律。
   if (/claude-(opus|sonnet)-5-5/i.test(modelName)) {
-    const effort = agentConfig.xiaoniMainAgentEffort;
+    const effort = mainAgentEffort ?? agentConfig.xiaoniMainAgentEffort;
     return CLAUDE_MAIN_AGENT_EFFORTS.has(effort) ? { effort } : undefined;
   }
   const providerSpecific = getProviderSpecificParameters(parameters);

@@ -21,6 +21,10 @@ export type ResolvedAgentRuntimePrompt = {
   contextVariables: Record<string, unknown>;
   runtimeVariables: Record<string, unknown>;
   modelName: string;
+  // 主 agent 思考等级(Claude 5.5 output_config.effort)。和 modelName 一样冻结在快照里,只在快照
+  // 失效(启动、压缩提交)时重新解析。'' = 不带 effort,走 provider 的按模型默认。
+  // 可选只是为了老的测试桩(冻结的缓存用例也在用);生产路径的 resolver 永远填它。
+  mainAgentEffort?: string;
   parameters: Record<string, unknown>;
 };
 
@@ -131,10 +135,13 @@ export type AgentPromptServiceOptions = {
   // Effective main-agent model from the runtime control row (null = not set -> env default).
   // Read only when the stable prompt snapshot is (re)built: at boot and at a compression commit.
   resolveMainAgentModelName?: () => Promise<string | null>;
+  // Effective main-agent thinking effort from the runtime control row. Same lifecycle as the model.
+  resolveMainAgentEffort?: () => Promise<string | null>;
 };
 
 export class AgentPromptService implements AgentPromptResolver {
   private lastResolvedModelName: string | null = null;
+  private lastResolvedEffort: string | null = null;
 
   constructor(private readonly options: AgentPromptServiceOptions = {}) {}
 
@@ -158,9 +165,29 @@ export class AgentPromptService implements AgentPromptResolver {
     }
   }
 
+  private async resolveMainAgentEffort(): Promise<string> {
+    const resolver = this.options.resolveMainAgentEffort;
+    if (typeof resolver !== 'function') {
+      return agentConfig.xiaoniMainAgentEffort;
+    }
+    try {
+      const resolved = (await resolver())?.trim() ?? '';
+      this.lastResolvedEffort = resolved;
+      return resolved;
+    } catch (error) {
+      // 同模型:读库失败时退回 env 等于在缓存键上悄悄换值。沿用本进程已经在跑的那个;一个都没有就抛,
+      // 让快照下次重试。
+      if (this.lastResolvedEffort !== null) {
+        return this.lastResolvedEffort;
+      }
+      throw error;
+    }
+  }
+
   async resolveForQueueMessage(queueMessage: QueueMessagePayload): Promise<ResolvedAgentRuntimePrompt> {
     const contextVariables = {};
     const modelName = await this.resolveMainAgentModelName();
+    const mainAgentEffort = await this.resolveMainAgentEffort();
     const runtimeVariables = buildRuntimeVariables(queueMessage, modelName);
     const systemPrompt = agentConfig.systemPrompt;
 
@@ -174,6 +201,7 @@ export class AgentPromptService implements AgentPromptResolver {
       contextVariables,
       runtimeVariables,
       modelName,
+      mainAgentEffort,
       parameters: {}
     };
   }

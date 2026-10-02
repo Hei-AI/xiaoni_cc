@@ -147,19 +147,21 @@ test('model switch lands on the compression STW frame: same frame as the 近况 
 
   // The effective model the resolver reads (stands in for agent_runtime_control.main_agent_model).
   let effectiveModel = 'claude-opus-5-5';
+  // Effort follows the same rule (agent_runtime_control.main_agent_effort): it flips in the same frame.
+  let effectiveEffort = 'high';
   let resolveCount = 0;
   const service = new AgentLoopService(store, {
     resolveForQueueMessage: async () => {
       resolveCount += 1;
-      return createRuntimePrompt({ modelName: effectiveModel });
+      return createRuntimePrompt({ modelName: effectiveModel, mainAgentEffort: effectiveEffort });
     }
   } as any);
   (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
 
-  const sent: Array<{ model: string; input: any[] }> = [];
+  const sent: Array<{ model: string; effort: string | null; input: any[] }> = [];
   let turn = 0;
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
-    sent.push({ model: canonicalRequest.model, input: canonicalRequest.input || [] });
+    sent.push({ model: canonicalRequest.model, effort: canonicalRequest.reasoning?.effort ?? null, input: canonicalRequest.input || [] });
     turn += 1;
     if (turn === 2) {
       // A compression commits while a switch to Sonnet 5.5 is pending. Same order as production:
@@ -167,6 +169,7 @@ test('model switch lands on the compression STW frame: same frame as the 近况 
       // is visible to the next silent point.
       cutoffFlipped = true;
       effectiveModel = 'claude-sonnet-5-5';
+      effectiveEffort = 'medium';
       service.invalidateStableRuntimePrompt('main_agent_model_switched_after_core_memory_compression');
       (service as any).pendingCompressionAppliedCutoffBySession.set(KEY, NEW_CUTOFF);
     }
@@ -189,6 +192,9 @@ test('model switch lands on the compression STW frame: same frame as the 近况 
   // Same frame: the model flips exactly where the compressed context comes in.
   assert.ok(models.slice(0, firstNew).every((m) => m === 'claude-opus-5-5'), `pre-switch requests stay on the old model: ${models}`);
   assert.ok(models.slice(firstNew).every((m) => m === 'claude-sonnet-5-5'), `the STW frame and later requests carry the new model: ${models}`);
+  const efforts = sent.map((s) => s.effort);
+  assert.ok(efforts.slice(0, firstNew).every((e) => e === 'high'), `pre-switch requests keep the old effort: ${efforts}`);
+  assert.ok(efforts.slice(firstNew).every((e) => e === 'medium'), `the STW frame and later requests carry the new effort: ${efforts}`);
   const midrun = timelineEvents.filter((e) => e.eventName === 'core_memory_compression_applied_midrun');
   assert.equal(midrun.length, 1);
   assert.equal(midrun[0].metadata.model, 'claude-sonnet-5-5');
@@ -287,6 +293,39 @@ test('main agent effort rides on the 5.5 main request and every fork clone; othe
     assert.equal(longcat.reasoning, undefined);
     agentConfig.xiaoniMainAgentEffort = '';
     assert.equal((buildCanonicalAgentTurnRequest('claude-sonnet-5-5', input, 'group') as any).reasoning, undefined);
+  } finally {
+    agentConfig.xiaoniMainAgentEffort = previous;
+  }
+});
+
+test('AgentPromptService: effort comes from the runtime control resolver, not env; read failure keeps the running effort', async () => {
+  const payload = baseQueuePayload() as any;
+  const previous = agentConfig.xiaoniMainAgentEffort;
+  agentConfig.xiaoniMainAgentEffort = 'max';
+  try {
+    let effort: string | null = 'medium';
+    let fail = false;
+    const service = new AgentPromptService({
+      resolveMainAgentModelName: async () => 'claude-sonnet-5-5',
+      resolveMainAgentEffort: async () => { if (fail) { throw new Error('db down'); } return effort; }
+    });
+    assert.equal((await service.resolveForQueueMessage(payload)).mainAgentEffort, 'medium', 'the env value is never used once a resolver is wired');
+    fail = true;
+    assert.equal((await service.resolveForQueueMessage(payload)).mainAgentEffort, 'medium', 'a failed read keeps the effort this process runs on');
+    fail = false;
+    effort = null;
+    assert.equal((await service.resolveForQueueMessage(payload)).mainAgentEffort, '', 'null -> no effort (provider default), not the env value');
+
+    const cold = new AgentPromptService({
+      resolveMainAgentModelName: async () => 'claude-sonnet-5-5',
+      resolveMainAgentEffort: async () => { throw new Error('db down'); }
+    });
+    await assert.rejects(() => cold.resolveForQueueMessage(payload), /db down/);
+
+    const { buildCanonicalAgentTurnRequest } = await import('../services/agent-loop-service');
+    const input = [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }] as any;
+    assert.deepEqual((buildCanonicalAgentTurnRequest('claude-sonnet-5-5', input, 'group', undefined, 'low') as any).reasoning, { effort: 'low' },
+      'an explicit snapshot effort wins over env');
   } finally {
     agentConfig.xiaoniMainAgentEffort = previous;
   }

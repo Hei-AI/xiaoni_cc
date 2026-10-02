@@ -90,10 +90,13 @@ export const agentConfig = {
   providerServiceUrl: (process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, ''),
   xiaoniExecutorUrl: (process.env.XIAONI_EXECUTOR_URL || '').replace(/\/$/, ''),
   modelName: process.env.AI_MODEL_NAME || 'gpt-5-mini',
+  // Same as the effort below: only the seed for agent_runtime_control.main_agent_model while NULL.
   xiaoniMainAgentModelName: process.env.XIAONI_MAIN_AGENT_MODEL || XIAONI_MAIN_AGENT_DEFAULT_MODEL,
-  // Thinking effort for the main agent on Claude 5.5 models (low|medium|high|xhigh|max). Carried on
-  // the main request, so every fork clone sends the same value. Part of the prompt-cache key:
-  // change it only together with a compression. Empty = the provider's per-model default.
+  // Thinking effort for the main agent on Claude 5.5 models (low|medium|high|xhigh|max). Part of the
+  // prompt-cache key. This env value is ONLY the seed for agent_runtime_control.main_agent_effort
+  // while that is NULL; requests read the effective value from the runtime control row, changed
+  // through the admin panel (pending -> promoted at a compression commit). Editing this env var
+  // after the seed does nothing. See the 缓存键铁律 block above buildCanonicalAgentTurnRequest.
   xiaoniMainAgentEffort: (process.env.XIAONI_MAIN_AGENT_EFFORT || '').trim(),
   sherlockModelName: process.env.AGENT_SHERLOCK_MODEL?.trim() || '',
   sherlockClassifierModelName: process.env.AGENT_SHERLOCK_CLASSIFIER_MODEL?.trim() || '',
