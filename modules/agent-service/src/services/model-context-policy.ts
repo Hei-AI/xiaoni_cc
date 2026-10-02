@@ -52,6 +52,19 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
     contextWindowTokens: 600000,
     maxOutputTokens: 64000
   },
+  // Opus 5.5 / Sonnet 5.5 (the switchable main-agent models): raw window 1M like opus-4-6,
+  // same 600K effective budget so switching models keeps the compression cadence. Thinking is
+  // always on for these and counts toward max output; 64K leaves room for it.
+  'claude-opus-5-5': {
+    model: 'claude-opus-5-5',
+    contextWindowTokens: 600000,
+    maxOutputTokens: 64000
+  },
+  'claude-sonnet-5-5': {
+    model: 'claude-sonnet-5-5',
+    contextWindowTokens: 600000,
+    maxOutputTokens: 64000
+  },
   // LongCat (api.longcat.chat). Raw window is 1M like opus-4-6; same 600K effective
   // budget so the compression cadence is unchanged by the provider switch.
   'longcat-2.5-preview': {

@@ -1,8 +1,9 @@
 import express from 'express';
-import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-bot/persistence';
+import { getAgentRuntimeControl, promotePendingMainAgentModel, triggerPostCompressionRuntimePause } from '@qq-bot/persistence';
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
+import { AgentPromptService } from './services/agent-prompt-service';
 import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled, setIdlePlanSkillSubmissionEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { sendOpenLoopsPointerNotifyOnce, openLoopsNotifyConfig } from './services/xiaoni-open-loops-notify';
@@ -17,7 +18,9 @@ import { XiaoniPromptReloadPolicy } from './prompts/xiaoni-prompt-reload-policy'
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
-const loopService = new AgentLoopService(store, undefined, {
+const loopService = new AgentLoopService(store, new AgentPromptService({
+  resolveMainAgentModelName: async () => (await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig)).mainAgentModel
+}), {
   isRuntimeEnabled,
   isCacheHeartbeatPaused,
   getMainAgentPreModelYieldMs,
@@ -506,6 +509,24 @@ async function triggerRuntimePauseAfterCoreMemoryCompression() {
 }
 
 async function handleCoreMemoryCompressionCommitted() {
+  // A requested main-agent model switch becomes effective here: this commit is followed by the
+  // STW frame that cold-reads the (now small) compressed context anyway, so the new model's first
+  // request is that frame. The fork that just committed already ran on the old model's warm cache.
+  try {
+    const switched = await promotePendingMainAgentModel({ identityKey: 'xiaoni' }, databaseConfig);
+    if (switched.promoted) {
+      const invalidated = loopService.invalidateStableRuntimePrompt('main_agent_model_switched_after_core_memory_compression');
+      moduleLogger.warn('Xiaoni main agent model switched at core memory compression commit', {
+        model: switched.control?.mainAgentModel ?? null,
+        invalidated
+      });
+    }
+  } catch (error) {
+    // Leaves the switch pending; the next compression commit retries it.
+    moduleLogger.warn('Failed to promote pending Xiaoni main agent model', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
   if (promptReloadPolicy.consumePostCompressionReload()) {
     const invalidated = loopService.invalidateStableRuntimePrompt('prompt_files_changed_after_core_memory_compression');
     moduleLogger.warn('Xiaoni prompt file reload armed after core memory compression', {

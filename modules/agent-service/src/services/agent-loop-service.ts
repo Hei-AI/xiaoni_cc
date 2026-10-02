@@ -1258,13 +1258,15 @@ const consecutiveOverWireTriggerBySession = new Map<string, number>();
 // serialization failure so a bad request can never falsely trip the halt.
 // Files API references only reach the wire on the Claude endpoint; every other provider
 // (LongCat) gets the base64 image_url, so the estimate must count it.
-function mainModelSendsAnthropicFileRefs(): boolean {
-  return /^claude/i.test(agentConfig.xiaoniMainAgentModelName || '')
+// Read from the request itself: the main-agent model can switch at a compression commit.
+function requestSendsAnthropicFileRefs(canonicalRequest: unknown): boolean {
+  const model = (canonicalRequest as { model?: unknown } | null)?.model;
+  return /^claude/i.test(typeof model === 'string' ? model : agentConfig.xiaoniMainAgentModelName || '')
     && (process.env.ANTHROPIC_FILES_API_WIRE_ENABLED || 'true').trim() !== 'false';
 }
 export function estimateCanonicalRequestWireBytes(canonicalRequest: unknown): number {
   let raw = 0;
-  const projectFileRefs = mainModelSendsAnthropicFileRefs();
+  const projectFileRefs = requestSendsAnthropicFileRefs(canonicalRequest);
   try {
     // Project the canonical onto what actually goes on the wire before measuring: an
     // input_image that carries a Files API `file_id` is sent as a ~60-byte file reference,
@@ -8995,6 +8997,7 @@ export class AgentLoopService {
         if (midRunCompressionApply) {
           requestInput = midRunCompressionApply.requestInput;
           appliedRunCutoff = midRunCompressionApply.appliedCutoff;
+          runtimePrompt = midRunCompressionApply.runtimePrompt;
         }
         turnsExecuted = turn;
         const turnBudgetRecord: ContextBudgetTurnRecord = {
@@ -13528,7 +13531,7 @@ export class AgentLoopService {
     pendingProactiveShare: string | null;
     developerContextBlock: string | null;
     runtimeEnergyState: RuntimeEnergyState | null;
-  }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
+  }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number; runtimePrompt: ResolvedAgentRuntimePrompt } | null> {
     const key = params.contextSessionKey;
     // Floor for "this run hasn't built/switched to any cutoff yet". stack_index is a
     // positive dense ascending serial, so -1 sorts below every real cutoff; the <= comparisons
@@ -13565,10 +13568,16 @@ export class AgentLoopService {
     // byte-for-byte.
     const liveHistory = await this.loadStackHistoryBlocks(cutoffState, params.queueMessage.traceId);
     const retainedHistory = applyReadCutoff(liveHistory, cutoffState);
+    // Changes that re-key the whole prefix — a main-agent model switch, a prefix-sensitive prompt
+    // file edit — are armed to land at a compression commit: the commit hook invalidated the stable
+    // prompt snapshot before this key's fork left coreMemoryCompressionForks (checked above).
+    // Re-resolving here puts them on THIS frame, the one cold read compression already costs,
+    // instead of a second cold read at the next run. Nothing armed -> the same snapshot object.
+    const runtimePrompt = await this.resolveStableRuntimePrompt(params.queueMessage);
     const requestInput = buildLoopRequestInput({
       history: retainedHistory,
       queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
+      runtimePrompt,
       loopContinuation: [],
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary: cutoffState?.contextSummary ?? null,
@@ -13593,10 +13602,12 @@ export class AgentLoopService {
         context_session_key: key,
         previous_run_cutoff: params.appliedRunCutoff,
         applied_read_cutoff: liveCutoff,
-        retained_history_count: retainedHistory.length
+        retained_history_count: retainedHistory.length,
+        model: runtimePrompt.modelName,
+        previous_model: params.runtimePrompt.modelName
       }
     }).catch(() => {});
-    return { requestInput, appliedCutoff: liveCutoff };
+    return { requestInput, appliedCutoff: liveCutoff, runtimePrompt };
   }
 
   /**

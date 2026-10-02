@@ -127,10 +127,40 @@ function buildRuntimeVariables(queueMessage: QueueMessagePayload, modelName: str
   };
 }
 
+export type AgentPromptServiceOptions = {
+  // Effective main-agent model from the runtime control row (null = not set -> env default).
+  // Read only when the stable prompt snapshot is (re)built: at boot and at a compression commit.
+  resolveMainAgentModelName?: () => Promise<string | null>;
+};
+
 export class AgentPromptService implements AgentPromptResolver {
+  private lastResolvedModelName: string | null = null;
+
+  constructor(private readonly options: AgentPromptServiceOptions = {}) {}
+
+  private async resolveMainAgentModelName(): Promise<string> {
+    const resolver = this.options.resolveMainAgentModelName;
+    if (typeof resolver !== 'function') {
+      return agentConfig.xiaoniMainAgentModelName;
+    }
+    try {
+      const resolved = (await resolver())?.trim();
+      this.lastResolvedModelName = resolved || agentConfig.xiaoniMainAgentModelName;
+      return this.lastResolvedModelName;
+    } catch (error) {
+      // The model is part of the cache key: silently falling back to the env default after a
+      // failed read would switch models (full cold read) on a transient DB error. Keep the
+      // model this process already runs on; with none yet, fail so the snapshot is retried.
+      if (this.lastResolvedModelName) {
+        return this.lastResolvedModelName;
+      }
+      throw error;
+    }
+  }
+
   async resolveForQueueMessage(queueMessage: QueueMessagePayload): Promise<ResolvedAgentRuntimePrompt> {
     const contextVariables = {};
-    const modelName = agentConfig.xiaoniMainAgentModelName;
+    const modelName = await this.resolveMainAgentModelName();
     const runtimeVariables = buildRuntimeVariables(queueMessage, modelName);
     const systemPrompt = agentConfig.systemPrompt;
 
