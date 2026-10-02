@@ -5,6 +5,7 @@ import {
   buildCanonicalAgentTurnRequest,
   buildSubconsciousAgentForkRequest,
   extractXiaoniOsFillBlock,
+  renderXiaoniOsClosingRewriteReminder,
   renderXiaoniOsFillReminder
 } from '../services/agent-loop-service';
 
@@ -23,7 +24,7 @@ const narration = [{ type: 'message', role: 'assistant', phase: 'final_answer', 
 
 test('fill fork: cloned prefix byte-identical to the main request; tail = ONE developer item quoting her narration + fill reminder', () => {
   const base = buildCanonicalAgentTurnRequest(agentConfig.modelName, mainInput, 'group');
-  const fork = buildSubconsciousAgentForkRequest(base, 1, narration, renderXiaoniOsFillReminder());
+  const fork = buildSubconsciousAgentForkRequest(base, 1, narration, renderXiaoniOsFillReminder({ charLimit: 12, retry: null }));
   const prefix = fork.input.slice(0, base.input.length);
   assert.equal(JSON.stringify(prefix), JSON.stringify(base.input), '前缀逐字节相同');
   assert.deepEqual(fork.tools, base.tools);
@@ -40,8 +41,21 @@ test('fill fork: cloned prefix byte-identical to the main request; tail = ONE de
     assert.ok(tailText.includes(JSON.stringify(text).slice(1, -1)), '她的原话原文在引导消息里');
   }
   assert.match(tailText, /xiaoni_os/u);
-  assert.match(renderXiaoniOsFillReminder(), /(?:<|&lt;)xiaoni_os(?:>|&gt;)/u, 'system_reminder 壳会把尖括号转义');
-  assert.equal(renderXiaoniOsFillReminder(), renderXiaoniOsFillReminder(), '固定文本,无时间戳');
+  assert.match(renderXiaoniOsFillReminder({ charLimit: 12, retry: null }), /(?:<|&lt;)xiaoni_os(?:>|&gt;)/u, 'system_reminder 壳会把尖括号转义');
+});
+
+test('rewrite reminders carry the char limit; a retry appends its feedback in the same block; no placeholder leaks', () => {
+  for (const render of [renderXiaoniOsFillReminder, renderXiaoniOsClosingRewriteReminder]) {
+    const first = render({ charLimit: 37, retry: null });
+    assert.match(first, /37/u);
+    assert.doesNotMatch(first, /\{\{[A-Z_]+\}\}/u);
+    assert.equal(first, render({ charLimit: 37, retry: null }), '同样的输入同样的字节');
+    const over = render({ charLimit: 37, retry: { kind: 'over_length', chars: 80 } });
+    assert.ok(over.length > first.length);
+    assert.match(over, /80/u);
+    assert.doesNotMatch(over, /\{\{[A-Z_]+\}\}/u);
+    assert.ok(render({ charLimit: 37, retry: { kind: 'no_block' } }).length > first.length);
+  }
 });
 
 test('extractXiaoniOsFillBlock: 最后一条 assistant 文本里的块;没有块 → null', () => {

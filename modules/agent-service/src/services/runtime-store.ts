@@ -2620,7 +2620,7 @@ export class RuntimeStore {
     agentTurn?: number | null;
     sliceId?: string | null;
     originalText: string;
-    classifyVerdict: 'action' | 'idle' | 'unparsed' | 'failed';
+    classifyVerdict: 'action' | 'idle' | 'unparsed' | 'failed' | 'skipped';
     classifyRaw?: string | null;
     classifyLlmCallId?: string | null;
     classifyModel?: string | null;

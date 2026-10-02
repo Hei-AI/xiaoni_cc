@@ -95,16 +95,13 @@ import {
   isReplayableToolCall
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
-import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
 import { stripExecCommandCommentsInCanonicalResponse } from './exec-command-comments';
 import { readOpenLoopsOpenCount, readOpenLoopsOpenLines } from './xiaoni-open-loops-notify';
 import { pickRecallLeadForContinuation } from './xiaoni-recall-delivery';
 import {
   applyXiaoniOsRewriteInPlace,
   extractAssistantItemText,
-  readXiaoniOsClassifySystemPrompt,
-  readXiaoniOsPolishSystemPrompt,
-  readXiaoniOsRewriteSystemPrompt,
+  type XiaoniOsFillRequest,
   type XiaoniOsFillResult,
   runXiaoniOsRewriteLeg
 } from './xiaoni-os-rewrite';
@@ -219,8 +216,8 @@ function buildXiaoniHeadAvatarInputItem(): OpenResponseInputItem | null {
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
-// xiaoni_os 判空转 → 潜意识填充 fork(克隆主请求 + 尾部 xiaoni_os_fill_reminder.md,一次调用,不放行工具,不投 notify)
-// 替她把那段话改成「留事实 + 接一件它数出来还没做的事」。OFF = 退回改写腿自己的小请求改写(xiaoni_os_rewrite.md)。
+// 每段 xiaoni_os 都交给填充 fork 重写(克隆主请求 + 尾部重写提醒,不放行工具,不投 notify),见 xiaoni-os-rewrite.ts。
+// OFF = 不重写,原文进上下文。
 const XIAONI_OS_FILL_FORK_ENABLED = process.env.XIAONI_OS_FILL_FORK_ENABLED !== 'false';
 // 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑。被提醒后她真动了手
 // (调了算「动过」的工具)就重新数;连续这么多次提醒都只说话不动手,才结束这一轮、交给潜意识 fork。
@@ -4891,12 +4888,24 @@ function renderSelfContinuationReminder() {
 //    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的；两者共用一个开关就是为了让
 //    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙，就是因为正文里根本没写规则)。
 // 潜意识填充 fork 的尾部指令。固定文本(文件读,mtime 缓存),追加在克隆请求尾部 cache_volatile 之后 → 不进可缓存前缀。
-export function renderXiaoniOsClosingRewriteReminder(): string {
-  return formatSystemReminderBlock(readPromptSnippet('xiaoni_os_closing_rewrite_reminder.md'));
+// 字数上限 = 原文字数,直接写进提醒;重写时在同一个块里追加一句反馈。只进 fork 尾部(cache_volatile,no_persist),
+// 不碰共享前缀、不进主 run replay。
+function renderXiaoniOsRewriteReminder(fileName: string, request: XiaoniOsFillRequest): string {
+  const parts = [renderPromptSnippet(fileName, { ORIGINAL_CHARS: request.charLimit })];
+  if (request.retry?.kind === 'over_length') {
+    parts.push(renderPromptSnippet('xiaoni_os_rewrite_retry_over_length.md', { LIMIT: request.charLimit, CHARS: request.retry.chars }));
+  } else if (request.retry?.kind === 'no_block') {
+    parts.push(readPromptSnippet('xiaoni_os_rewrite_retry_no_block.md'));
+  }
+  return formatSystemReminderBlock(parts.join('\n\n'));
 }
 
-export function renderXiaoniOsFillReminder(): string {
-  return formatSystemReminderBlock(readPromptSnippet('xiaoni_os_fill_reminder.md'));
+export function renderXiaoniOsClosingRewriteReminder(request: XiaoniOsFillRequest): string {
+  return renderXiaoniOsRewriteReminder('xiaoni_os_closing_rewrite_reminder.md', request);
+}
+
+export function renderXiaoniOsFillReminder(request: XiaoniOsFillRequest): string {
+  return renderXiaoniOsRewriteReminder('xiaoni_os_fill_reminder.md', request);
 }
 
 // 填充 fork 输出里的 <xiaoni_os> 块原文(含壳,交给 normalizeXiaoniOsFillText 拆)。只看最后一条 assistant 文本。
@@ -14724,8 +14733,10 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     narrationItems: OpenResponseInputItem[];
-    // 收尾段的改写:用收尾版引导(去掉收尾意思、落到下一件事);不传 = 空转填充版。
+    // 收尾段的改写:用收尾版引导(去掉收尾意思、落到下一件事);不传 = 中途段的填充版。
     closing?: boolean;
+    // 字数上限(= 原文字数)+ 重写时的反馈。
+    request: XiaoniOsFillRequest;
   }): Promise<XiaoniOsFillResult | null> {
     const forkRunId = `xiaoni-os-fill-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
     const contextSessionKey = getGlobalPromptContextSessionKey();
@@ -14749,7 +14760,7 @@ export class AgentLoopService {
         params.baseRequest,
         1,
         params.narrationItems,
-        params.closing ? renderXiaoniOsClosingRewriteReminder() : renderXiaoniOsFillReminder()
+        params.closing ? renderXiaoniOsClosingRewriteReminder(params.request) : renderXiaoniOsFillReminder(params.request)
       );
       // 输出保险丝(与自驱动 fork 同理,顶层采样参数不在前缀里):一到三句 + 块壳,600 够;超长本来就 evict。
       forkRequest.max_output_tokens = XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS;
@@ -14883,10 +14894,9 @@ export class AgentLoopService {
     return null;
   }
 
-  // xiaoni_os 改写腿的单条编排:取正文 → runXiaoniOsRewriteLeg(分类 → 空转才改写;收尾段不分类,直接改写) → 按结果就地冻结:
-  //   kept / failed_open → 原文准入(text_admit);rewritten → 正文替换为改写版 + 准入;evicted → 不打 stamp(默认剥)。
-  // 每次结果落 xiaoni_os_rewrites(原文 / 判定 / 改写 / 去向 / 两次 llm_call_id),既是观测面也是分类器训练集。
-  // 留痕失败不挡准入决定(fail-open 记账)。
+  // xiaoni_os 改写的单条编排:取正文 → runXiaoniOsRewriteLeg(填充 fork 重写,字数 ≤ 原文,不许失败)→ 就地冻结:
+  //   rewritten → 正文替换为重写版 + 准入;kept / failed_open(fork 次次挂掉)→ 原文准入。每段 xiaoni_os 都进上下文。
+  // 每次结果落 xiaoni_os_rewrites(原文 / 重写 / 去向 / fork run id)。留痕失败不挡准入决定。
   private async runXiaoniOsRewriteForItem(params: {
     item: Record<string, unknown>;
     traceId: string;
@@ -14895,7 +14905,7 @@ export class AgentLoopService {
     sliceId: string;
     // 这段是让这一轮结束的那段话(这次输出里没有工具调用)。
     closing?: boolean;
-    // 空转时起潜意识填充 fork 所需的三样(克隆哪份请求 / 哪个 run / 哪份 runtime prompt);null = 走改写腿小请求。
+    // 起填充 fork 所需的三样(克隆哪份请求 / 哪个 run / 哪份 runtime prompt);null = 开关关着,原文准入。
     fillFork?: {
       baseRequest: CanonicalAgentTurnRequest;
       queueMessage: QueueMessageRecord['payload'];
@@ -14907,40 +14917,25 @@ export class AgentLoopService {
       return;
     }
     const fillFork = params.fillFork;
-    const fetchFill = fillFork
-      ? () => this.runXiaoniOsFillFork({
+    if (!fillFork) {
+      // 填充 fork 关着(XIAONI_OS_FILL_FORK_ENABLED=false):不改写,原文进上下文。
+      stampTextAdmitInPlace([params.item as unknown as OpenResponseInputItem], true);
+      return;
+    }
+    const result = await runXiaoniOsRewriteLeg({
+      text,
+      fetchFill: (request) => this.runXiaoniOsFillFork({
         baseRequest: fillFork.baseRequest,
         queueMessage: fillFork.queueMessage,
         runtimePrompt: fillFork.runtimePrompt,
         narrationItems: this.currentTurnOriginalNarrationItems,
-        closing: params.closing === true
+        closing: params.closing === true,
+        request
       })
-      : undefined;
-    // 落点去重用的历史;读不到就不带(fail-open,不影响改写)。
-    let recentRewrittenTexts: string[] = [];
-    const lister = (this.store as RuntimeStore & {
-      listRecentXiaoniOsRewrittenTexts?: RuntimeStore['listRecentXiaoniOsRewrittenTexts'];
-    }).listRecentXiaoniOsRewrittenTexts;
-    if (typeof lister === 'function') {
-      try {
-        recentRewrittenTexts = await lister.call(this.store, 3);
-      } catch {
-        recentRewrittenTexts = [];
-      }
-    }
-    const result = await runXiaoniOsRewriteLeg({
-      text,
-      callLlm: callRecallLlmDetailed,
-      classifySystemPrompt: readXiaoniOsClassifySystemPrompt(),
-      rewriteSystemPrompt: readXiaoniOsRewriteSystemPrompt(),
-      polishSystemPrompt: readXiaoniOsPolishSystemPrompt(),
-      recentRewrittenTexts,
-      fetchFill,
-      closing: params.closing === true
     });
-    if ((result.outcome === 'rewritten' || result.outcome === 'polished') && result.rewrittenText) {
+    if (result.outcome === 'rewritten' && result.rewrittenText) {
       applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);
-    } else if (result.outcome === 'kept' || result.outcome === 'failed_open') {
+    } else {
       stampTextAdmitInPlace([params.item as unknown as OpenResponseInputItem], true);
     }
     moduleLogger.info('xiaoni_os_rewrite', {
@@ -14948,8 +14943,8 @@ export class AgentLoopService {
       runId: params.runId,
       agentTurn: params.agentTurn,
       outcome: result.outcome,
-      classifyVerdict: result.classifyVerdict,
-      rewriteStage: result.rewriteStage,
+      closing: params.closing === true,
+      truncated: result.truncated,
       fillForkRunId: result.fillForkRunId,
       rewriteRetries: result.rewriteRetries,
       originalChars: text.length,
@@ -14970,14 +14965,15 @@ export class AgentLoopService {
         agentTurn: params.agentTurn,
         sliceId: params.sliceId,
         originalText: text,
-        classifyVerdict: result.classifyVerdict,
-        classifyRaw: result.classifyRaw,
-        classifyLlmCallId: result.classifyLlmCallId,
-        classifyModel: result.classifyModel,
+        // 分类已删除;列是 NOT NULL,记 'skipped'。
+        classifyVerdict: 'skipped',
+        classifyRaw: null,
+        classifyLlmCallId: null,
+        classifyModel: null,
         rewrittenText: result.rewrittenText,
         rewriteLlmCallId: result.rewriteLlmCallId,
         rewriteModel: result.rewriteModel,
-        rewriteStage: result.rewriteStage,
+        rewriteStage: 'fill',
         rewriteRetries: result.rewriteRetries,
         outcome: result.outcome,
         errorMessage: result.errorMessage,
