@@ -33,6 +33,7 @@ import {
   listAgentTasks,
   updateAgentRuntimeControl,
   setAgentEnergyPolicy,
+  requestMainAgentModelSwitch,
   recordAgentLifeEvent,
   getActiveAgentRecoverySession,
   finalizeAgentRecoverySession,
@@ -2077,6 +2078,86 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(502).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to trigger Xiaoni cache heartbeat',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Main-agent model switch. The model id is part of the prompt-cache key, so switching is a full
+  // cold read of her whole context. This route only records the target as PENDING and starts a
+  // core-memory compression; agent-service makes the pending model effective at that
+  // compression's commit, so the new model's first request is the STW frame over the small
+  // compressed context (the cold read compression costs anyway) — never a cold read of the full
+  // window. If there is nothing to compress the switch stays pending until the next compression.
+  const MAIN_AGENT_MODEL_OPTIONS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'LongCat-2.5-Preview'];
+
+  router.get('/agent-runtime/main-agent-model', async (_req, res) => {
+    try {
+      const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' });
+      res.json({
+        success: true,
+        data: {
+          mainAgentModel: control.mainAgentModel,
+          mainAgentModelPending: control.mainAgentModelPending,
+          mainAgentModelPendingAt: control.mainAgentModelPendingAt,
+          mainAgentModelSwitchedAt: control.mainAgentModelSwitchedAt,
+          options: MAIN_AGENT_MODEL_OPTIONS
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read Xiaoni main agent model',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.post('/agent-runtime/main-agent-model', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body as Record<string, unknown>
+        : {};
+      const model = body.model === null ? null : trimmedString(body.model);
+      if (model !== null && !MAIN_AGENT_MODEL_OPTIONS.includes(model)) {
+        res.status(400).json({
+          success: false,
+          error: `model must be one of ${MAIN_AGENT_MODEL_OPTIONS.join(', ')} (or null to cancel a pending switch)`,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      const control = await requestMainAgentModelSwitch({ identityKey: 'xiaoni', model });
+      let compression: Record<string, unknown> | null = null;
+      if (model !== null && body.compressNow !== false) {
+        const response = await axios.post(`${AGENT_SERVICE_URL}/api/internal/runtime/core-memory-compression/trigger`, {}, {
+          timeout: AGENT_REQUEST_TIMEOUT_MS,
+          validateStatus: () => true
+        });
+        const payload = response.data && typeof response.data === 'object'
+          ? response.data as Record<string, unknown>
+          : {};
+        compression = response.status >= 200 && response.status < 300 && payload.success !== false
+          ? (payload.result && typeof payload.result === 'object' ? payload.result as Record<string, unknown> : payload)
+          : { triggered: false, status: 'trigger_failed', error: typeof payload.error === 'string' ? payload.error : `HTTP ${response.status}` };
+      }
+      res.json({
+        success: true,
+        data: {
+          mainAgentModel: control.mainAgentModel,
+          mainAgentModelPending: control.mainAgentModelPending,
+          mainAgentModelPendingAt: control.mainAgentModelPendingAt,
+          mainAgentModelSwitchedAt: control.mainAgentModelSwitchedAt,
+          options: MAIN_AGENT_MODEL_OPTIONS,
+          compression
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to switch Xiaoni main agent model',
         timestamp: new Date().toISOString()
       });
     }
