@@ -2251,6 +2251,70 @@ test('OS fill review: retaining original text is completed, not a failed rewrite
   assert.doesNotMatch(run.events[1].body, /失败/u);
 });
 
+test('OS closing rewrite: closing-rule classify is not a request; fill leg reads tokens from its fork slice', async () => {
+  const persistence = createPersistence({
+    xiaoniOsRewriteRows: [xiaoniOsRewriteRow({
+      classify_llm_call_id: null, classify_model: 'closing-rule', rewrite_stage: 'fill',
+      rewrite_llm_call_id: 'llm_fill_1', rewrite_model: 'claude-sonnet-5-5'
+    })],
+    subconsciousForkSlices: [{
+      id: 1, llm_call_id: 'llm_fill_1', model_name: 'claude-sonnet-5-5',
+      token_usage: { input_tokens: 381224, cached_input_tokens: 380349, output_tokens: 373 }
+    }]
+  });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const [classify, fill] = stream.xiaoniOsRewriteTimeline.runs[0].events;
+  assert.equal(classify.metadata.ruleOnly, true);
+  assert.equal(classify.metadata.modelName, null);
+  assert.equal(classify.metadata.inputTokens, null);
+  assert.match(classify.title, /收尾规则/u);
+  assert.equal(fill.metadata.stage, 'fill');
+  assert.equal(fill.metadata.inputTokens, 381224);
+  assert.equal(fill.metadata.cachedInputTokens, 380349);
+  assert.equal(fill.metadata.outputTokens, 373);
+  assert.equal(fill.traceTarget?.llmRequestSliceId ?? null, null, '原始报文挂在填充 fork 那条 run 上,这里不造指向 provider_usage_events 的链接');
+});
+
+test('OS fill fork run is labeled as the fill fork, not the self-driven agent', async () => {
+  const persistence = createPersistence({
+    subconsciousForkRuns: [{
+      id: '31',
+      fork_run_id: 'xiaoni-os-fill-fork:run_941_b16d0ea0:562fefc3',
+      identity_key: 'xiaoni',
+      context_session_key: 'xiaoni:global',
+      status: 'completed',
+      trace_id: 'runtrace_941',
+      run_id: 'run_941_b16d0ea0',
+      metadata: { trigger: 'xiaoni_os_closing_rewrite' },
+      started_at: '2026-08-27T12:28:02.000Z',
+      completed_at: '2026-08-27T12:28:03.000Z',
+      created_at: '2026-08-27T12:28:02.000Z',
+      updated_at: '2026-08-27T12:28:03.000Z'
+    }],
+    subconsciousForkSlices: [{
+      id: 1,
+      slice_id: 'llm_fill_1',
+      llm_call_id: 'llm_fill_1',
+      fork_run_id: 'xiaoni-os-fill-fork:run_941_b16d0ea0:562fefc3',
+      identity_key: 'xiaoni',
+      trace_id: 'runtrace_941',
+      run_id: 'run_941_b16d0ea0',
+      agent_turn: 1,
+      status: 'completed',
+      model_name: 'claude-sonnet-5-5',
+      created_at: '2026-08-27T12:28:02.000Z',
+      completed_at: '2026-08-27T12:28:03.000Z',
+      token_usage: { input_tokens: 10, output_tokens: 2 },
+      output_items: []
+    }]
+  });
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const run = stream.subconsciousForkTimeline.runs.find((r) => r.forkRunId === 'xiaoni-os-fill-fork:run_941_b16d0ea0:562fefc3');
+  assert.ok(run);
+  assert.equal(run.metadata.forkKind, 'xiaoni_os_fill');
+  assert.equal(run.title, 'xiaoni_os 填充 Fork');
+});
+
 test('OS fill failure: original text admission is not mislabeled as a classification failure', async () => {
   const persistence = createPersistence({ xiaoniOsRewriteRows: [xiaoniOsRewriteRow({
     outcome: 'failed_open', classify_verdict: 'idle', rewrite_stage: 'fill', rewritten_text: null,

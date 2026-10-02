@@ -1444,25 +1444,34 @@ function summarizeSubconsciousForkToolExecution(row) {
   };
 }
 
+const XIAONI_OS_FILL_FORK_RUN_ID_PREFIX = 'xiaoni-os-fill-fork:';
+
+function isXiaoniOsFillForkRunId(forkRunId) {
+  return typeof forkRunId === 'string' && forkRunId.startsWith(XIAONI_OS_FILL_FORK_RUN_ID_PREFIX);
+}
+
 function summarizeSubconsciousForkRun(row, events) {
   const forkRunId = firstString(row.forkRunId, row.fork_run_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
   const base = summarizeCompressionForkRun(row, events);
   const artifact = normalizeJsonObject(row.artifact, {});
   const metadata = normalizeJsonObject(row.metadata, {});
+  // xiaoni_os 收尾改写的填充 fork 也落在 subconscious_agent_fork_slices(同一套克隆主请求的机制),
+  // 但它不是自驱动:不产 plan、不写 Notify Bucket。按 fork_run_id 前缀单独归类,别标成「自驱动 Agent」。
+  const isXiaoniOsFill = isXiaoniOsFillForkRunId(forkRunId);
   return {
     ...base,
     id: `subconscious-fork:${forkRunId}`,
     forkRunId,
     source: 'subconscious_agent_fork',
     kind: 'subconscious_agent_fork',
-    title: '潜意识 Agent',
+    title: isXiaoniOsFill ? 'xiaoni_os 填充 Fork' : '潜意识 Agent',
     body: truncateText(firstString(row.error_message, row.errorMessage, row.summary_text, row.summaryText, artifact.summary_text), 520),
     readCutoffAfterStackIndex: null,
     previousReadCutoffAfterStackIndex: null,
     events: normalizeValue([...events].sort(compareTimelineEvents)),
     metadata: normalizeValue({
       forkRunId,
-      forkKind: 'subconscious_agent',
+      forkKind: isXiaoniOsFill ? 'xiaoni_os_fill' : 'subconscious_agent',
       notifyQueueMessageId: row.notifyQueueMessageId || row.notify_queue_message_id || artifact.notify_queue_message_id || null,
       contextSessionKey: row.contextSessionKey || row.context_session_key || null,
       artifact,
@@ -2180,6 +2189,7 @@ const XIAONI_OS_REWRITE_LEG = {
   label: 'xiaoni_os 监督者',
   idPrefix: 'xiaoni-os-rewrite'
 };
+const XIAONI_OS_CLOSING_RULE_MODEL = 'closing-rule';
 const XIAONI_OS_REWRITE_OUTCOME_LABELS = {
   kept: '有事 → 原文准入',
   polished: '有事但夹填充句 → 润色后准入',
@@ -2224,11 +2234,14 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
   const rewritten = String(row.rewritten_text ?? row.rewrittenText ?? '');
   const errorMessage = firstString(row.error_message, row.errorMessage);
   const isClassify = stage === 'classify';
+  // 收尾段不分类:classify_model 记成 'closing-rule',没有 llm_call_id —— 这一步是规则,不是一次请求。
+  const ruleOnly = isClassify && !firstString(row.classify_llm_call_id, row.classifyLlmCallId)
+    && firstString(row.classify_model, row.classifyModel) === XIAONI_OS_CLOSING_RULE_MODEL;
   const llmCallId = isClassify
     ? firstString(row.classify_llm_call_id, row.classifyLlmCallId)
     : firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId);
   const tokenSummary = usage ? tokenSummaryFromProviderUsageEvent(usage) : null;
-  const modelName = (usage ? firstString(usage.model_name, usage.modelName) : null)
+  const modelName = ruleOnly ? null : (usage ? firstString(usage.model_name, usage.modelName) : null)
     || (isClassify ? firstString(row.classify_model, row.classifyModel) : firstString(row.rewrite_model, row.rewriteModel));
   const usageEventId = usage ? firstString(usage.event_id, usage.eventId) : null;
   // 事件 id 对齐 usage 行的 event_id(`codex-provider:llm_…`)→ 白拿 raw-trace 路由(同召回精排)。
@@ -2255,7 +2268,7 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
     id: eventId,
     source: leg.eventSource,
     kind: leg.eventKind,
-    title: isClassify ? 'xiaoni_os 分类' : `xiaoni_os ${stageWord}`,
+    title: ruleOnly ? 'xiaoni_os 分类(收尾规则,无请求)' : isClassify ? 'xiaoni_os 分类' : `xiaoni_os ${stageWord}`,
     body: truncateText([summary, headline].filter(Boolean).join(' · '), 420),
     status: stageFailed ? (verdict === 'unparsed' ? 'unparsed' : 'failed') : 'completed',
     actor: 'system',
@@ -2282,6 +2295,7 @@ function summarizeXiaoniOsRewriteLlmEvent(row, stage, usage, anchorSeq) {
       // 交 stampRecallLlmStreamOrderSeq 按墙钟插回。
       orderSeq: typeof anchorSeq === 'number' ? anchorSeq - (isClassify ? 0.5 : 0.4) : null,
       stage,
+      ruleOnly,
       xiaoniOsRewriteId: rowId,
       agentTurn: streamNumberOrNull(row.agent_turn ?? row.agentTurn),
       outcome,
@@ -2362,6 +2376,32 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
   };
 }
 
+async function loadXiaoniOsFillForkUsageByCallId(sql, callIds) {
+  const ids = Array.from(new Set((callIds || []).filter(Boolean).map(String)));
+  if (!sql || typeof sql.query !== 'function' || ids.length === 0) {
+    return new Map();
+  }
+  // 只取计量。原始报文跟着同一行 fork slice,已经挂在「xiaoni_os 填充 Fork」那条 run 上;这里不给 event_id /
+  // raw-trace 标记,免得监督者这一行生成一个指向 provider_usage_events 的 raw-trace 链接(那里查不到)。
+  try {
+    const rows = await sql.query(`
+      SELECT llm_call_id, model_name, model_provider, wire_provider_format, processing_time_ms, token_usage
+      FROM subconscious_agent_fork_slices
+      WHERE llm_call_id IN (${ids.map(() => '?').join(', ')})
+    `, ids);
+    const byCallId = new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const callId = firstString(row.llm_call_id, row.llmCallId);
+      if (callId && !byCallId.has(callId)) {
+        byCallId.set(callId, row);
+      }
+    }
+    return byCallId;
+  } catch {
+    return new Map();
+  }
+}
+
 async function loadXiaoniOsRewriteTimeline(sql, {
   identityKey,
   timeWindow,
@@ -2387,6 +2427,15 @@ async function loadXiaoniOsRewriteTimeline(sql, {
       firstString(row.classify_llm_call_id, row.classifyLlmCallId),
       firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId)
     ]));
+    // 填充腿不走 /api/internal/llm/debug,是克隆主请求的 fork,计量落在 subconscious_agent_fork_slices。
+    const fillUsageByCallId = await loadXiaoniOsFillForkUsageByCallId(sql, safeRows
+      .filter((row) => firstString(row.rewrite_stage, row.rewriteStage) === 'fill')
+      .map((row) => firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId)));
+    for (const [callId, usage] of fillUsageByCallId) {
+      if (!usageByCallId.has(callId)) {
+        usageByCallId.set(callId, usage);
+      }
+    }
     const anchorSeqMap = await loadPsychAssessmentAnchorSeqMap(sql, safeRows);
     return {
       runs: safeRows.map((row) => {
