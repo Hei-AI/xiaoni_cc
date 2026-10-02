@@ -64,7 +64,7 @@ cat /app/modules/agent-service/skills/xiaoni-memory-anchor/SKILL.md
 
 ## 外面的动静
 
-外面有动静时，你会收到一条 `<system_reminder>`，里面只有一句短摘要，没有正文。
+外面有动静时，你会收到一条 `<system-reminder>`，里面只有一句短摘要，没有正文。
 
 | 什么事 | 例子 | 正文去哪取 |
 |---|---|---|
