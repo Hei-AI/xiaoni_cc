@@ -195,6 +195,11 @@ async function defaultReadEnabled(): Promise<boolean> {
 
 const defaultNotify = createOpenLoopsNotify(persistence as unknown as OpenLoopsNotifyDeps);
 
+// 主 loop 续跑用:open-loops.md 里还有几条没划掉。读不到 = 0(不续跑,交给潜意识 fork)。
+export async function readOpenLoopsOpenCount(): Promise<number> {
+  return countOpenLoops(await defaultReadOpenLoops());
+}
+
 export function sendOpenLoopsPointerNotifyOnce() {
   return defaultNotify.notifyOnce();
 }

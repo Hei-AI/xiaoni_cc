@@ -558,7 +558,49 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     return delivered > 0 ? 'delivered' : 'none';
   }
 
-  return { deliverForEvent };
+  // 主 loop 续跑用:她这一轮以文字收尾、open-loops 又是空的时候,拿她刚写的话当锚点,让精排从联想扫描的
+  // 候选里挑一条值得想起的旧事,返回钩子正文(不投递、不进通知桶)。不看投递开关——这里不是往桶里塞东西,
+  // 只是给续跑找一个方向。精排不在场或说「都不值得」→ null(交给潜意识 fork)。同一进程里给过的不再给。
+  async function pickLeadForAnchor(anchorText: string): Promise<string | null> {
+    if (!judge || !anchorText.trim()) {
+      return null;
+    }
+    if (await isAsleep().catch(() => false)) {
+      return null;
+    }
+    const now = clock();
+    const todaysKeys = await deps.listRecentAgentQueueDedupeKeys({
+      prefix: DEDUPE_PREFIX,
+      since: startOfEast8Day(now),
+      limit: 500
+    }, databaseConfig).catch(() => [] as string[]);
+    const seen = new Set([...(Array.isArray(todaysKeys) ? todaysKeys : []), ...offeredForContinuation]);
+    const associationRows = await deps.listRecallShadowLog({
+      identityKey: IDENTITY_KEY,
+      queryRef: 'association_scan',
+      limit: lookback,
+      onlySurfaced: true
+    }, databaseConfig).catch(() => []) as ShadowRow[];
+    const unseen = (Array.isArray(associationRows) ? associationRows : [])
+      .flatMap((row) => leadsFromRow('association', row))
+      .filter((lead) => !seen.has(dedupeKeyFor(lead)));
+    if (unseen.length === 0) {
+      return null;
+    }
+    const verdict = await runJudge(unseen, anchorText).catch(() => null);
+    if (!verdict || !verdict.parsed || verdict.picks.length === 0) {
+      return null;
+    }
+    const pick = verdict.picks.find((p) => p.hook && unseen.some((lead) => dedupeKeyFor(lead) === p.id));
+    if (!pick) {
+      return null;
+    }
+    offeredForContinuation.add(pick.id);
+    return pick.hook;
+  }
+  const offeredForContinuation = new Set<string>();
+
+  return { deliverForEvent, pickLeadForAnchor };
 }
 
 // 她此刻睡着吗:agent_recovery_sessions 有 active 行。5 秒缓存 —— 一次落地会点火 ingest + 投递两处,
@@ -609,6 +651,10 @@ const defaultDelivery = createPassiveRecallDelivery(
 // 事件驱动的投递入口:召回 hook 在 runShadowRecall 写完 shadow 行后立刻调用。
 export function deliverPassiveRecallForEvent(event: RecallDeliveryEvent): Promise<RecallDeliveryOutcome> {
   return defaultDelivery.deliverForEvent(event);
+}
+
+export function pickRecallLeadForContinuation(anchorText: string): Promise<string | null> {
+  return defaultDelivery.pickLeadForAnchor(anchorText);
 }
 
 // ── 精排 system 预热 ────────────────────────────────────────────────────────

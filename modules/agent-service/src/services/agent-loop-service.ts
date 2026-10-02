@@ -97,6 +97,8 @@ import {
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
 import { stripExecCommandCommentsInCanonicalResponse } from './exec-command-comments';
+import { readOpenLoopsOpenCount } from './xiaoni-open-loops-notify';
+import { pickRecallLeadForContinuation } from './xiaoni-recall-delivery';
 import {
   applyXiaoniOsRewriteInPlace,
   extractAssistantItemText,
@@ -220,6 +222,9 @@ const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
 // xiaoni_os 判空转 → 潜意识填充 fork(克隆主请求 + 尾部 xiaoni_os_fill_reminder.md,一次调用,不放行工具,不投 notify)
 // 替她把那段话改成「留事实 + 接一件它数出来还没做的事」。OFF = 退回改写腿自己的小请求改写(xiaoni_os_rewrite.md)。
 const XIAONI_OS_FILL_FORK_ENABLED = process.env.XIAONI_OS_FILL_FORK_ENABLED !== 'false';
+// 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑,最多这么多次;
+// 超过就照旧结束这一轮、交给潜意识 fork。官方无人值守 agent 指南:同一件事自动续 2~3 次后停。
+const LOOP_CONTINUATION_MAX = Math.max(0, Number.parseInt(process.env.XIAONI_LOOP_CONTINUATION_MAX || '3', 10) || 0);
 const XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS = 600;
 // 同一份 seed 最多重试这么多次。到顶就丢弃,退回「等下一个主 run 或 clock_ping(≤2h)」。
 // 5 次 × 60s ≈ 5 分钟的自愈窗口,再往后大概率不是瞬时故障,不值得每分钟烧一个 ~490K 的 fork 请求。
@@ -8990,6 +8995,8 @@ export class AgentLoopService {
       let runCalledAnyTool = false;
       // 这一 run 里 recover_energy 被拒的次数(见 REST_REJECTED_FRAME_YIELD_AFTER)。
       let runRestRejectedCount = 0;
+      // 这个 run 里已经续跑了几次(见 LOOP_CONTINUATION_MAX)。
+      let loopContinuationCount = 0;
 
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
@@ -9636,6 +9643,46 @@ export class AgentLoopService {
               visibleDeliveryCommitted: true,
               source: 'model:no_tool_after_visible_delivery'
             });
+          }
+        }
+        // 续跑:这一轮以文字收尾(没有工具调用)。open-loops 里还有没做完的事 → 追加一条「还有没做完的事」;
+        // 空的 → 精排从联想里挑一条旧事当方向。都没有,或已续满 → 照旧结束,交给潜意识 fork。
+        // 追加的 user 条目落 stack(下一 run 逐字节 replay),和正常一轮往下长一样,不碰已缓存前缀。
+        if (!leaseRelease && actionPlan.hasFinalAnswer && !hasToolCall && loopContinuationCount < LOOP_CONTINUATION_MAX) {
+          const anchorText = (outputItems as OpenResponseInputItem[])
+            .filter(isAssistantTextOutputReplayItem)
+            .map((item) => flattenMessageContent((item as Extract<OpenResponseInputItem, { type: 'message' }>).content))
+            .join('\n')
+            .trim();
+          const nudge = await this.buildLoopContinuationNudge(anchorText).catch(() => null);
+          if (nudge) {
+            loopContinuationCount += 1;
+            const nudgeItem = buildUserSceneInputItem([nudge.text]);
+            await this.appendAgentStackItemsSafe({
+              traceId: payload.traceId,
+              runId: queueMessage.id,
+              sourceType: 'agent_runtime',
+              sourceId: queueMessage.id,
+              items: [
+                buildLoopContinuationStackItem({
+                  queueMessage: payload,
+                  runId: queueMessage.id,
+                  turn,
+                  kind: nudge.kind,
+                  inputItem: nudgeItem
+                }) as Record<string, unknown>
+              ]
+            });
+            appendLoopInputItems([nudgeItem]);
+            await this.store.logTimelineEvent({
+              traceId: payload.traceId,
+              eventType: 'decision',
+              eventName: 'loop_continuation',
+              eventPhase: null,
+              metadata: { run_id: queueMessage.id, turn, kind: nudge.kind, count: loopContinuationCount }
+            }).catch(() => {});
+            await appendAvailableQueueNotifyToLoop();
+            continue;
           }
         }
         if (!leaseRelease && actionPlan.hasFinalAnswer) {
@@ -14716,6 +14763,18 @@ export class AgentLoopService {
     }
   }
 
+  // 续跑的提示:open-loops 有没划掉的 → 一句「还有没做完的事」(不点名,她自己去看);空的 → 精排挑一条联想。
+  private async buildLoopContinuationNudge(anchorText: string): Promise<{ kind: 'open_loops' | 'recall'; text: string } | null> {
+    if ((await readOpenLoopsOpenCount()) > 0) {
+      return { kind: 'open_loops', text: readPromptSnippet('loop_continuation_open_loops.md').trim() };
+    }
+    const hook = await pickRecallLeadForContinuation(anchorText);
+    if (hook) {
+      return { kind: 'recall', text: renderPromptSnippet('loop_continuation_recall.md', { HOOK: hook }).trim() };
+    }
+    return null;
+  }
+
   // xiaoni_os 改写腿的单条编排:取正文 → runXiaoniOsRewriteLeg(分类 → 空转才改写;收尾段不分类,直接改写) → 按结果就地冻结:
   //   kept / failed_open → 原文准入(text_admit);rewritten → 正文替换为改写版 + 准入;evicted → 不打 stamp(默认剥)。
   // 每次结果落 xiaoni_os_rewrites(原文 / 判定 / 改写 / 去向 / 两次 llm_call_id),既是观测面也是分类器训练集。
@@ -19538,6 +19597,37 @@ function buildRuntimeInputStackItem(params: {
       queue_source: params.queueMessage.source,
       prompt_facing_runtime_reminder: isPromptFacingRuntimeReminderPayload(params.queueMessage)
     }
+  };
+}
+
+function buildLoopContinuationStackItem(params: {
+  queueMessage: QueueMessageRecord['payload'];
+  runId: string;
+  turn: number;
+  kind: 'open_loops' | 'recall';
+  inputItem: OpenResponseInputItem;
+}) {
+  return {
+    eventId: `stack:${params.runId || params.queueMessage.traceId}:loop-continuation:${params.turn}`,
+    itemKind: 'runtime_input',
+    role: 'user',
+    phase: null,
+    content: {
+      source: 'loop_continuation',
+      reason: params.kind,
+      trace_id: params.queueMessage.traceId,
+      run_id: params.runId,
+      session_key: params.queueMessage.sessionKey,
+      chat_type: params.queueMessage.chatType,
+      peer_id: params.queueMessage.peerId,
+      peer_name: params.queueMessage.peerName || null,
+      input_items: [params.inputItem]
+    },
+    visibility: 'model_visible',
+    sourceType: 'agent_runtime',
+    sourceId: params.runId || null,
+    traceId: params.queueMessage.traceId,
+    runId: params.runId
   };
 }
 
