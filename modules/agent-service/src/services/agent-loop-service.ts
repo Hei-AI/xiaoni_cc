@@ -983,6 +983,33 @@ export function stampTextAdmitInPlace(items: OpenResponseInputItem[], admit: boo
   }
 }
 
+// 收尾那段话换个形态。一轮以一段不带工具调用的文字结束时，这段 xiaoni_os 原本作为「她最后一条
+// assistant 回复」进上下文——下一次她看到的正是「我说完这段就停了」。内容要留，这个形态要去掉:
+//   - 被准入的文字原样做成一条 user 侧的笔记(xiaoni_os_closing_note.md)，插在收尾消息前面;
+//   - 收尾的 assistant 消息撤掉准入 → 按既有文本闸从上下文里剥掉，但仍留在原始 stack 里，
+//     子 fork 的触发判定(读原始历史末尾是不是 final_answer)和记录都不受影响。
+// 生产期就地改同一个数组(stack ledger 与 live requestInput 共用 refs)，这段文字此前没作为输入发过，
+// 所以不动任何已缓存前缀，下一 run 的 replay 逐字节重建同一形态。
+export function convertClosingNarrationToNoteInPlace(items: OpenResponseInputItem[]): void {
+  if (items.some((item) => item?.type === 'function_call')) {
+    return;
+  }
+  const index = items.findIndex((item) => isAssistantTextAdmittedToReplay(item)
+    && (item as { phase?: unknown }).phase === 'final_answer');
+  if (index < 0) {
+    return;
+  }
+  const closing = items[index] as Extract<OpenResponseInputItem, { type: 'message' }>;
+  const text = flattenMessageContent(closing.content).trim();
+  if (!text) {
+    return;
+  }
+  delete (closing as Record<string, unknown>).text_admit;
+  items.splice(index, 0, buildUserSceneInputItem([
+    renderPromptSnippet('xiaoni_os_closing_note.md', { TEXT: text }).trim()
+  ]));
+}
+
 // 出线口 scrub：被准入的文本本体保留，但内部 flag text_admit 绝不进 wire。纯 + 幂等 + 确定：带 flag 的
 // item 返回删了 flag 的副本；不带 flag 的 item 原 ref 返回(无 stamp 的 build 与改动前逐字节一致)。
 export function stripTextAdmitFlagForWire(item: OpenResponseInputItem): OpenResponseInputItem {
@@ -9180,6 +9207,8 @@ export class AgentLoopService {
             });
           }
         }
+        // 这一轮若以一段文字收尾：内容留下，「说完就停」的形态去掉(见 convertClosingNarrationToNoteInPlace)。
+        convertClosingNarrationToNoteInPlace(outputItems as OpenResponseInputItem[]);
         const outputStackRows = await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,

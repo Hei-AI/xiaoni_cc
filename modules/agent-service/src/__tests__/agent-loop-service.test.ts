@@ -1772,9 +1772,9 @@ test('buildInitialInput renders stable batch context without exposing runtime id
     systemPrompt: '你是小腻主AGENT'
   }));
 
-  const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const currentPrompt = getMessageContent(currentInputItem);
-  assert.equal((currentInputItem as any)?.role, 'developer');
+  assert.equal((currentInputItem as any)?.role, 'user');
   assert.doesNotMatch(currentPrompt, /Trace:/);
   assert.doesNotMatch(currentPrompt, /RunId:/);
   assert.doesNotMatch(currentPrompt, /BatchId:/);
@@ -2473,7 +2473,7 @@ test('buildInitialInput does not expose reply context before QQ is opened', () =
   };
 
   const loopInput = buildInitialInput([], payload);
-  const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const currentPrompt = getMessageContent(currentInputItem);
 
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
