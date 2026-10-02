@@ -268,3 +268,14 @@ test('tool results followed by a reminder: the reminder becomes system, tool_res
   ]);
   assert.deepEqual(roles, ['user:u1', 'assistant:tool_use', 'user:tool_result', 'system:notify', 'assistant:done']);
 });
+
+test('a request carrying its own effort (main agent + fork clones) overrides the per-model default', () => {
+  withEnv({ ANTHROPIC_EFFORT: 'low', ANTHROPIC_EFFORT_BY_MODEL: undefined }, () => {
+    const main = translateCanonicalToMessages(req('claude-sonnet-5-5', { tool_choice: 'auto', reasoning: { effort: 'high' } } as any)).body;
+    assert.deepEqual(main.output_config, { effort: 'high' });
+    const sideLeg = translateCanonicalToMessages(req('claude-sonnet-5-5', { tool_choice: 'auto' })).body;
+    assert.deepEqual(sideLeg.output_config, { effort: 'low' });
+    const bogus = translateCanonicalToMessages(req('claude-sonnet-5-5', { tool_choice: 'auto', reasoning: { effort: 'turbo' } } as any)).body;
+    assert.deepEqual(bogus.output_config, { effort: 'low' });
+  });
+});

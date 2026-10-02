@@ -1016,7 +1016,15 @@ export function translateCanonicalToMessages(
 
   if (alwaysThinking) {
     body.thinking = { type: 'adaptive', display: claudeThinkingDisplay() };
-    body.output_config = { effort: claudeEffortForModel(model) };
+    // A request may carry its own effort (canonical reasoning.effort): the main agent sets one,
+    // and every fork clones the main request, so they all send the same value and keep sharing
+    // the cache. Requests without it (independent side legs) use the per-model default.
+    const requestedEffort = (request as { reasoning?: { effort?: unknown } }).reasoning?.effort;
+    body.output_config = {
+      effort: typeof requestedEffort === 'string' && CLAUDE_EFFORTS.has(requestedEffort)
+        ? requestedEffort as ClaudeEffort
+        : claudeEffortForModel(model)
+    };
   } else if (thinkingEnabled) {
     body.thinking = { type: 'adaptive' };
   } else if (dialect === 'longcat') {
