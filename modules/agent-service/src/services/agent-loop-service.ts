@@ -2083,7 +2083,7 @@ const TODO_TOOL = {
 - done:划掉一件。match 写那条里的几个字,或者 #标签。做完了就划;不做了也划,带上 give_up。note 可以顺手记一句怎么完的。
 - list:看现在还开着的。
 
-想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一轮以文字收尾时,这里还有没划掉的,会有人提醒你一句。`,
+想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一件事一条:读到哪、做到哪一步写进日记,不用为了更新进度划掉再记。这个文件只用 todo 改。一轮以文字收尾时,这里还有没划掉的,会有人提醒你一句。`,
     parameters: {
       type: 'object',
       properties: {
@@ -9661,6 +9661,29 @@ export class AgentLoopService {
               });
             }
           }
+        }
+        // 这一批里有 exec_command 绕过 todo 直接写 open-loops.md:命令照常执行、结果原样返回,
+        // 这批工具结果之后另起一条 developer(wire 上是 system)提醒,下次用 todo。先落 stack 再进请求。
+        if (toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.execCommand && isDirectOpenLoopsWrite(item.toolCall.args?.cmd))) {
+          const reminderItem = buildDeveloperInputItem([
+            formatSystemReminderBlock(readPromptSnippet('exec_command_open_loops_direct_write.md'))
+          ]);
+          await this.appendAgentStackItemsSafe({
+            traceId: payload.traceId,
+            runId: queueMessage.id,
+            sourceType: 'agent_runtime',
+            sourceId: queueMessage.id,
+            items: [
+              buildRuntimeReminderStackItem({
+                queueMessage: payload,
+                runId: queueMessage.id,
+                turn,
+                source: 'open_loops_direct_write',
+                inputItem: reminderItem
+              }) as Record<string, unknown>
+            ]
+          });
+          appendLoopInputItems([reminderItem]);
         }
         if (!leaseRelease && runRestRejectedCount >= REST_REJECTED_FRAME_YIELD_AFTER) {
           leaseRelease = buildLeaseReleaseRecord({
@@ -19673,6 +19696,36 @@ function buildRuntimeInputStackItem(params: {
   };
 }
 
+function buildRuntimeReminderStackItem(params: {
+  queueMessage: QueueMessageRecord['payload'];
+  runId: string;
+  turn: number;
+  source: string;
+  inputItem: OpenResponseInputItem;
+}) {
+  return {
+    eventId: `stack:${params.runId || params.queueMessage.traceId}:${params.source}:${params.turn}`,
+    itemKind: 'runtime_input',
+    role: isOpenResponseMessageInputItem(params.inputItem) ? params.inputItem.role : 'developer',
+    phase: null,
+    content: {
+      source: params.source,
+      trace_id: params.queueMessage.traceId,
+      run_id: params.runId,
+      session_key: params.queueMessage.sessionKey,
+      chat_type: params.queueMessage.chatType,
+      peer_id: params.queueMessage.peerId,
+      peer_name: params.queueMessage.peerName || null,
+      input_items: [params.inputItem]
+    },
+    visibility: 'model_visible',
+    sourceType: 'agent_runtime',
+    sourceId: params.runId || null,
+    traceId: params.queueMessage.traceId,
+    runId: params.runId
+  };
+}
+
 function buildLoopContinuationStackItem(params: {
   queueMessage: QueueMessageRecord['payload'];
   runId: string;
@@ -20216,6 +20269,19 @@ function normalizeExecEnv(value: unknown): Record<string, string> {
     env[key] = String(entry);
   }
   return env;
+}
+
+// exec_command 直接写 open-loops.md(重定向 / sed -i / tee / 脚本 / mv cp rm)。只读(cat、grep、sed -n)不算;
+// todo 底下跑的 memory_write.py 命令行里没有这个文件名,也不算。
+export function isDirectOpenLoopsWrite(rawCmd: unknown): boolean {
+  if (typeof rawCmd !== 'string' || !rawCmd.includes('open-loops')) {
+    return false;
+  }
+  return />>?\s*\S*open-loops/.test(rawCmd)
+    || /\bsed\b[^|;&]*\s-[a-zA-Z]*i/.test(rawCmd)
+    || /\btee\b[^|;&]*open-loops/.test(rawCmd)
+    || /\b(python3?|perl|node)\b/.test(rawCmd)
+    || /\b(mv|cp|rm|truncate)\b[^|;&]*open-loops/.test(rawCmd);
 }
 
 function shellSingleQuote(value: string): string {
