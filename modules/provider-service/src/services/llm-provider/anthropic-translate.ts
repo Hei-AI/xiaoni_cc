@@ -150,6 +150,32 @@ function claudeThinkingDisplay(): 'summarized' | 'omitted' {
   return (process.env.ANTHROPIC_THINKING_DISPLAY || 'summarized').trim() === 'omitted' ? 'omitted' : 'summarized';
 }
 
+// Computer use on the 5.5 models is the native computer toolset (computer_20251124 is a 400).
+// Its calls are member-named tool_use blocks (`left_click`, `screenshot`, ...) tagged
+// toolset_name:'computer', and every tool_result must echo toolset_name. The agent keeps one
+// dispatch shape for every model — a `computer` function_call with input { action, ...fields } —
+// so the translator maps both ways:
+//   response tool_use {name:M, toolset_name:'computer', input:I} -> function_call computer {action:M, ...I}
+//   replay   function_call computer {action:M, ...I}            -> tool_use {name:M, toolset_name, input:I}
+// Deterministic in both directions, so live build, stack replay and fork clones stay byte-identical.
+const COMPUTER_TOOLSET_TYPE = 'computer_toolset_20260801';
+const COMPUTER_TOOLSET_NAME = 'computer';
+
+export function usesComputerToolset(model: string | undefined): boolean {
+  return isAlwaysThinkingClaudeModel(model);
+}
+
+function computerCallToToolsetToolUse(id: string, args: Record<string, any>): AnthropicContentBlock {
+  const { action, ...input } = args;
+  return {
+    type: 'tool_use',
+    id,
+    name: typeof action === 'string' && action ? action : 'screenshot',
+    input,
+    toolset_name: COMPUTER_TOOLSET_NAME
+  };
+}
+
 // Per-request cch signing toggle. Default OFF: system[0] stays byte-stable at the
 // static fixed cch=ed218 (see CLAUDE_BILLING_SYSTEM_BLOCK). cch is excluded from Anthropic's
 // prompt-cache key — verified live: main-loop turns read the warm cache while cch
@@ -177,8 +203,8 @@ export type AnthropicImageSource =
 export type AnthropicContentBlock =
   | { type: 'text'; text: string; cache_control?: EphemeralCacheControl }
   | { type: 'image'; source: AnthropicImageSource }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, any> }
-  | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[]; is_error?: boolean }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, any>; toolset_name?: string }
+  | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[]; is_error?: boolean; toolset_name?: string }
   | { type: 'thinking'; thinking: string; signature: string }
   | { type: 'redacted_thinking'; data: string };
 
@@ -379,9 +405,15 @@ function normalizeToolCallPairs(items: OpenResponseInputItem[]): OpenResponseInp
  * Map one canonical input item to a (role, blocks) tuple. Returns null for items
  * that should be dropped (e.g. non-anthropic reasoning, item_reference).
  */
+interface ComputerToolsetReplay {
+  /** call ids of replayed computer calls; their tool_result must echo toolset_name */
+  callIds: Set<string>;
+}
+
 function itemToRoleBlocks(
   item: OpenResponseInputItem,
-  thinkingEnabled: boolean
+  thinkingEnabled: boolean,
+  computerToolset: ComputerToolsetReplay | null = null
 ): { role: 'user' | 'assistant'; blocks: AnthropicContentBlock[] } | null {
   if (item.type === 'message') {
     const role = item.role;
@@ -403,10 +435,18 @@ function itemToRoleBlocks(
     } catch {
       parsedArgs = {};
     }
+    if (computerToolset && item.name === COMPUTER_TOOLSET_NAME) {
+      computerToolset.callIds.add(id);
+      return { role: 'assistant', blocks: [computerCallToToolsetToolUse(id, parsedArgs)] };
+    }
     return { role: 'assistant', blocks: [{ type: 'tool_use', id, name: item.name, input: parsedArgs }] };
   }
   if (item.type === 'function_call_output') {
-    return { role: 'user', blocks: [functionCallOutputToToolResult(item.call_id, item.output)] };
+    const result = functionCallOutputToToolResult(item.call_id, item.output);
+    if (computerToolset && computerToolset.callIds.has(item.call_id) && result.type === 'tool_result') {
+      result.toolset_name = COMPUTER_TOOLSET_NAME;
+    }
+    return { role: 'user', blocks: [result] };
   }
   if (item.type === 'reasoning') {
     if (!thinkingEnabled) {
@@ -449,9 +489,11 @@ interface BlockRef {
 
 function buildMessages(
   input: OpenResponseInputItem[],
-  thinkingEnabled: boolean
+  thinkingEnabled: boolean,
+  computerToolset: boolean = false
 ): { messages: AnthropicMessage[]; tail: BlockRef | null; lastDurable: BlockRef | null; prevTurnBoundary: BlockRef | null } {
   const messages: AnthropicMessage[] = [];
+  const computerReplay: ComputerToolsetReplay | null = computerToolset ? { callIds: new Set() } : null;
   // Sliding-window tail SET (all wire-side; never touches the canonical `input`, so byte-safe for the
   // replay/retry invariants that compare the canonical). Three message-tier breakpoints, each with a
   // distinct job — together they fix the frozen-nudge double-read WITHOUT regressing the idle/wake
@@ -475,7 +517,7 @@ function buildMessages(
   let lastAssistantMsgIdx = -1;
 
   for (const item of input) {
-    const mapped = itemToRoleBlocks(item, thinkingEnabled);
+    const mapped = itemToRoleBlocks(item, thinkingEnabled, computerReplay);
     if (!mapped || mapped.blocks.length === 0) {
       continue;
     }
@@ -666,12 +708,10 @@ function buildToolPlan(request: OpenResponseCreateRequest, dialect: AnthropicWir
           result.push({ type: WEB_SEARCH_TOOL_TYPE, name: WEB_SEARCH_TOOL_NAME });
         }
       } else if (def.type === 'computer_use' && allowComputer) {
-        // The 5.5 models reject computer_20251124 and only take the computer toolset, whose
-        // agent-loop contract differs (member-named tool_use blocks, toolset_name echoes). They
-        // get the same plain `computer` function tool LongCat gets, so the model's call comes
-        // back as the function_call the agent already dispatches.
-        const computer = dialect === 'claude' && !isAlwaysThinkingClaudeModel(request.model)
-          ? serializeComputerTool(def, request.model)
+        // Claude: native computer tool (toolset on the 5.5 models, see usesComputerToolset).
+        // Other dialects get a plain `computer` function tool.
+        const computer = dialect === 'claude'
+          ? (usesComputerToolset(request.model) ? { type: COMPUTER_TOOLSET_TYPE } : serializeComputerTool(def, request.model))
           : serializeComputerAsFunctionTool(def);
         if (computer) {
           result.push(computer);
@@ -847,7 +887,8 @@ export function translateCanonicalToMessages(
 
   const { messages, tail, lastDurable, prevTurnBoundary } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
-    thinkingEnabled
+    thinkingEnabled,
+    dialect === 'claude' && usesComputerToolset(model)
   );
 
   const body: AnthropicMessagesRequest = {
@@ -1008,6 +1049,15 @@ export function translateMessagesResponseToCanonical(
         messageIndex = output.length;
         output.push({ type: 'message', role: 'assistant', phase, content: [], status: 'completed' });
       }
+    } else if (block.type === 'tool_use' && block.id && block.name && block.toolset_name === COMPUTER_TOOLSET_NAME) {
+      // computer toolset member call -> the agent's `computer` function_call (see usesComputerToolset)
+      output.push({
+        type: 'function_call',
+        call_id: block.id,
+        name: COMPUTER_TOOLSET_NAME,
+        arguments: JSON.stringify({ action: block.name, ...(block.input || {}) }),
+        status: 'completed'
+      });
     } else if (block.type === 'tool_use' && block.id && block.name) {
       output.push({
         type: 'function_call',

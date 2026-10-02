@@ -96,16 +96,67 @@ test('5.5: forced tool_choice is sent as auto (tool subset kept) and flagged for
   assert.equal(auto.forcedToolChoiceDowngraded, false);
 });
 
-test('5.5: computer tool goes out as the plain `computer` function (no computer_20251124)', () => {
+test('5.5: computer tool goes out as the native computer toolset (no name, no display size)', () => {
   const { body } = translateCanonicalToMessages(req('claude-sonnet-5-5'));
-  const computer = body.tools?.find((t) => t.name === 'computer');
-  assert.ok(computer);
-  assert.equal(computer!.type, undefined);
-  assert.ok(computer!.input_schema);
-  assert.ok(!body.tools?.some((t) => typeof t.type === 'string' && t.type.startsWith('computer_')));
-  // pre-5.5 Claude still gets the native computer tool
+  const computer = body.tools?.filter((t) => typeof t.type === 'string' && t.type.startsWith('computer_'));
+  assert.deepEqual(computer, [{ type: 'computer_toolset_20260801' }]);
+  assert.ok(!body.tools?.some((t) => t.name === 'computer'));
+  // pre-5.5 Claude still gets computer_20251124
   const old = translateCanonicalToMessages(req('claude-opus-4-6'));
   assert.equal(old.body.tools?.find((t) => t.name === 'computer')?.type, 'computer_20251124');
+});
+
+test('5.5: toolset member calls map to the agent `computer` function_call and back, byte-stable', () => {
+  const resp: AnthropicMessagesResponse = {
+    model: 'claude-opus-5-5',
+    stop_reason: 'tool_use',
+    content: [
+      { type: 'tool_use', id: 'toolu_c1', name: 'left_click', toolset_name: 'computer', input: { coordinate: [10, 20] } },
+      { type: 'tool_use', id: 'toolu_c2', name: 'screenshot', toolset_name: 'computer', input: {} },
+      { type: 'tool_use', id: 'toolu_e', name: 'exec_command', input: { cmd: 'ls' } }
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 }
+  };
+  const canonical = translateMessagesResponseToCanonical(resp, 'claude-opus-5-5');
+  const calls = canonical.output.filter((o) => o.type === 'function_call') as any[];
+  assert.deepEqual(calls.map((c) => [c.name, c.arguments]), [
+    ['computer', JSON.stringify({ action: 'left_click', coordinate: [10, 20] })],
+    ['computer', JSON.stringify({ action: 'screenshot' })],
+    ['exec_command', JSON.stringify({ cmd: 'ls' })]
+  ]);
+
+  const replayInput = [
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+    ...(canonical.output as any[]),
+    { type: 'function_call_output', call_id: 'toolu_c1', output: 'OK' },
+    { type: 'function_call_output', call_id: 'toolu_c2', output: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }] },
+    { type: 'function_call_output', call_id: 'toolu_e', output: 'a.txt' }
+  ];
+  const wire = translateCanonicalToMessages(req('claude-opus-5-5', { tool_choice: 'auto', input: replayInput as any })).body;
+  const toolUses = wire.messages.flatMap((m) => m.content).filter((b) => b.type === 'tool_use') as any[];
+  assert.deepEqual(toolUses[0], { type: 'tool_use', id: 'toolu_c1', name: 'left_click', input: { coordinate: [10, 20] }, toolset_name: 'computer' });
+  assert.deepEqual(toolUses[1], { type: 'tool_use', id: 'toolu_c2', name: 'screenshot', input: {}, toolset_name: 'computer' });
+  assert.deepEqual(toolUses[2], { type: 'tool_use', id: 'toolu_e', name: 'exec_command', input: { cmd: 'ls' } });
+  const results = wire.messages.flatMap((m) => m.content).filter((b) => b.type === 'tool_result') as any[];
+  assert.deepEqual(results.map((r) => [r.tool_use_id, r.toolset_name]), [
+    ['toolu_c1', 'computer'], ['toolu_c2', 'computer'], ['toolu_e', undefined]
+  ]);
+  // replaying the same canonical twice gives the same bytes
+  const again = translateCanonicalToMessages(req('claude-opus-5-5', { tool_choice: 'auto', input: JSON.parse(JSON.stringify(replayInput)) })).body;
+  assert.equal(JSON.stringify(again), JSON.stringify(wire));
+});
+
+test('pre-5.5 Claude replays computer calls unchanged (name computer, no toolset_name)', () => {
+  const wire = translateCanonicalToMessages(req('claude-opus-4-6', {
+    tool_choice: 'auto',
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+      { type: 'function_call', call_id: 'c1', name: 'computer', arguments: JSON.stringify({ action: 'screenshot' }) },
+      { type: 'function_call_output', call_id: 'c1', output: 'OK' }
+    ] as any
+  })).body;
+  const toolUse = wire.messages.flatMap((m) => m.content).find((b) => b.type === 'tool_use') as any;
+  assert.deepEqual(toolUse, { type: 'tool_use', id: 'c1', name: 'computer', input: { action: 'screenshot' } });
 });
 
 test('5.5: identical canonical -> byte-identical wire (main and fork clones share the prefix)', () => {
