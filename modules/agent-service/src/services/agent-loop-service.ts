@@ -222,8 +222,9 @@ const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
 // xiaoni_os 判空转 → 潜意识填充 fork(克隆主请求 + 尾部 xiaoni_os_fill_reminder.md,一次调用,不放行工具,不投 notify)
 // 替她把那段话改成「留事实 + 接一件它数出来还没做的事」。OFF = 退回改写腿自己的小请求改写(xiaoni_os_rewrite.md)。
 const XIAONI_OS_FILL_FORK_ENABLED = process.env.XIAONI_OS_FILL_FORK_ENABLED !== 'false';
-// 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑,最多这么多次;
-// 超过就照旧结束这一轮、交给潜意识 fork。官方无人值守 agent 指南:同一件事自动续 2~3 次后停。
+// 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑。被提醒后她真动了手
+// (调了算「动过」的工具)就重新数;连续这么多次提醒都只说话不动手,才结束这一轮、交给潜意识 fork。
+// 官方无人值守 agent 指南:同一件事自动续 2~3 次后停——防的是卡住,不是限她干多久。
 const LOOP_CONTINUATION_MAX = Math.max(0, Number.parseInt(process.env.XIAONI_LOOP_CONTINUATION_MAX || '3', 10) || 0);
 // fork 克隆主请求,effort 也跟着主 agent(high):thinking 也算在这个上限里。600/800 是按 low 定的,
 // 10-02 实测 high 下 thinking 一口气吃满 600、正文 0 字。4000 和 sherlock 同值;超长正文照样由清洗那步拦。
@@ -9031,7 +9032,7 @@ export class AgentLoopService {
       let runCalledAnyTool = false;
       // 这一 run 里 recover_energy 被拒的次数(见 REST_REJECTED_FRAME_YIELD_AFTER)。
       let runRestRejectedCount = 0;
-      // 这个 run 里已经续跑了几次(见 LOOP_CONTINUATION_MAX)。
+      // 连续几次续跑提醒之后她都没动手(见 LOOP_CONTINUATION_MAX);一动手就归零。
       let loopContinuationCount = 0;
 
       for (let turn = 1; ; turn += 1) {
@@ -9286,6 +9287,7 @@ export class AgentLoopService {
           && item.toolCall.name !== TOOL_NAMES.todo
           && !(item.toolCall.name === TOOL_NAMES.execCommand && isNoOpExecCommand(item.toolCall.args?.cmd)))) {
           runTouchedWorld = true;
+          loopContinuationCount = 0;
         }
         if (toolReplayItems.length > 0) {
           runCalledAnyTool = true;
