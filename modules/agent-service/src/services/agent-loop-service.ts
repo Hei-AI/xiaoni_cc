@@ -4965,7 +4965,8 @@ export function renderExternalNotify(sourceSystem: string, text: string) {
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
-  return buildUserSceneInputItem([renderSelfContinuationReminder()]);
+  // A runtime notice like every other reminder -> developer (see buildCurrentTurnInputItems).
+  return buildDeveloperInputItem([renderSelfContinuationReminder()]);
 }
 
 function isOpenResponseMessageInputItem(item: OpenResponseInputItem | undefined): item is Extract<OpenResponseInputItem, { type: 'message' }> {
@@ -19813,9 +19814,10 @@ function buildCurrentTurnInputItems(
   if (parts.length === 0) {
     return [];
   }
-  const triggerItem = isSubconsciousAgentNotifyPayload(queueMessage)
-    ? buildUserSceneInputItem(parts)
-    : buildDeveloperInputItem(parts);
+  // Every Notify Bucket trigger — external (QQ) or internal (clock ping, recall, <xiaoni_plan>, ...) —
+  // is a runtime notice, so it is a developer item. On the 5.5 models a developer run that follows
+  // a user turn goes out as a mid-conversation role:system message (the operator channel).
+  const triggerItem = buildDeveloperInputItem(parts);
   // The current-turn trigger carries a fresh [当前时间] stamp every build, so the cache
   // breakpoint must NOT anchor on it: anchoring on a per-turn-varying block drifts the
   // whole cached body at every run/heartbeat boundary (the breakpoint block's bytes

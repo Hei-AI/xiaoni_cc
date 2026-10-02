@@ -1665,7 +1665,7 @@ test('buildInitialInput appends self continuation after terminal final_answer on
   )), false);
   const reminderIndex = loopInput.findIndex((item: any) => (
     item.type === 'message'
-    && item.role === 'user'
+    && item.role === 'developer'
     && getMessageContent(item).includes('<system_reminder>')
   ));
 
@@ -1854,7 +1854,7 @@ test('buildInitialInput emits ordinary system reminders without a current-time p
   )), true);
 });
 
-test('buildInitialInput renders subconscious agent notify template as user bucket input', () => {
+test('buildInitialInput renders subconscious agent notify template as developer bucket input', () => {
   const payload = createQueuePayload();
   const planText = '[当前时间: 2026-06-12 22:51:11]\n<xiaoni_plan>\n短暂的停歇后，你的潜意识已经为你计划出接下来的可参考的大概旅程方向：\n继续 seed\n</xiaoni_plan>';
   payload.source = 'system_reminder';
@@ -1884,7 +1884,7 @@ test('buildInitialInput renders subconscious agent notify template as user bucke
   const subconsciousContent = getMessageContent(subconsciousInput);
 
   assert.equal((subconsciousInput as any)?.type, 'message');
-  assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.equal((subconsciousInput as any)?.role, 'developer');
   assert.match(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
   assert.match(subconsciousContent, /<xiaoni_plan>/);
   assert.doesNotMatch(subconsciousContent, /<system_reminder>/);
@@ -1919,7 +1919,7 @@ test('buildInitialInput generates subconscious agent notify without a current-ti
   const subconsciousContent = getMessageContent(subconsciousInput);
 
   assert.equal((subconsciousInput as any)?.type, 'message');
-  assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.equal((subconsciousInput as any)?.role, 'developer');
   assert.doesNotMatch(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
   assert.match(subconsciousContent, /<xiaoni_plan>/);
 });
@@ -6579,7 +6579,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   )), false);
   const reminderIndex = capturedInput.findIndex((item: any) => (
     item.type === 'message'
-    && item.role === 'user'
+    && item.role === 'developer'
     && getMessageContent(item).includes('<system_reminder>')
   ));
   assert.ok(reminderIndex >= 0);
@@ -6592,7 +6592,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
       && call.items?.[0]?.content?.source === 'self_continuation'
   );
   assert.ok(selfContinuationStackBatch);
-  assert.equal(selfContinuationStackBatch.items[0].role, 'user');
+  assert.equal(selfContinuationStackBatch.items[0].role, 'developer');
   assert.deepEqual(selfContinuationStackBatch.items[0].content.input_items[0], capturedInput[reminderIndex]);
   assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system_reminder>/);
   assert.equal(storeCalls.updateLlmRequestSliceStackLinks[0]?.inputEndIndex, 1001);
@@ -6608,7 +6608,7 @@ test('no-notify continuation does not append self continuation after tool output
   const generatedReminder = buildInitialInput([
     { id: 994, stackReplayItems: [priorFinalAnswerReplay] } as any
   ], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true)
-    .find((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<system_reminder>'));
+    .find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<system_reminder>'));
   assert.ok(generatedReminder);
   const priorToolCallReplay = {
     type: 'function_call',
@@ -6701,7 +6701,7 @@ test('no-notify continuation does not append self continuation after tool output
 
   const reminderItems = capturedInput.filter((item: any) => (
     item.type === 'message'
-    && item.role === 'user'
+    && item.role === 'developer'
     && getMessageContent(item).includes('<system_reminder>')
   ));
   assert.equal(reminderItems.length, 1);
@@ -12048,8 +12048,8 @@ test('core memory compression fork forces the skill after the budget, then hard-
   // Early no-tool turn (turns to spare) → SOFT self-check, not a nag to use the skill.
   assert.match(JSON.stringify(forkRequests[10]?.input || []), /想想还有什么没记完/);
   // Once the organizing budget is spent (>= 18 turns) → FORCED "use the skill now" tone.
-  assert.match(JSON.stringify(forkRequests[18]?.input || []), /整理时间已经用满了/);
-  assert.match(JSON.stringify(forkRequests[18]?.input || []), /立刻用记忆整理脚本/);
+  assert.match(JSON.stringify(forkRequests[18]?.input || []), /整理时间用完了/);
+  assert.match(JSON.stringify(forkRequests[18]?.input || []), /用记忆整理脚本/);
   assert.equal(completedForkRuns.length, 1);
   assert.equal(completedForkRuns[0]?.status, 'completed');
   assert.equal(completedForkRuns[0]?.metadata?.compression_turn_budget_fallback, true);
