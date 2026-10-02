@@ -21,7 +21,8 @@
 const IDENTITY_KEY = 'xiaoni';
 const OUTCOMES = new Set(['kept', 'polished', 'rewritten', 'evicted', 'failed_open']);
 const REWRITE_STAGES = new Set(['polish', 'rewrite', 'fill']);
-const VERDICTS = new Set(['action', 'idle', 'unparsed', 'failed']);
+// 'skipped':2026-10-03 起不再分类,每段直接重写。
+const VERDICTS = new Set(['action', 'idle', 'unparsed', 'failed', 'skipped']);
 
 function normalizeText(value) {
   if (typeof value !== 'string') return null;

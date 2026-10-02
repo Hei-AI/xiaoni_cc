@@ -1808,7 +1808,7 @@ export function ensureXiaoniDeepDiveSchema(config?: DatabaseUrlConfig): Promise<
 // xiaoni_os 改写腿留痕(docs/specs/xiaoni-os-rewrite.md)
 export type XiaoniOsRewriteOutcome = 'kept' | 'polished' | 'rewritten' | 'evicted' | 'failed_open';
 export type XiaoniOsRewriteStage = 'polish' | 'rewrite' | 'fill';
-export type XiaoniOsRewriteClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed';
+export type XiaoniOsRewriteClassifyVerdict = 'action' | 'idle' | 'unparsed' | 'failed' | 'skipped';
 export interface XiaoniOsRewriteRecord {
   id: number;
   identityKey: string;

@@ -2190,12 +2190,13 @@ const XIAONI_OS_REWRITE_LEG = {
   idPrefix: 'xiaoni-os-rewrite'
 };
 const XIAONI_OS_CLOSING_RULE_MODEL = 'closing-rule';
+// 2026-10-03 起每段 xiaoni_os 都由填充 fork 重写(不再分类 / 润色 / 丢弃);老行的 polished / evicted 仍按旧意思显示。
 const XIAONI_OS_REWRITE_OUTCOME_LABELS = {
-  kept: '有事 → 原文准入',
-  polished: '有事但夹填充句 → 润色后准入',
-  rewritten: '空转 → 改写后准入',
-  evicted: '空转 → 改写失败，不进上下文',
-  failed_open: '辅助处理失败 → 原文准入'
+  kept: '重写与原文相同，原文进上下文',
+  polished: '润色后进上下文',
+  rewritten: '重写后进上下文',
+  evicted: '改写失败，没进上下文',
+  failed_open: '重写请求失败，原文进上下文'
 };
 const XIAONI_OS_REWRITE_VERDICT_LABELS = {
   action: '有事(1)',
@@ -2326,7 +2327,11 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
   const outcome = String(firstString(row.outcome) || '');
   const classifyCallId = firstString(row.classify_llm_call_id, row.classifyLlmCallId);
   const rewriteCallId = firstString(row.rewrite_llm_call_id, row.rewriteLlmCallId);
-  const events = [summarizeXiaoniOsRewriteLlmEvent(row, 'classify', classifyCallId ? usageByCallId.get(classifyCallId) || null : null, anchorSeq)];
+  // 'skipped' = 没有分类这一步(2026-10-03 起),不出分类行。
+  const verdictForEvents = firstString(row.classify_verdict, row.classifyVerdict);
+  const events = verdictForEvents === 'skipped'
+    ? []
+    : [summarizeXiaoniOsRewriteLlmEvent(row, 'classify', classifyCallId ? usageByCallId.get(classifyCallId) || null : null, anchorSeq)];
   // 第二腿:空转 → 改写(rewritten / evicted 都发过);有事夹填充句 → 润色(polished,或润色失败 fail-open —— 以
   // rewrite_stage 为准,老行没有这列就按去向推)。
   const stage = firstString(row.rewrite_stage, row.rewriteStage)
@@ -2336,10 +2341,8 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
   }
   const original = String(row.original_text ?? row.originalText ?? '');
   const rewritten = String(row.rewritten_text ?? row.rewrittenText ?? '');
-  const timestamp = events[0].timestamp;
-  const outcomeLabel = outcome === 'kept' && row.rewrite_stage === 'fill'
-    ? '上下文复核 → 原文准入'
-    : XIAONI_OS_REWRITE_OUTCOME_LABELS[outcome] || outcome || '—';
+  const timestamp = events[0]?.timestamp ?? eventTimestamp(row.created_at || row.createdAt);
+  const outcomeLabel = XIAONI_OS_REWRITE_OUTCOME_LABELS[outcome] || outcome || '—';
   return {
     id: `${leg.idPrefix}:${rowId}`,
     forkRunId: `${leg.idPrefix}:${rowId}`,

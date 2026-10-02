@@ -2234,7 +2234,7 @@ test('Xiaoni xiaoni_os rewrite leg: kept outcome has a single classify event', a
   const stream = await persistence.getXiaoniActionStream({ limit: 20 });
   const run = stream.xiaoniOsRewriteTimeline.runs[0];
   assert.equal(run.events.length, 1);
-  assert.match(run.body, /有事 → 原文准入/u);
+  assert.match(run.body, /重写与原文相同，原文进上下文/u);
   assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true, '它就是一次 provider 请求,要答 LLM 源标签');
 });
 
@@ -2246,7 +2246,7 @@ test('OS fill review: retaining original text is completed, not a failed rewrite
   const stream = await persistence.getXiaoniActionStream({ limit: 20 });
   const run = stream.xiaoniOsRewriteTimeline.runs[0];
   assert.equal(run.status, 'ok');
-  assert.match(run.body, /上下文复核 → 原文准入/u);
+  assert.match(run.body, /重写与原文相同，原文进上下文/u);
   assert.match(run.events[1].body, /上下文复核完成，保留原文/u);
   assert.doesNotMatch(run.events[1].body, /失败/u);
 });
@@ -2324,7 +2324,7 @@ test('OS fill failure: original text admission is not mislabeled as a classifica
   })] });
   const stream = await persistence.getXiaoniActionStream({ limit: 20 });
   const run = stream.xiaoniOsRewriteTimeline.runs[0];
-  assert.match(run.body, /辅助处理失败 → 原文准入/u);
+  assert.match(run.body, /重写请求失败，原文进上下文/u);
   assert.doesNotMatch(run.body, /分类失败/u);
   assert.equal(run.metadata.classifyVerdict, 'idle');
 });
@@ -2339,7 +2339,7 @@ test('Xiaoni xiaoni_os rewrite leg: polished outcome renders classify + polish e
   const stream = await persistence.getXiaoniActionStream({ limit: 20 });
   const run = stream.xiaoniOsRewriteTimeline.runs[0];
   assert.equal(run.metadata.outcome, 'polished');
-  assert.match(run.body, /润色后准入/u);
+  assert.match(run.body, /润色后进上下文/u);
   assert.notEqual(run.status, 'failed', '润色后准入不是失败');
   assert.equal(run.events.length, 2);
   assert.equal(run.events[1].metadata.stage, 'polish');
