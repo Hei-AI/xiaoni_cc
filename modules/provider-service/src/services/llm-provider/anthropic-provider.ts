@@ -227,14 +227,17 @@ export class AnthropicProvider implements LLMProvider {
     const callStartTime = Date.now();
     try {
       const request = this.dialect === 'claude' ? input.request : stripAnthropicFileIds(input.request);
-      const { body } = translateCanonicalToMessages(request, {
+      const { body, forcedToolChoiceDowngraded } = translateCanonicalToMessages(request, {
         model: input.modelName || input.request.model,
         defaultMaxTokens: this.defaultMaxTokens,
         dialect: this.dialect
       });
 
       let response = await this.postMessages(body, input);
-      if (body.tool_choice?.type === 'any') {
+      // A forced call that the model may skip: `any` on LongCat (accepted, not enforced), and the
+      // 5.5 models, where the translator had to turn the forced choice into `auto`. Re-ask the same
+      // body (same prefix -> cache read) until a tool call comes back.
+      if (body.tool_choice?.type === 'any' || forcedToolChoiceDowngraded) {
         for (let retry = 1; retry <= FORCED_TOOL_CHOICE_RETRIES && !hasToolUse(response); retry += 1) {
           this.moduleLogger.warn('Forced tool_choice returned no tool call; re-requesting', {
             provider: this.id,
@@ -246,6 +249,16 @@ export class AnthropicProvider implements LLMProvider {
         }
       }
       const wireExchange = this.lastWireExchange;
+      if (response.stop_reason === 'refusal') {
+        // Safety-classifier decline (HTTP 200). The turn settles as an empty final answer; the
+        // category tells whether the prompt tripped e.g. reasoning_extraction.
+        this.moduleLogger.warn('Anthropic model declined the request (stop_reason=refusal)', {
+          provider: this.id,
+          modelName: input.modelName,
+          stopDetails: (response as any).stop_details ?? null,
+          llmCallId: input.context?.llmCallId || null
+        });
+      }
 
       const text = extractTextFromMessagesResponse(response);
       const processingTimeMs = Date.now() - callStartTime;

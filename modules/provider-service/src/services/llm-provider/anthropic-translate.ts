@@ -101,6 +101,55 @@ function isAnthropicThinkingGloballyEnabled(): boolean {
   return process.env.ANTHROPIC_THINKING_ENABLED === 'true';
 }
 
+// Claude models from the 5.5 generation changed the request surface (verified live on the
+// subscription endpoint 2026-10-02):
+//   - thinking can't be turned off: `{type:'disabled'}` is a 400, so the kill-switch above
+//     cannot apply; effort (`output_config.effort`) is the only depth control.
+//   - forced tool_choice (`any` / `tool`) is a 400; only `auto` / `none` are accepted.
+//   - `computer_20251124` is a 400 (only the computer toolset is accepted).
+// Thinking is therefore ON for every request on these models — main loop, every fork clone,
+// cache heartbeat — so the thinking param, effort and the replayed thinking blocks are the
+// same bytes on all of them and the forks keep riding the main prefix cache.
+const ALWAYS_THINKING_MODEL_TAGS = ['opus-5-5', 'sonnet-5-5'];
+
+export function isAlwaysThinkingClaudeModel(model: string | undefined): boolean {
+  const m = (model || '').toLowerCase();
+  return ALWAYS_THINKING_MODEL_TAGS.some((tag) => m.includes(tag));
+}
+
+type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+const CLAUDE_EFFORTS: ReadonlySet<string> = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+// Effort is part of the messages-tier cache key, so it is a pure function of the model id:
+// every request on one model (main loop, forks, heartbeat) gets the same value. Changing it
+// re-keys the cache the same way a model switch does — only change it together with a
+// compression. ANTHROPIC_EFFORT_BY_MODEL is a JSON map {"claude-opus-5-5":"medium"};
+// ANTHROPIC_EFFORT is the fallback for the rest (default low — closest to the thinking-off
+// behavior the main loop ran with on Opus 4.6). Read per-call so it stays testable.
+export function claudeEffortForModel(model: string | undefined): ClaudeEffort {
+  const key = (model || '').trim().toLowerCase();
+  try {
+    const byModel = JSON.parse(process.env.ANTHROPIC_EFFORT_BY_MODEL || '{}') as Record<string, unknown>;
+    for (const [name, value] of Object.entries(byModel)) {
+      if (name.trim().toLowerCase() === key && typeof value === 'string' && CLAUDE_EFFORTS.has(value)) {
+        return value as ClaudeEffort;
+      }
+    }
+  } catch {
+    // malformed map -> fall through to the global default
+  }
+  const fallback = (process.env.ANTHROPIC_EFFORT || 'low').trim();
+  return (CLAUDE_EFFORTS.has(fallback) ? fallback : 'low') as ClaudeEffort;
+}
+
+// The 5.5 models return thinking with an empty text under the API default ('omitted'), and
+// notes longer than a sentence or two written between tool calls also come back as thinking
+// blocks. 'summarized' keeps a readable summary in the stack / Raw Trace; it changes what we
+// can read, not what the model does or what is billed. Constant per process -> cache-stable.
+function claudeThinkingDisplay(): 'summarized' | 'omitted' {
+  return (process.env.ANTHROPIC_THINKING_DISPLAY || 'summarized').trim() === 'omitted' ? 'omitted' : 'summarized';
+}
+
 // Per-request cch signing toggle. Default OFF: system[0] stays byte-stable at the
 // static fixed cch=ed218 (see CLAUDE_BILLING_SYSTEM_BLOCK). cch is excluded from Anthropic's
 // prompt-cache key — verified live: main-loop turns read the warm cache while cch
@@ -163,13 +212,16 @@ export interface AnthropicMessagesRequest {
   messages: AnthropicMessage[];
   tools?: AnthropicTool[];
   tool_choice?: AnthropicToolChoice;
-  thinking?: { type: 'adaptive' } | { type: 'disabled' };
+  thinking?: { type: 'adaptive'; display?: 'summarized' | 'omitted' } | { type: 'disabled' };
+  output_config?: { effort: ClaudeEffort };
   metadata?: Record<string, string>;
 }
 
 export interface TranslateResult {
   body: AnthropicMessagesRequest;
   thinkingEnabled: boolean;
+  /** the canonical request forced a tool, but the model rejects forced tool_choice -> sent as auto */
+  forcedToolChoiceDowngraded: boolean;
 }
 
 // Wire-side kill switch for Files API image references. Default ON. When set to 'false', the
@@ -614,7 +666,11 @@ function buildToolPlan(request: OpenResponseCreateRequest, dialect: AnthropicWir
           result.push({ type: WEB_SEARCH_TOOL_TYPE, name: WEB_SEARCH_TOOL_NAME });
         }
       } else if (def.type === 'computer_use' && allowComputer) {
-        const computer = dialect === 'claude'
+        // The 5.5 models reject computer_20251124 and only take the computer toolset, whose
+        // agent-loop contract differs (member-named tool_use blocks, toolset_name echoes). They
+        // get the same plain `computer` function tool LongCat gets, so the model's call comes
+        // back as the function_call the agent already dispatches.
+        const computer = dialect === 'claude' && !isAlwaysThinkingClaudeModel(request.model)
           ? serializeComputerTool(def, request.model)
           : serializeComputerAsFunctionTool(def);
         if (computer) {
@@ -766,16 +822,28 @@ export function translateCanonicalToMessages(
   options: TranslateOptions = {}
 ): TranslateResult {
   const dialect = options.dialect || 'claude';
+  const model = options.model || request.model;
+  const alwaysThinking = dialect === 'claude' && isAlwaysThinkingClaudeModel(model);
   const plan = buildToolPlan(request, dialect);
+  const forcedToolChoiceDowngraded = alwaysThinking && plan.forced;
+  if (forcedToolChoiceDowngraded) {
+    // Forced tool_choice is a 400 on these models. Keep the tool subset (the caller's
+    // restriction still holds) and let the model choose; callers that require the call
+    // already handle a turn without one (same as on LongCat, where `any` doesn't force).
+    plan.toolChoice = { type: 'auto' };
+    plan.forced = false;
+  }
   // Thinking is gated by the global kill-switch FIRST (default off — see
   // ANTHROPIC_THINKING_GLOBALLY_ENABLED). When globally on, it also requires non-forced
   // tool use (forced tool_choice is incompatible with extended thinking). Off by default
   // keeps every request — including the compression fork — on one thinking-free, byte-
   // identical prefix so the fork rides the main loop's warm cache instead of cold-reading.
-  const thinkingEnabled = dialect === 'claude'
+  // Models that can't turn thinking off skip the switch: thinking is on for all of their
+  // requests, which is the same uniformity on the other side.
+  const thinkingEnabled = alwaysThinking || (dialect === 'claude'
     && isAnthropicThinkingGloballyEnabled()
     && !plan.forced
-    && plan.toolChoice?.type !== 'none';
+    && plan.toolChoice?.type !== 'none');
 
   const { messages, tail, lastDurable, prevTurnBoundary } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
@@ -783,7 +851,7 @@ export function translateCanonicalToMessages(
   );
 
   const body: AnthropicMessagesRequest = {
-    model: options.model || request.model,
+    model,
     max_tokens: typeof request.max_output_tokens === 'number' && request.max_output_tokens > 0
       ? request.max_output_tokens
       : (options.defaultMaxTokens || DEFAULT_MAX_TOKENS),
@@ -817,7 +885,10 @@ export function translateCanonicalToMessages(
     body.tool_choice = plan.toolChoice;
   }
 
-  if (thinkingEnabled) {
+  if (alwaysThinking) {
+    body.thinking = { type: 'adaptive', display: claudeThinkingDisplay() };
+    body.output_config = { effort: claudeEffortForModel(model) };
+  } else if (thinkingEnabled) {
     body.thinking = { type: 'adaptive' };
   } else if (dialect === 'longcat') {
     // LongCat thinks unless told not to; keep it off like the Claude path.
@@ -839,7 +910,7 @@ export function translateCanonicalToMessages(
     signClaudeBillingCch(body);
   }
 
-  return { body, thinkingEnabled };
+  return { body, thinkingEnabled, forcedToolChoiceDowngraded };
 }
 
 // ---------------------------------------------------------------------------
@@ -890,13 +961,14 @@ function resolvePhaseFromStopReason(
   switch (stopReason) {
     case 'end_turn':
     case 'stop_sequence':
+    case 'refusal':
       return 'final_answer';
     case 'tool_use':
     case 'max_tokens':
     case 'pause_turn':
       return 'commentary';
     default:
-      // refusal / unknown -> fall back to tool-use presence
+      // unknown -> fall back to tool-use presence
       return hasToolUse ? 'commentary' : 'final_answer';
   }
 }
@@ -912,9 +984,13 @@ export function translateMessagesResponseToCanonical(
   const output: OpenResponseOutputItem[] = [];
   const textParts: string[] = [];
 
-  // reasoning items first (Anthropic emits thinking before text/tool_use).
-  // Both thinking and redacted_thinking must round-trip so full-content replay
-  // is lossless on the same model.
+  // One pass in content order. Thinking blocks are no longer only a leading prefix: on the 5.5
+  // models a progress-update thinking block can precede each tool call. Keeping every item where
+  // the model produced it means the replayed assistant turn carries its blocks in the original
+  // order. Both thinking and redacted_thinking round-trip so full-content replay is lossless on
+  // the same model. All text blocks still collapse into ONE assistant message, placed where the
+  // first text block was.
+  let messageIndex = -1;
   for (const block of blocks) {
     if (block.type === 'thinking' && typeof block.signature === 'string') {
       output.push({
@@ -926,25 +1002,40 @@ export function translateMessagesResponseToCanonical(
         type: 'reasoning',
         encrypted_content: JSON.stringify({ [ANTHROPIC_REDACTED_MARKER]: true, data: (block as any).data })
       });
+    } else if (block.type === 'text' && typeof block.text === 'string') {
+      textParts.push(block.text);
+      if (messageIndex < 0) {
+        messageIndex = output.length;
+        output.push({ type: 'message', role: 'assistant', phase, content: [], status: 'completed' });
+      }
+    } else if (block.type === 'tool_use' && block.id && block.name) {
+      output.push({
+        type: 'function_call',
+        call_id: block.id,
+        name: block.name,
+        arguments: JSON.stringify(block.input || {}),
+        status: 'completed'
+      });
+    } else if (block.type === 'server_tool_use' && block.name === WEB_SEARCH_TOOL_NAME) {
+      output.push({
+        type: 'web_search_call',
+        id: block.id,
+        status: 'completed',
+        action: { type: 'search', query: (block.input as any)?.query }
+      });
     }
   }
 
-  // assistant message (concatenated text)
-  for (const block of blocks) {
-    if (block.type === 'text' && typeof block.text === 'string') {
-      textParts.push(block.text);
+  const assistantText = textParts.join('');
+  if (messageIndex >= 0) {
+    if (assistantText.length > 0) {
+      (output[messageIndex] as any).content = [{ type: 'output_text', text: assistantText }];
+    } else {
+      output.splice(messageIndex, 1);
+      messageIndex = -1;
     }
   }
-  const assistantText = textParts.join('');
-  if (assistantText.length > 0) {
-    output.push({
-      type: 'message',
-      role: 'assistant',
-      phase,
-      content: [{ type: 'output_text', text: assistantText }],
-      status: 'completed'
-    });
-  } else if (phase === 'final_answer' && !hasToolUse) {
+  if (messageIndex < 0 && phase === 'final_answer' && !hasToolUse) {
     // Terminal turn (end_turn / stop_sequence) that produced no text — the model
     // delivered everything through a tool call (e.g. send_in_private) and ended the
     // turn empty. `phase: final_answer` is the runtime loop's "turn settled" signal;
@@ -965,26 +1056,6 @@ export function translateMessagesResponseToCanonical(
       content: [],
       status: 'completed'
     });
-  }
-
-  // tool calls
-  for (const block of blocks) {
-    if (block.type === 'tool_use' && block.id && block.name) {
-      output.push({
-        type: 'function_call',
-        call_id: block.id,
-        name: block.name,
-        arguments: JSON.stringify(block.input || {}),
-        status: 'completed'
-      });
-    } else if (block.type === 'server_tool_use' && block.name === WEB_SEARCH_TOOL_NAME) {
-      output.push({
-        type: 'web_search_call',
-        id: block.id,
-        status: 'completed',
-        action: { type: 'search', query: (block.input as any)?.query }
-      });
-    }
   }
 
   const inputTokens = resp.usage?.input_tokens || 0;
