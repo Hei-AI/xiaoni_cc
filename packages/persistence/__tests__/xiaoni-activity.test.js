@@ -2255,7 +2255,8 @@ test('OS closing rewrite: closing-rule classify is not a request; fill leg reads
   const persistence = createPersistence({
     xiaoniOsRewriteRows: [xiaoniOsRewriteRow({
       classify_llm_call_id: null, classify_model: 'closing-rule', rewrite_stage: 'fill',
-      rewrite_llm_call_id: 'llm_fill_1', rewrite_model: 'claude-sonnet-5-5'
+      rewrite_llm_call_id: 'llm_fill_1', rewrite_model: 'claude-sonnet-5-5',
+      fill_fork_run_id: 'xiaoni-os-fill-fork:run_941_b16d0ea0:aa'
     })],
     subconsciousForkSlices: [{
       id: 1, llm_call_id: 'llm_fill_1', model_name: 'claude-sonnet-5-5',
@@ -2272,6 +2273,7 @@ test('OS closing rewrite: closing-rule classify is not a request; fill leg reads
   assert.equal(fill.metadata.inputTokens, 381224);
   assert.equal(fill.metadata.cachedInputTokens, 380349);
   assert.equal(fill.metadata.outputTokens, 373);
+  assert.equal(stream.xiaoniOsRewriteTimeline.runs[0].metadata.fillForkRunId, 'xiaoni-os-fill-fork:run_941_b16d0ea0:aa');
   assert.equal(fill.traceTarget?.llmRequestSliceId ?? null, null, '原始报文挂在填充 fork 那条 run 上,这里不造指向 provider_usage_events 的链接');
 });
 

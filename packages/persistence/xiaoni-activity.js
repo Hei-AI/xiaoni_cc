@@ -2219,6 +2219,7 @@ const XIAONI_OS_REWRITE_SELECT = `
   rewrite_model,
   rewrite_stage,
   rewrite_retries,
+  fill_fork_run_id,
   outcome,
   error_message,
   processing_time_ms,
@@ -2368,6 +2369,8 @@ function summarizeXiaoniOsRewriteRun(row, usageByCallId, anchorSeq) {
       rewriteModel: firstString(row.rewrite_model, row.rewriteModel),
       classifyLlmCallId: classifyCallId,
       rewriteLlmCallId: rewriteCallId,
+      // 收尾改写走的填充 fork(subconscious_agent_fork_* 里那条 run);看板据此把两条合成一条。
+      fillForkRunId: firstString(row.fill_fork_run_id, row.fillForkRunId),
       errorMessage: firstString(row.error_message, row.errorMessage),
       originalPreview: truncateText(original, 600),
       rewrittenPreview: rewritten ? truncateText(rewritten, 600) : null,
