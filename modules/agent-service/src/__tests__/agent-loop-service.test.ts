@@ -1696,7 +1696,7 @@ test('buildInitialInput can place loop continuation before the current notificat
 
   const toolOutputIndex = loopInput.findIndex((item: any) => item.type === 'function_call_output' && item.call_id === 'call-recover-order');
   const notificationIndex = loopInput.findIndex((item: any) => (
-    item.role === 'developer'
+    item.role === 'user'
     && isPhoneNotificationReminderContent(getMessageContent(item))
   ));
 
@@ -1849,9 +1849,42 @@ test('buildInitialInput emits ordinary system reminders without a current-time p
   assert.match(rendered, /该压缩记忆了。/);
   assert.equal(loopInput.some((item: any) => (
     item.type === 'message'
-    && item.role === 'developer'
+    && item.role === 'user'
     && getMessageContent(item).includes('该压缩记忆了。')
   )), true);
+});
+
+test('operator notice wakes with a user time-perception turn, then the notice as developer; byte-stable rebuild', () => {
+  const payload = createQueuePayload();
+  const planText = '<xiaoni_plan>\n继续 seed\n</xiaoni_plan>';
+  payload.source = 'system_reminder';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.bodyForAgent = planText;
+  payload.rawBody = planText;
+  payload.receivedAt = '2026-06-12T14:51:11.000Z';
+  payload.rawPayload = { reason: 'subconscious_agent', final_answer_text: '继续 seed', notify_template: 'subconscious_agent_notify.md' };
+  payload.systemReminder = { reminder: planText, reason: 'subconscious_agent', createdAt: '2026-06-12T14:51:11.000Z' };
+  payload.inboundContext = { ...payload.inboundContext, Surface: 'system_reminder', BodyForAgent: planText };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const noticeIndex = loopInput.findIndex((item: any) => getMessageContent(item).includes('继续 seed'));
+  assert.ok(noticeIndex > 0);
+  assert.equal((loopInput[noticeIndex] as any).role, 'developer');
+  const perception = loopInput[noticeIndex - 1] as any;
+  assert.equal(perception.role, 'user');
+  assert.equal(getMessageContent(perception), '现在是 2026-06-12 22:51:11（东八区）。');
+  // the time comes from the payload, so rebuilding the same notify yields the same bytes
+  const again = buildInitialInput([], JSON.parse(JSON.stringify(payload)), createRuntimePrompt());
+  assert.equal(JSON.stringify(again), JSON.stringify(loopInput));
+});
+
+test('perception notify (QQ) is a single user turn with no time-perception prefix', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  const qq = loopInput.filter((item: any) => isPhoneNotificationReminderContent(getMessageContent(item)));
+  assert.equal(qq.length, 1);
+  assert.equal((qq[0] as any).role, 'user');
+  assert.equal(loopInput.some((item: any) => /^现在是 .*（东八区）。$/.test(getMessageContent(item))), false);
 });
 
 test('buildInitialInput renders subconscious agent notify template as developer bucket input', () => {
@@ -2110,10 +2143,11 @@ test('buildInitialInput renders ordinary group phone notifications with group an
   assert.doesNotMatch(rendered, /手机状态栏出现了 QQ 通知/);
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 
-  const unreadItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const unreadItems = loopInput.filter((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item)));
   assert.equal(unreadItems.length, 1);
-  assert.equal((unreadItems[0] as any).role, 'developer');
-  assert.equal(loopInput.some((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item))), false);
+  assert.equal((unreadItems[0] as any).role, 'user');
+  // A QQ notification is perception (a user turn), never a developer/operator notice.
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item))), false);
 });
 
 test('buildInitialInput suppresses phone notifications with no visible cue lines', () => {
@@ -2305,7 +2339,7 @@ test('buildInitialInput aggregates direct mention and group activity cues into o
   ];
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
-  const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const rendered = currentTurnItems.map(getMessageContent).join('\n');
   const parts = getInputTextParts(currentTurnItems[0]);
 
@@ -2373,7 +2407,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
-  const developerNotification = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const developerNotification = loopInput.find((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const parts = getInputTextParts(developerNotification);
   const sceneRendered = loopInput
     .filter((item: any) => item.role !== 'system')
@@ -2479,7 +2513,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item)));
 
   assert.equal(currentTurnItems.length, 1);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
@@ -2489,7 +2523,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
 
-test('buildInitialInput renders current bucket messages as one developer content array', () => {
+test('buildInitialInput renders current bucket messages as one user content array', () => {
   const payload = createQueuePayload();
   const systemText = '先处理桶里的系统提醒';
   const phoneText = '在做啥呢';
@@ -2616,14 +2650,14 @@ test('buildInitialInput renders current bucket messages as one developer content
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const currentInput = loopInput.find((item: any) => (
-    item.role === 'developer'
+    item.role === 'user'
     && getMessageContent(item).includes(systemText)
     && getMessageContent(item).includes(phoneText)
   ));
   const parts = getInputTextParts(currentInput);
 
   assert.equal((currentInput as any)?.type, 'message');
-  assert.equal((currentInput as any)?.role, 'developer');
+  assert.equal((currentInput as any)?.role, 'user');
   assert.equal(parts.length, 2);
   assert.match(parts[0], /<system_reminder>/);
   assert.match(parts[0], new RegExp(systemText));

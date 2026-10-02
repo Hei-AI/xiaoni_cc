@@ -17229,6 +17229,34 @@ export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload'
   return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
 }
 
+// Notify Bucket reasons that are the runtime speaking to her (operator notices). Everything else
+// that arrives through the bucket is perception. See buildCurrentTurnInputItems.
+const OPERATOR_NOTICE_REASONS = new Set([
+  'subconscious_agent',
+  'deep_dive_round',
+  'core_memory_compression_done',
+  'open_loops_pointer',
+  'sherlock_due'
+]);
+
+function isOperatorNoticePayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
+  return typeof reason === 'string' && OPERATOR_NOTICE_REASONS.has(reason);
+}
+
+// The user turn in front of an operator notice: when it arrived, as she perceives it.
+function buildWakePerceptionInputItem(queueMessage: QueueMessageRecord['payload']): OpenResponseInputItem | null {
+  const raw = queueMessage.receivedAt || queueMessage.messageTimestamp;
+  const at = raw ? new Date(raw) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return null;
+  }
+  return buildUserSceneInputItem([renderPromptSnippet('runtime_wake_perception.md', { NOW_EAST8: formatEast8Timestamp(at) }).trim()]);
+}
+
 function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
   if (!isSystemReminderPayload(queueMessage)) {
     return false;
@@ -19814,10 +19842,20 @@ function buildCurrentTurnInputItems(
   if (parts.length === 0) {
     return [];
   }
-  // Every Notify Bucket trigger — external (QQ) or internal (clock ping, recall, <xiaoni_plan>, ...) —
-  // is a runtime notice, so it is a developer item. On the 5.5 models a developer run that follows
-  // a user turn goes out as a mid-conversation role:system message (the operator channel).
-  const triggerItem = buildDeveloperInputItem(parts);
+  // Two kinds of Notify Bucket trigger, mapped onto Claude's roles:
+  //   - perception (something happened in her world: QQ, a finished task, a memory surfacing, the
+  //     clock) -> a user turn: in Claude, input from outside the model is a user turn.
+  //   - operator notice (the runtime / body / 阿花 speaking to her: <xiaoni_plan>, deep-dive round,
+  //     compression done, ...) -> a developer item, which on the 5.5 models goes out as a
+  //     mid-conversation role:system message. That message must follow a user turn, and a wake
+  //     usually follows her last answer, so it is preceded by a real perception: the time it arrived.
+  // The time comes from the queue message itself, so a rebuild produces the same bytes.
+  if (isOperatorNoticePayload(queueMessage)) {
+    const perception = buildWakePerceptionInputItem(queueMessage);
+    return [...(perception ? [perception] : []), buildDeveloperInputItem(parts)]
+      .map((item) => ({ ...(item as Record<string, unknown>), cache_volatile: true } as unknown as OpenResponseInputItem));
+  }
+  const triggerItem = buildUserSceneInputItem(parts);
   // The current-turn trigger carries a fresh [当前时间] stamp every build, so the cache
   // breakpoint must NOT anchor on it: anchoring on a per-turn-varying block drifts the
   // whole cached body at every run/heartbeat boundary (the breakpoint block's bytes
