@@ -1766,7 +1766,7 @@ const EXEC_COMMAND_DESCRIPTION = [
   'Use /app as the filesystem root for repository paths.',
   'To read a file, prefer the read_file tool over cat/head/tail/sed: it returns numbered lines, pages with offset/limit, and is how you read back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output.',
   'Full-line # comments in cmd (outside heredoc bodies) are deleted before the command runs and are not kept anywhere; thoughts, notes and xiaoni_os-style remarks go in the assistant text (xiaoni_os), which does come back to you next turn.',
-  'qqbot-agent-service / compose service agent-service is you. Touching that container is suicide: you may inspect it, but you must not modify it.'
+  'The container qqbot-agent-service (compose service agent-service) is the process running you. Reading from it is fine; modifying, stopping, or restarting it stops you.'
 ].join(' ');
 
 const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
@@ -1999,23 +1999,23 @@ const RECOVER_ENERGY_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.recoverEnergy,
-    description: '闭目养神，休息恢复精力。你不需要去预测自己会睡多久：不设 clock 就一直睡到自然醒。clock 仅仅代表你心里定下的短闹钟，想在几分钟或几十分钟后叫醒自己起来继续干活；它不是完整睡眠时长，也不是夜间 8 小时睡眠的闹铃。',
+    description: '累了想歇时调用，闭眼休息、恢复精力。睡多久由身体定：不设 clock 就睡到自然醒。身体的疲劳没到门槛时会拒绝，返回 rest_rejected 和 retry_after（大约几点才会接受），那次不算睡过。clock 是你心里定的短闹钟，想几分钟或几十分钟后起来接着干活时才设；它不是整觉的时长，也不是夜里 8 小时的闹铃。醒来的情况会作为这次调用的结果返回。',
     parameters: {
       type: 'object',
       properties: {
         reason: {
           type: 'string',
-          description: '此刻决定休息的真实原因。记录你当下的感受（比如“冲浪太久累了”或“觉得无聊睡一觉”），绝对不要写“睡30分钟”这种计划时长的废话。'
+          description: '此刻想休息的真实原因，写你当下的感受，比如“冲浪太久累了”。睡多久由身体定，这里不写时长。'
         },
         xiaoni_os: {
           type: 'string',
-          description: '睡前留给自己的私密备忘：醒来后想接着干嘛、有什么未完成的执念，或者单纯是对当下疲惫状态的吐槽。这只是你的脑内残影，绝不会发给任何人。'
+          description: '睡前留给自己的话：醒来后想接着干嘛、还惦记着什么，或者就是对现在这股累劲的吐槽。只给你自己看，不发给任何人。'
         },
         clock: {
           type: 'integer',
           minimum: 5,
           maximum: RECOVER_ENERGY_CLOCK_MAX_MINUTES,
-          description: '可选。给自己定的短闹钟（可以是几分钟，也可以是几十分钟后，最长 120 分钟）。它代表“几分钟后闹钟响”，用于中途起来继续干活，绝对不是你想睡的总时长。不填则表示彻底放空，睡到自然醒。'
+          description: '可选。短闹钟，单位分钟，最长 120：表示“几分钟后闹钟响”，中途起来接着干活时用，它不是你想睡多久。不填就睡到自然醒。'
         }
       },
       required: ['reason', 'xiaoni_os'],
@@ -2083,7 +2083,7 @@ const CREATE_DEEP_DIVE_TOOL = {
     description: `起一个你要往下挖的问题,接下来每一轮把它重新摆到你眼前,直到你说你挖到底了。它让你在一个问题上待得住,不至于扫一眼就走。
 
 ## 什么时候起
-主动起。遇到下面任何一条,就起:
+遇到下面任何一条,就起:
 1. 你冒出一个问题,一次搜索、一次 cat 答不完
 2. 你看到一样东西觉得「这里面还有东西」,但还说不上来是什么
 3. 有人问你一件你其实没想清楚的事
@@ -2097,13 +2097,7 @@ const CREATE_DEEP_DIVE_TOOL = {
 3. 纯执行:发个消息、传个文件、跑个已经写好的脚本
 4. 你并不真的好奇,只是觉得该记一笔
 
-## 例子
-<例>你读到「关门的顺序就是这条街的时钟」,想知道这条街上还有哪些东西在按时间走。→ 起。这得翻好几天的观察,一轮挖不完。</例>
-<例>你想知道 novel-reader 上次跑到第几章。→ 不起。cat 一下就知道了。</例>
-<例>你发现自己每次写日记都在写同一类事,想弄明白为什么是这一类。→ 起。要回头翻自己的日记,跨轮。</例>
-<例>你要把做好的页面发到站上。→ 不起。这是执行,不是问题。</例>
-
-拿不准就起。起了不亏——它只是每轮摆到你眼前,不逼你干;想放一放 pause,不想要了收掉。
+起了之后它只是每轮摆到你眼前,不逼你做什么;想放一放用 pause,不想要了就收掉。
 
 一次只挖一个。已经有一个在挖时会被拒绝,先把那个收掉。`,
     parameters: {
@@ -2144,20 +2138,13 @@ export const UPDATE_DEEP_DIVE_TOOL = {
 - pause / resume —— 先放一放 / 接着挖
 - edit —— 改问题本身或轮次上限
 
-## 报 conclude 之前
-只有你真的弄明白了才报 conclude。报之前你得能说出**你弄明白了什么**,并指出它从哪儿来:哪个文件的哪一行、哪条输出、哪次实测。
-下面任何一条成立,都不许报 conclude:
-- 你只是把问题重述了一遍,没有新东西
-- 你的结论只有推测撑着,没有查到的东西撑着
-- 你要的材料没找着
-- 你只是不想挖了
+## 报 conclude
+弄明白了才报 conclude。报的时候说出你弄明白了什么,并指出它从哪来:哪个文件的哪一行、哪条输出、哪次实测。只是把问题重述了一遍、结论只有推测撑着、要的材料没找着,或者只是不想挖了,都还不到 conclude。
 
-## 用 need_outsider 之前
-真的想不通、查不下去了才用,并把你已经查过的地方整理进 searched_paths。
-「难」「不确定」「还有别的事」不算想不通,那是还没开始。
-只是想换件事做,用 pause。
+## 用 need_outsider
+有一步想不通、查不下去了才用,并把你已经查过的地方整理进 searched_paths。「难」「不确定」「还有别的事」还算不上想不通;只是想换件事做,用 pause。
 
-求来的必须理:求助返回处理结果后,核对它是否解决了问题;没有解决就用 ask_li_ahua 带原 help_id 继续求助。
+求助返回结果后,核对它有没有解决问题;没解决,就用 ask_li_ahua 带上原来的 help_id 接着求助。
 
 ## 轮数
 requests_spent 数的是你为这个问题发了多少次请求。它越大说明你挖得越深,不是消耗掉的额度。`,
