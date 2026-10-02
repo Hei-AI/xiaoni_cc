@@ -2345,7 +2345,7 @@ function streamItemKind(item: XiaoniActivityFeedItem): string {
 }
 
 function oneLine(text: string, max = 80): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
+  const flat = text.replace(/<\/?system-reminder>/g, '').replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
