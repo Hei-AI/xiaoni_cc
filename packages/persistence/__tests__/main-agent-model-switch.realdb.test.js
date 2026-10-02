@@ -141,4 +141,12 @@ test('effort follows the model rule: seed fills NULL once, request is pending on
 
   const again = await promotePendingMainAgentCacheKeySettings({ identityKey: IDENTITY }, CONFIG);
   assert.equal(again.promoted, false);
+
+  // The plain read is what agent-service and the admin panel use; it must carry the effort columns.
+  await requestMainAgentEffortChange({ identityKey: IDENTITY, effort: 'low' }, CONFIG);
+  const read = await getAgentRuntimeControl({ identityKey: IDENTITY }, CONFIG);
+  assert.equal(read.mainAgentEffort, 'high');
+  assert.equal(read.mainAgentEffortPending, 'low');
+  assert.ok(read.mainAgentEffortPendingAt);
+  assert.ok(read.mainAgentEffortSwitchedAt);
 });

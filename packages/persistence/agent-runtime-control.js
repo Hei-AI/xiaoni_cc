@@ -304,6 +304,10 @@ function createAgentRuntimeControlPersistence(deps) {
             , main_agent_model_pending
             , main_agent_model_pending_at
             , main_agent_model_switched_at
+            , main_agent_effort
+            , main_agent_effort_pending
+            , main_agent_effort_pending_at
+            , main_agent_effort_switched_at
           FROM agent_runtime_control
           WHERE identity_key = ?
           LIMIT 1
