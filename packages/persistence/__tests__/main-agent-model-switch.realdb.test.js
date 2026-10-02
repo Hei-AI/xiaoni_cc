@@ -15,7 +15,10 @@ const {
   updateAgentRuntimeControl,
   triggerPostCompressionRuntimePause,
   requestMainAgentModelSwitch,
-  promotePendingMainAgentModel
+  promotePendingMainAgentModel,
+  requestMainAgentEffortChange,
+  seedMainAgentCacheKeySettings,
+  promotePendingMainAgentCacheKeySettings
 } = require('../index');
 
 const PG_HOST = process.env.DB_HOST || 'localhost';
@@ -101,4 +104,41 @@ test('the other runtime-control writers return the full row (model columns inclu
   const paused = await triggerPostCompressionRuntimePause({ identityKey: IDENTITY }, CONFIG);
   assert.equal(paused.mainAgentModel, 'claude-opus-5-5');
   assert.equal(typeof paused.pauseJustTriggered, 'boolean');
+});
+
+test('effort follows the model rule: seed fills NULL once, request is pending only, promote applies it', async (t) => {
+  if (!dbReady) {
+    t.skip('qqbot_cache_test unreachable');
+    return;
+  }
+  const seeded = await seedMainAgentCacheKeySettings({ identityKey: IDENTITY, model: 'env-model', effort: 'high' }, CONFIG);
+  assert.equal(seeded.mainAgentEffort, 'high', 'NULL effort is seeded from env');
+  assert.equal(seeded.mainAgentModel, 'claude-opus-5-5', 'an existing model is never overwritten by the seed');
+
+  const reseeded = await seedMainAgentCacheKeySettings({ identityKey: IDENTITY, model: 'env-model', effort: 'low' }, CONFIG);
+  assert.equal(reseeded.mainAgentEffort, 'high', 'a changed env value must not change the effective effort');
+
+  const requested = await requestMainAgentEffortChange({ identityKey: IDENTITY, effort: 'medium' }, CONFIG);
+  assert.equal(requested.mainAgentEffort, 'high', 'request must not change the effective effort');
+  assert.equal(requested.mainAgentEffortPending, 'medium');
+
+  const promoted = await promotePendingMainAgentCacheKeySettings({ identityKey: IDENTITY }, CONFIG);
+  assert.equal(promoted.promoted, true);
+  assert.equal(promoted.promotedEffort, 'medium');
+  assert.equal(promoted.promotedModel, null, 'model was not pending');
+  assert.equal(promoted.control.mainAgentEffort, 'medium');
+  assert.equal(promoted.control.mainAgentEffortPending, null);
+  assert.equal(promoted.control.mainAgentModel, 'claude-opus-5-5', 'promoting effort leaves the model alone');
+  assert.ok(promoted.control.mainAgentEffortSwitchedAt);
+
+  await requestMainAgentModelSwitch({ identityKey: IDENTITY, model: 'claude-sonnet-5-5' }, CONFIG);
+  await requestMainAgentEffortChange({ identityKey: IDENTITY, effort: 'high' }, CONFIG);
+  const both = await promotePendingMainAgentModel({ identityKey: IDENTITY }, CONFIG);
+  assert.equal(both.promotedModel, 'claude-sonnet-5-5');
+  assert.equal(both.promotedEffort, 'high');
+  assert.equal(both.control.mainAgentModel, 'claude-sonnet-5-5');
+  assert.equal(both.control.mainAgentEffort, 'high');
+
+  const again = await promotePendingMainAgentCacheKeySettings({ identityKey: IDENTITY }, CONFIG);
+  assert.equal(again.promoted, false);
 });

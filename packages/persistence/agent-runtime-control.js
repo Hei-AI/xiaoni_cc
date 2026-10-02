@@ -111,6 +111,14 @@ function normalizeRuntimeControl(row) {
       : null,
     mainAgentModelPendingAt: serializeTimestampForApi(row?.main_agent_model_pending_at),
     mainAgentModelSwitchedAt: serializeTimestampForApi(row?.main_agent_model_switched_at),
+    // 主 agent 思考等级(Claude 5.5 的 output_config.effort)。和模型同一条规矩:缓存键的一部分,
+    // 只写 pending,压缩提交那一帧才生效。null = 还没落过库,agent-service 启动时用 env 播种一次。
+    mainAgentEffort: typeof row?.main_agent_effort === 'string' && row.main_agent_effort.trim() ? row.main_agent_effort.trim() : null,
+    mainAgentEffortPending: typeof row?.main_agent_effort_pending === 'string' && row.main_agent_effort_pending.trim()
+      ? row.main_agent_effort_pending.trim()
+      : null,
+    mainAgentEffortPendingAt: serializeTimestampForApi(row?.main_agent_effort_pending_at),
+    mainAgentEffortSwitchedAt: serializeTimestampForApi(row?.main_agent_effort_switched_at),
     updatedAt: serializeTimestampForApi(row?.updated_at)
   };
 }
@@ -162,6 +170,10 @@ function createAgentRuntimeControlPersistence(deps) {
         main_agent_model_pending TEXT,
         main_agent_model_pending_at TIMESTAMPTZ(3),
         main_agent_model_switched_at TIMESTAMPTZ(3),
+        main_agent_effort TEXT,
+        main_agent_effort_pending TEXT,
+        main_agent_effort_pending_at TIMESTAMPTZ(3),
+        main_agent_effort_switched_at TIMESTAMPTZ(3),
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -193,6 +205,11 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model_pending TEXT');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model_pending_at TIMESTAMPTZ(3)');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_model_switched_at TIMESTAMPTZ(3)');
+    // Main-agent thinking effort: same rule as the model (it is part of the cache key too).
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_effort TEXT');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_effort_pending TEXT');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_effort_pending_at TIMESTAMPTZ(3)');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_effort_switched_at TIMESTAMPTZ(3)');
     await sql.execute(`
       DO $$
       BEGIN
@@ -633,8 +650,69 @@ function createAgentRuntimeControlPersistence(deps) {
     }
   }
 
-  // Atomically make the pending model effective. Returns { promoted: false } when nothing is pending.
-  async function promotePendingMainAgentModel(input = {}, config = {}) {
+  // Same as requestMainAgentModelSwitch, for the thinking effort. effort=null cancels a pending change.
+  async function requestMainAgentEffortChange(input = {}, config = {}) {
+    const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
+      ? input.identityKey.trim()
+      : 'xiaoni';
+    const effort = typeof input.effort === 'string' && input.effort.trim() ? input.effort.trim() : null;
+    const sql = createSqlAdapter(config);
+    try {
+      await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      const rows = await sql.query(
+        `
+          INSERT INTO agent_runtime_control (identity_key, enabled, main_agent_effort_pending, main_agent_effort_pending_at, updated_at)
+          VALUES (?, TRUE, ?, CASE WHEN ?::text IS NULL THEN NULL ELSE NOW() END, NOW())
+          ON CONFLICT (identity_key)
+          DO UPDATE SET
+            main_agent_effort_pending = EXCLUDED.main_agent_effort_pending,
+            main_agent_effort_pending_at = EXCLUDED.main_agent_effort_pending_at,
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [identityKey, effort, effort]
+      );
+      return normalizeRuntimeControl(rows[0]);
+    } finally {
+      await sql.close();
+    }
+  }
+
+  // Fill the effective model / effort once, from the agent-service env, while they are still NULL.
+  // After that the env value is never read again for requests: a restart or a compose edit can no
+  // longer change a cache-key setting behind the compression frame's back. Existing values win.
+  async function seedMainAgentCacheKeySettings(input = {}, config = {}) {
+    const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
+      ? input.identityKey.trim()
+      : 'xiaoni';
+    const model = typeof input.model === 'string' && input.model.trim() ? input.model.trim() : null;
+    const effort = typeof input.effort === 'string' && input.effort.trim() ? input.effort.trim() : null;
+    const sql = createSqlAdapter(config);
+    try {
+      await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      const rows = await sql.query(
+        `
+          INSERT INTO agent_runtime_control (identity_key, enabled, main_agent_model, main_agent_effort, updated_at)
+          VALUES (?, TRUE, ?, ?, NOW())
+          ON CONFLICT (identity_key)
+          DO UPDATE SET
+            main_agent_model = COALESCE(agent_runtime_control.main_agent_model, EXCLUDED.main_agent_model),
+            main_agent_effort = COALESCE(agent_runtime_control.main_agent_effort, EXCLUDED.main_agent_effort),
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [identityKey, model, effort]
+      );
+      return normalizeRuntimeControl(rows[0]);
+    } finally {
+      await sql.close();
+    }
+  }
+
+  // Atomically make every pending cache-key setting (model, effort) effective — called only at a
+  // core-memory-compression commit. Returns which ones changed; { promoted: false } when nothing
+  // was pending.
+  async function promotePendingMainAgentCacheKeySettings(input = {}, config = {}) {
     const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
       ? input.identityKey.trim()
       : 'xiaoni';
@@ -643,25 +721,46 @@ function createAgentRuntimeControlPersistence(deps) {
       await ensureAgentRuntimeControlSchemaWithSql(sql, config);
       const rows = await sql.query(
         `
-          UPDATE agent_runtime_control
-          SET main_agent_model = main_agent_model_pending,
+          WITH prev AS (
+            SELECT identity_key, main_agent_model_pending, main_agent_effort_pending
+            FROM agent_runtime_control
+            WHERE identity_key = ?
+              AND (main_agent_model_pending IS NOT NULL OR main_agent_effort_pending IS NOT NULL)
+            FOR UPDATE
+          )
+          UPDATE agent_runtime_control c
+          SET main_agent_model = COALESCE(prev.main_agent_model_pending, c.main_agent_model),
+              main_agent_model_switched_at = CASE WHEN prev.main_agent_model_pending IS NOT NULL THEN NOW() ELSE c.main_agent_model_switched_at END,
               main_agent_model_pending = NULL,
               main_agent_model_pending_at = NULL,
-              main_agent_model_switched_at = NOW(),
+              main_agent_effort = COALESCE(prev.main_agent_effort_pending, c.main_agent_effort),
+              main_agent_effort_switched_at = CASE WHEN prev.main_agent_effort_pending IS NOT NULL THEN NOW() ELSE c.main_agent_effort_switched_at END,
+              main_agent_effort_pending = NULL,
+              main_agent_effort_pending_at = NULL,
               updated_at = NOW()
-          WHERE identity_key = ?
-            AND main_agent_model_pending IS NOT NULL
-          RETURNING *
+          FROM prev
+          WHERE c.identity_key = prev.identity_key
+          RETURNING c.*, prev.main_agent_model_pending AS promoted_model, prev.main_agent_effort_pending AS promoted_effort
         `,
         [identityKey]
       );
       if (!rows[0]) {
-        return { promoted: false, control: null };
+        return { promoted: false, promotedModel: null, promotedEffort: null, control: null };
       }
-      return { promoted: true, control: normalizeRuntimeControl(rows[0]) };
+      return {
+        promoted: true,
+        promotedModel: rows[0].promoted_model || null,
+        promotedEffort: rows[0].promoted_effort || null,
+        control: normalizeRuntimeControl(rows[0])
+      };
     } finally {
       await sql.close();
     }
+  }
+
+  // Kept for existing callers: promotes model AND effort (they share one rule and one frame).
+  async function promotePendingMainAgentModel(input = {}, config = {}) {
+    return promotePendingMainAgentCacheKeySettings(input, config);
   }
 
   async function triggerPostCompressionRuntimePause(input = {}, config = {}) {
@@ -794,6 +893,9 @@ function createAgentRuntimeControlPersistence(deps) {
     updateAgentRuntimeControl,
     setAgentEnergyPolicy,
     requestMainAgentModelSwitch,
+    requestMainAgentEffortChange,
+    seedMainAgentCacheKeySettings,
+    promotePendingMainAgentCacheKeySettings,
     promotePendingMainAgentModel,
     triggerPostCompressionRuntimePause,
     haltRuntimeForCompressionOverrun

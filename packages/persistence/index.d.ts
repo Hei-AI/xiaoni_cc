@@ -2650,6 +2650,10 @@ export type AgentRuntimeControlProjection = {
   mainAgentModelPending: string | null;
   mainAgentModelPendingAt: string | null;
   mainAgentModelSwitchedAt: string | null;
+  mainAgentEffort: string | null;
+  mainAgentEffortPending: string | null;
+  mainAgentEffortPendingAt: string | null;
+  mainAgentEffortSwitchedAt: string | null;
   updatedAt: string | null;
 };
 export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;
@@ -2657,7 +2661,11 @@ export function getAgentRuntimeControl(input?: Record<string, unknown>, config?:
 export function updateAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function setAgentEnergyPolicy(input?: { identityKey?: string; energyPolicy?: Record<string, number> | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function requestMainAgentModelSwitch(input?: { identityKey?: string; model?: string | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
-export function promotePendingMainAgentModel(input?: { identityKey?: string }, config?: DatabaseUrlConfig): Promise<{ promoted: boolean; control: AgentRuntimeControlProjection | null }>;
+export type PromotedMainAgentCacheKeySettings = { promoted: boolean; promotedModel: string | null; promotedEffort: string | null; control: AgentRuntimeControlProjection | null };
+export function requestMainAgentEffortChange(input?: { identityKey?: string; effort?: string | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function seedMainAgentCacheKeySettings(input?: { identityKey?: string; model?: string | null; effort?: string | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function promotePendingMainAgentCacheKeySettings(input?: { identityKey?: string }, config?: DatabaseUrlConfig): Promise<PromotedMainAgentCacheKeySettings>;
+export function promotePendingMainAgentModel(input?: { identityKey?: string }, config?: DatabaseUrlConfig): Promise<PromotedMainAgentCacheKeySettings>;
 export function triggerPostCompressionRuntimePause(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { pauseJustTriggered: boolean }>;
 export function haltRuntimeForCompressionOverrun(input?: { identityKey?: string; reason?: string; heartbeatIntervalMs?: number }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { haltJustTriggered: boolean }>;
 
