@@ -49,6 +49,12 @@ export function countXiaoniOsChars(text: string): number {
   return Array.from((text || '').trim()).length;
 }
 
+// 只差空白和标点(全角 / 半角、有没有句末标点)的两段,算同一段话。
+export function isSameXiaoniOsText(a: string, b: string): boolean {
+  const normalize = (text: string) => (text || '').replace(/[\s，,。.！!？?；;：:、…~～「」“”"'‘’（）()]/gu, '');
+  return normalize(a) === normalize(b);
+}
+
 // 截到 limit 字以内:优先停在最后一个句末标点后面;一个完整句子都放不下就硬截。
 export function truncateXiaoniOsToLimit(text: string, limit: number): string {
   const chars = Array.from((text || '').trim());
@@ -186,7 +192,8 @@ export async function runXiaoniOsRewriteLeg(params: {
     return result;
   };
   const accept = (text: string): XiaoniOsRewriteLegResult => {
-    result.outcome = text === original ? 'kept' : 'rewritten';
+    // 「原样交回」时模型常顺手改标点 / 空白:归一化后和原文一样就算没改,用原文字节。
+    result.outcome = isSameXiaoniOsText(text, original) ? 'kept' : 'rewritten';
     result.rewrittenText = result.outcome === 'rewritten' ? text : null;
     return finish();
   };

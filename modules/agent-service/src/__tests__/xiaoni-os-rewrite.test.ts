@@ -143,6 +143,13 @@ test('leg: the fork returns the original unchanged → kept', async () => {
   assert.equal(result.rewrittenText, null);
 });
 
+test('leg: a version that differs only in punctuation / spaces counts as kept; the original bytes stay', async () => {
+  const original = 'Kate星级页读完，没新问题；明早默写间隔重复';
+  const result = await runXiaoniOsRewriteLeg({ text: original, fetchFill: scriptedFill([block('Kate 星级页读完,没新问题;明早默写间隔重复。')]).fetchFill });
+  assert.equal(result.outcome, 'kept');
+  assert.equal(result.rewrittenText, null);
+});
+
 test('leg: the fork fails every attempt (throws / no output) → failed_open keeps the original; it is retried first', async () => {
   const fill = scriptedFill([new Error('provider 500'), null, new Error('provider 500')]);
   const result = await runXiaoniOsRewriteLeg({ text: '读完第三章了。', fetchFill: fill.fetchFill });
