@@ -1917,7 +1917,7 @@ test('diary index: deterministic render right below <xiaoni_status>; null snapsh
   const prompt = createRuntimePrompt();
   const payload: any = baseQueuePayload();
   const INDEX = '- 2026-07-23 | 修好了发图\n- 2026-07-24 | 做了不响';
-  const buildOnce = () => buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', false, null, null, [], null, INDEX);
+  const buildOnce = () => buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', null, [], null, INDEX);
   const a = buildOnce();
   const b = buildOnce();
   assert.equal(JSON.stringify(a), JSON.stringify(b), 'same inputs must render byte-identically (deterministic index block)');
@@ -1929,7 +1929,7 @@ test('diary index: deterministic render right below <xiaoni_status>; null snapsh
   assert.equal(indexIdx, statusIdx + 1, '<xiaoni_diary_index> must sit immediately below <xiaoni_status> (frozen head position)');
   assert.ok(texts[indexIdx].includes('做了不响'), 'index block must carry the snapshot content');
 
-  const withoutIndex = buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', false, null, null, [], null, null);
+  const withoutIndex = buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', null, [], null, null);
   assert.ok(!JSON.stringify(withoutIndex).includes('xiaoni_diary_index'), 'null snapshot must render NO block (no empty tags in the prefix)');
   // null-snapshot build must be byte-identical to a pre-feature build shape: removing the
   // index leaves every other item untouched.
@@ -2034,7 +2034,7 @@ test('people index: deterministic render right below <xiaoni_diary_index>; null 
   const payload: any = baseQueuePayload();
   const DIARY = '- 2026-07-24 | 做了不响';
   const PEOPLE = '- 阿花(85178516) | owner,agent方向\n- 楠楠 | 在考研';
-  const buildOnce = () => buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', false, null, null, [], null, DIARY, PEOPLE);
+  const buildOnce = () => buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', null, [], null, DIARY, PEOPLE);
   const a = buildOnce();
   const b = buildOnce();
   assert.equal(JSON.stringify(a), JSON.stringify(b), 'same inputs must render byte-identically (deterministic people block)');
@@ -2047,7 +2047,7 @@ test('people index: deterministic render right below <xiaoni_diary_index>; null 
   assert.equal(peopleIdx, diaryIdx + 1, '<xiaoni_people> must sit immediately below <xiaoni_diary_index> (frozen head position)');
   assert.ok(texts[peopleIdx].includes('85178516'), 'people block must carry the snapshot content');
 
-  const withoutPeople = buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', false, null, null, [], null, DIARY, null);
+  const withoutPeople = buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', null, [], null, DIARY, null);
   assert.ok(!JSON.stringify(withoutPeople).includes('xiaoni_people'), 'null people snapshot must render NO block');
   const aWithoutPeopleItems = a.filter((_: any, i: number) => i !== peopleIdx);
   assert.equal(JSON.stringify(aWithoutPeopleItems), JSON.stringify(withoutPeople), 'people block must be purely additive — all other items byte-identical');

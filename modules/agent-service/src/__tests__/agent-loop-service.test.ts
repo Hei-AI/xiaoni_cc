@@ -609,7 +609,7 @@ test('buildInitialInput reuses precomputed current-turn items instead of rebuild
 
   const withPrecomputed = buildInitialInput(
     [], createQueuePayload(), createRuntimePrompt(),
-    [], null, null, null, 'fresh_trigger', false, null, null, [],
+    [], null, null, null, 'fresh_trigger', null, [],
     precomputed
   );
   const withoutPrecomputed = buildInitialInput([], createQueuePayload());
@@ -1638,45 +1638,6 @@ test('buildInitialInput replays stack runtime_input wrapper items in original or
   assert.equal(osIndex, -1);
 });
 
-test('buildInitialInput appends self continuation after terminal final_answer only when requested', () => {
-  const turn = createConversationTurn({
-    id: 47,
-    userMessage: '',
-    aiResponse: null
-  });
-  attachStackReplayItems(turn, [{
-    type: 'message',
-    role: 'assistant',
-    phase: 'final_answer',
-    content: [{
-      type: 'output_text',
-      text: '留白。'
-    }]
-  }]);
-
-  const withoutReminder = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', false);
-  assert.equal(withoutReminder.some((item: any) => (
-    item.type === 'message'
-    && getMessageContent(item).includes('内驱微光')
-  )), false);
-
-  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true);
-  // R1: D ("留白") is stripped from replay, but the self-continuation reminder is still
-  // appended (the terminal final_answer is detected from the raw, pre-strip items).
-  assert.equal(loopInput.some((item: any) => (
-    item.type === 'message'
-    && getMessageContent(item).includes('留白')
-  )), false);
-  const reminderIndex = loopInput.findIndex((item: any) => (
-    item.type === 'message'
-    && item.role === 'developer'
-    && getMessageContent(item).includes('<system-reminder>')
-  ));
-
-  assert.ok(reminderIndex >= 0);
-  assert.doesNotMatch(getMessageContent(loopInput[reminderIndex]), EAST8_TIME_PREFIX_PATTERN);
-});
-
 test('buildInitialInput can place loop continuation before the current notification trigger', () => {
   const toolOutput = {
     type: 'function_call_output' as const,
@@ -1692,8 +1653,6 @@ test('buildInitialInput can place loop continuation before the current notificat
     null,
     null,
     'fresh_trigger',
-    false,
-    null,
     null,
     [toolOutput]
   );
@@ -1734,8 +1693,6 @@ test('buildInitialInput pairs persisted recover_energy call with wake callback o
     null,
     null,
     'suppress_current_trigger',
-    false,
-    null,
     null,
     [{
       type: 'function_call_output',
@@ -6540,127 +6497,6 @@ test('runtime frame records final_answer without eager self continuation when qu
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
 });
 
-test('no-notify continuation inserts self continuation after prior final_answer', async () => {
-  const priorFinalAnswerReplay = {
-    type: 'message',
-    role: 'assistant',
-    phase: 'final_answer',
-    content: [{ type: 'output_text', text: '留白。' }]
-  };
-  // One BLOCK on the flat stack ending in an assistant final_answer (stack_index above the
-  // 1001-head backstop floor so a null-cutoff read keeps it).
-  const finalAnswerBlock = {
-    stack_index: 998, stackIndex: 998, item_kind: 'assistant_output', itemKind: 'assistant_output',
-    visibility: 'model_visible',
-    content: priorFinalAnswerReplay
-  };
-  const queueMessage = {
-    id: 'runtime-no-notify-after-final',
-    traceId: 'trace-runtime-no-notify-after-final',
-    batchId: 'batch-runtime-no-notify-after-final',
-    status: 'processing',
-    attempts: 1,
-    createdAt: '2026-03-28T08:00:00.000Z',
-    queueMessageIds: [],
-    payload: {
-      ...createQueuePayload(),
-      source: 'runtime_loop',
-      messages: []
-    }
-  };
-  const storeCalls: Record<string, any[]> = {
-    appendAgentStackItems: [],
-    createConversation: [],
-    updateLlmRequestSliceStackLinks: []
-  };
-  const callOrder: string[] = [];
-  const store = {
-    createLlmJob: async () => 'job-runtime-no-notify-after-final',
-    logTimelineEvent: async () => {},
-    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listAgentStackItems: async (params: any) => {
-      const after = params.afterStackIndex ?? null;
-      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
-      return [finalAnswerBlock].filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
-    },
-    getSessionReadCutoffState: async () => null,
-    upsertSessionReadCutoffState: async () => {},
-    upsertProactiveShareState: async () => {},
-    getExecutionLeaseDeliveryState: async () => ({
-      deliveryPhase: 'reasoning_open',
-      deliveryCommitCount: 0,
-      blockedDeliveryAttemptCount: 0,
-      lastBlockedDeliveryReason: null
-    }),
-    appendAgentStackItems: async (params: any) => {
-      callOrder.push('appendAgentStackItems');
-      storeCalls.appendAgentStackItems.push(params);
-      return [{ id: 'stack-self-continuation', stackIndex: 1001 }];
-    },
-    getAgentStackHead: async () => 1001,
-    updateLlmRequestSliceStackLinks: async (params: any) => {
-      storeCalls.updateLlmRequestSliceStackLinks.push(params);
-      return null;
-    },
-    createConversation: async (params: any) => {
-      storeCalls.createConversation.push(params);
-      return 2000;
-    },
-    attachConversationIdToTrace: async () => {},
-    updateLlmJob: async () => {}
-  } as any;
-  const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
-  let capturedInput: any[] = [];
-  let executeAgentTurnCalled = false;
-  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
-    callOrder.push('executeAgentTurn');
-    executeAgentTurnCalled = true;
-    capturedInput = canonicalRequest.input || [];
-    return {
-      success: true,
-      llm_call_id: 'llm-runtime-no-notify-after-final',
-      canonical_response: {
-        output: []
-      }
-    };
-  };
-
-  await processRuntimeFrameForTest(service, queueMessage as any, {
-    queueBacked: false,
-    triggerInputMode: 'suppress_current_trigger',
-    appendRuntimeInputStackItem: false,
-    logQueueLifecycle: false
-  });
-
-  // R1: the prior final_answer ("留白") is stripped from the replayed context, but the
-  // self-continuation reminder is still inserted (terminal final_answer detected from raw).
-  assert.equal(capturedInput.some((item: any) => (
-    item.type === 'message'
-    && getMessageContent(item).includes('留白')
-  )), false);
-  const reminderIndex = capturedInput.findIndex((item: any) => (
-    item.type === 'message'
-    && item.role === 'developer'
-    && getMessageContent(item).includes('<system-reminder>')
-  ));
-  assert.ok(reminderIndex >= 0);
-  assert.equal(executeAgentTurnCalled, true);
-  assert.ok(callOrder.indexOf('appendAgentStackItems') >= 0);
-  assert.ok(callOrder.indexOf('appendAgentStackItems') < callOrder.indexOf('executeAgentTurn'));
-  const selfContinuationStackBatch = storeCalls.appendAgentStackItems.find((call) =>
-    call.sourceType === 'agent_runtime'
-      && call.items?.[0]?.itemKind === 'runtime_input'
-      && call.items?.[0]?.content?.source === 'self_continuation'
-  );
-  assert.ok(selfContinuationStackBatch);
-  assert.equal(selfContinuationStackBatch.items[0].role, 'developer');
-  assert.deepEqual(selfContinuationStackBatch.items[0].content.input_items[0], capturedInput[reminderIndex]);
-  assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system-reminder>/);
-  assert.equal(storeCalls.updateLlmRequestSliceStackLinks[0]?.inputEndIndex, 1001);
-});
-
 test('no-notify continuation does not append self continuation after tool output', async () => {
   const priorFinalAnswerReplay = {
     type: 'message',
@@ -6668,11 +6504,12 @@ test('no-notify continuation does not append self continuation after tool output
     phase: 'final_answer',
     content: [{ type: 'output_text', text: '上一轮收尾。' }]
   };
-  const generatedReminder = buildInitialInput([
-    { id: 994, stackReplayItems: [priorFinalAnswerReplay] } as any
-  ], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true)
-    .find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<system-reminder>'));
-  assert.ok(generatedReminder);
+  // 旧版本写进 stack 的 self_continuation 行(该路径已删除),replay 时仍按存下来的 input_items 原样读回。
+  const generatedReminder = {
+    type: 'message',
+    role: 'developer',
+    content: [{ type: 'input_text', text: '<system-reminder>旧的续航提醒</system-reminder>' }]
+  };
   const priorToolCallReplay = {
     type: 'function_call',
     name: 'send_in_private',

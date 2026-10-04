@@ -577,7 +577,6 @@ type ContextBudgetPlan = {
   // the runtime_input 存档 (persisted for next-run replay) both reuse this exact
   // array instead of each rebuilding it, so the cached bytes == the replayed bytes.
   currentTurnInputItems: OpenResponseInputItem[];
-  selfContinuationInputItem: OpenResponseInputItem | null;
   summarySourceInput: OpenResponseInputItem[] | null;
   retainedHistory: ConversationTurn[];
   runtimeIdentityFacts: RuntimeIdentityFactProjection[];
@@ -4878,20 +4877,6 @@ function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem)
   ]);
 }
 
-// 主 agent 的续航提醒。**这条路径不许动** —— 它的产物经 buildSelfContinuationInputItem 冻结进
-// stack(content.system_reminder)，是主 run replay 要逐字节重建的东西。空转计数/升级段绝不能从这里进去。
-function renderSelfContinuationReminder() {
-  return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
-}
-
-// 自驱动 fork 的引导 prompt。与主 agent 的续航提醒【同源不同路】：
-//  - 不升级时：直接返回 renderSelfContinuationReminder() 本身 → 与主 agent 结构性逐字节一致，
-//    不是靠复制一份文案再比对(那样迟早漂)。
-//  - 升级时：在同一个 system_reminder 块里追加升级段。这段【只】出现在 fork 的尾部追加 item 里，
-//    fork 请求带 no_persist、不写 stack、不进主 run replay → 主 agent 永远看不到计数这回事。
-//  - 工具契约段(IDLE_PLAN_SKILL_SUBMISSION_ENABLED)：同样只进 fork 尾部。开关 ON 时才渲染，因为
-//    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的；两者共用一个开关就是为了让
-//    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙，就是因为正文里根本没写规则)。
 // 润色小请求的 user 输入:原文包在 <xiaoni_os> 块里;重写时追加一句反馈(超字数 / 没按块交)。
 function renderXiaoniOsPolishUserInput(text: string, request: XiaoniOsFillRequest): string {
   const parts = [`<xiaoni_os>\n${text.trim()}\n</xiaoni_os>`];
@@ -4903,13 +4888,25 @@ function renderXiaoniOsPolishUserInput(text: string, request: XiaoniOsFillReques
   return parts.join('\n\n');
 }
 
+// 潜意识 fork 尾部的基础提醒(self_continuation_reminder.md)。只给 fork 用:主 agent 那条
+// 「文字收尾就追加这份提醒」的旧路径已删除。
+function renderSelfContinuationReminder() {
+  return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
+}
+
+// 自驱动 fork 的引导 prompt:
+//  - 不升级时:直接返回 renderSelfContinuationReminder() 本身。
+//  - 升级时:在同一个 system_reminder 块里追加升级段。这段【只】出现在 fork 的尾部追加 item 里,
+//    fork 请求带 no_persist、不写 stack、不进主 run replay → 主 agent 永远看不到计数这回事。
+//  - 工具契约段(IDLE_PLAN_SKILL_SUBMISSION_ENABLED):同样只进 fork 尾部。开关 ON 时才渲染,因为
+//    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的;两者共用一个开关就是为了让
+//    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙,就是因为正文里根本没写规则)。
 function renderSubconsciousForkReminder(params: {
   idleRounds: number;
   lastPlanText: string | null;
 }) {
   const escalating = shouldEscalateSubconsciousFork(params);
   if (!escalating && !IDLE_PLAN_SKILL_SUBMISSION_ENABLED) {
-    // 两段都不追加时，走与主 agent 结构性同源的那一份，逐字节零变化。
     return renderSelfContinuationReminder();
   }
   const sections = [readPromptSnippet('self_continuation_reminder.md')];
@@ -5024,11 +5021,6 @@ export function renderExternalNotify(sourceSystem: string, text: string) {
   }).trim();
 }
 
-function buildSelfContinuationInputItem(): OpenResponseInputItem {
-  // A runtime notice like every other reminder -> developer (see buildCurrentTurnInputItems).
-  return buildDeveloperInputItem([renderSelfContinuationReminder()]);
-}
-
 function isOpenResponseMessageInputItem(item: OpenResponseInputItem | undefined): item is Extract<OpenResponseInputItem, { type: 'message' }> {
   if (!item || item.type !== 'message') {
     return false;
@@ -5058,28 +5050,6 @@ function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined
 // D at its TAIL (buildSubconsciousAgentForkRequest), not via the shared prefix.
 function isAssistantTextOutputReplayItem(item: OpenResponseInputItem | undefined): boolean {
   return Boolean(isOpenResponseMessageInputItem(item) && item.role === 'assistant');
-}
-
-// The self-driven-fork idle gate used to read the last item of the (suppress-mode)
-// requestInput. Now that assistant text (D) is stripped from every replay, requestInput
-// no longer ends in a final_answer, so the gate reads the RAW history instead: did the
-// most recent turn settle on an assistant final_answer (i.e. she is idle)?
-function lastHistoryTurnEndsWithAssistantFinalAnswer(history: ConversationTurn[]): boolean {
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const replay = buildTurnResponseReplayItems(history[index] as StackBackedConversationTurn);
-    if (replay.length === 0) {
-      continue;
-    }
-    return isAssistantFinalAnswerInputItem(replay[replay.length - 1]);
-  }
-  return false;
-}
-
-function shouldAllowSelfContinuationOnTerminalFinalAnswer(
-  options: ReturnType<typeof normalizeRuntimeFrameOptions>
-): boolean {
-  return !options.queueBacked
-    && options.triggerInputMode === 'suppress_current_trigger';
 }
 
 function isPhoneNotificationDirectCueMessage(
@@ -8272,7 +8242,7 @@ export class AgentLoopService {
     const developerContextBlock = [
       baseDeveloperContextBlock
     ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
-    const buildBudgetPlan = (appendSelfContinuationOnTerminalFinalAnswer: boolean) => this.buildContextBudgetPlan({
+    const buildBudgetPlan = () => this.buildContextBudgetPlan({
       history,
       queueMessage,
       runtimePrompt,
@@ -8282,19 +8252,9 @@ export class AgentLoopService {
       runtimeEnergyState,
       contextSessionKey,
       cutoffState,
-      triggerInputMode: 'suppress_current_trigger',
-      appendSelfContinuationOnTerminalFinalAnswer
+      triggerInputMode: 'suppress_current_trigger'
     });
-    // F1: do NOT append the self-continuation tail, even when the raw history ends in an
-    // assistant final_answer. The heartbeat's target is the entry the next NOTIFY-driven wake run
-    // hits — that run is queue-backed, so it does NOT append a self-continuation
-    // (shouldAllowSelfContinuationOnTerminalFinalAnswer requires !queueBacked). The self-cont item
-    // is DURABLE (buildUserSceneInputItem, role:'user'), so appending it would move the tail
-    // breakpoint to [..history, self-cont]; the notify wake's [..history] was never written as a
-    // breakpoint and would cold-read the whole history. Warming the plain [..history] gives the
-    // notify wake a full hit and a self-continuation wake a near-full hit (only its 1-item tail
-    // cold). The buildBudgetPlan(true) overload is retained for callers that genuinely self-continue.
-    const budgetPlan = await buildBudgetPlan(false);
+    const budgetPlan = await buildBudgetPlan();
 
     return {
       canonicalRequest: buildCacheHeartbeatForkRequest(
@@ -8735,7 +8695,6 @@ export class AgentLoopService {
     let budgetPlan: ContextBudgetPlan = {
       requestInput: [],
       currentTurnInputItems: [],
-      selfContinuationInputItem: null,
       summarySourceInput: null,
       retainedHistory: [],
       runtimeIdentityFacts: [],
@@ -8809,7 +8768,6 @@ export class AgentLoopService {
       const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
       const history = await this.loadStackHistoryBlocks(cutoffState, payload.traceId);
       historyCount = history.length;
-      const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
       const resolvedRuntimePrompt = await this.resolveStableRuntimePrompt(payload);
       runtimePrompt = resolvedRuntimePrompt;
@@ -8833,7 +8791,7 @@ export class AgentLoopService {
       const developerContextBlock = [
         baseDeveloperContextBlock
       ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
-      const buildBudgetPlan = (appendSelfContinuationOnTerminalFinalAnswer: boolean) => this.buildContextBudgetPlan({
+      const buildBudgetPlan = () => this.buildContextBudgetPlan({
         history,
         queueMessage: payload,
         runtimePrompt: resolvedRuntimePrompt,
@@ -8844,20 +8802,9 @@ export class AgentLoopService {
         contextSessionKey,
         cutoffState,
         triggerInputMode: options.triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer,
         loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
       });
-      let appendSelfContinuationOnTerminalFinalAnswer = false;
-      budgetPlan = await buildBudgetPlan(false);
-      if (allowSelfContinuationOnTerminalFinalAnswer) {
-        // Detect from raw history: D is stripped from requestInput, so its last item is no
-        // longer a final_answer, but we still want to nudge self-continuation when she just
-        // settled on one.
-        if (lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
-          appendSelfContinuationOnTerminalFinalAnswer = true;
-          budgetPlan = await buildBudgetPlan(true);
-        }
-      }
+      budgetPlan = await buildBudgetPlan();
       await this.ensureRuntimeIdentityRoot(payload, resolvedRuntimePrompt);
       if (!jobId) {
         jobId = await this.store.createLlmJob({
@@ -9018,24 +8965,6 @@ export class AgentLoopService {
           ]
         });
       }
-      const selfContinuationInputItem = budgetPlan.selfContinuationInputItem;
-      if (selfContinuationInputItem) {
-        await this.appendAgentStackItemsSafe({
-          traceId: payload.traceId,
-          runId: queueMessage.id,
-          sourceType: 'agent_runtime',
-          sourceId: queueMessage.id,
-          items: [
-            buildLoopSelfContinuationStackItem({
-              queueMessage: payload,
-              runId: queueMessage.id,
-              turn: 1,
-              inputItem: selfContinuationInputItem
-            }) as Record<string, unknown>
-          ]
-        });
-      }
-
       // 空转记账用的 run 级累加器：这一整个 run 有没有有效产出。
       // 普通工具判在发出那一刻;recover_energy 按【结果】判——身体接受(真睡着)算,被拒(睡不着)不算。
       let runTouchedWorld = false;
@@ -11028,7 +10957,6 @@ export class AgentLoopService {
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
-    appendSelfContinuationOnTerminalFinalAnswer?: boolean;
     loopContinuationBeforeCurrentTrigger?: boolean;
     // Operator-forced compaction (manual admin trigger). When true the overflow
     // gate is bypassed: instead of compressing only when the live window exceeds
@@ -11105,7 +11033,6 @@ export class AgentLoopService {
     const currentTurnInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
       .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
 
-    const appendedSelfContinuationInputItems: OpenResponseInputItem[] = [];
     const requestInput = buildLoopRequestInput({
       history: initialRetainedHistory,
       queueMessage: params.queueMessage,
@@ -11119,12 +11046,9 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
-      appendedSelfContinuationInputItems,
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
       precomputedCurrentTurnInputItems: currentTurnInputItems
     });
-    const selfContinuationInputItem = appendedSelfContinuationInputItems[0] ?? null;
     // REQ1: no tiktoken pre-estimate. These fields stay in the plan/turn-record for
     // backward-compatible logging only; the real signal is the provider's input_tokens.
     const estimate = { inputTokens: 0, encoding: null, source: null as 'tiktoken' | 'heuristic' | null };
@@ -11133,7 +11057,6 @@ export class AgentLoopService {
       return {
         requestInput,
         currentTurnInputItems,
-        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11160,7 +11083,6 @@ export class AgentLoopService {
       return {
         requestInput,
         currentTurnInputItems,
-        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11190,7 +11112,6 @@ export class AgentLoopService {
       return {
         requestInput,
         currentTurnInputItems,
-        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11258,7 +11179,6 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
 
@@ -11270,7 +11190,6 @@ export class AgentLoopService {
     return {
       requestInput,
       currentTurnInputItems,
-      selfContinuationInputItem,
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11301,7 +11220,6 @@ export class AgentLoopService {
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
-    appendSelfContinuationOnTerminalFinalAnswer?: boolean;
     loopContinuationBeforeCurrentTrigger?: boolean;
   }): Promise<CoreMemoryCompressionCheckpoint | null> {
     const plan = await this.buildContextBudgetPlan(params);
@@ -19264,18 +19182,16 @@ function buildLoopRequestInput(params: {
   developerContextBlock?: string | null;
   runtimeEnergyState?: RuntimeEnergyState | null;
   triggerInputMode?: RuntimeTriggerInputMode;
-  appendSelfContinuationOnTerminalFinalAnswer?: boolean;
-  appendedSelfContinuationInputItems?: OpenResponseInputItem[];
   loopContinuationBeforeCurrentTrigger?: boolean;
   // When provided, the fresh_trigger current-turn items reuse this exact array
   // instead of rebuilding, so the sent request and the 存档 stay byte-identical.
   precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.runtimeEnergyState ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.runtimeEnergyState ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null),
     ...params.loopContinuation
   ];
 }
@@ -19662,45 +19578,6 @@ function buildLoopContinuationStackItem(params: {
   };
 }
 
-function buildLoopSelfContinuationStackItem(params: {
-  queueMessage: QueueMessageRecord['payload'];
-  runId: string;
-  turn: number;
-  inputItem: OpenResponseInputItem;
-}) {
-  const reminder = isOpenResponseMessageInputItem(params.inputItem)
-    ? flattenMessageContent(params.inputItem.content)
-    : renderSelfContinuationReminder();
-  return {
-    eventId: `stack:${params.runId || params.queueMessage.traceId}:self-continuation:${params.turn}`,
-    itemKind: 'runtime_input',
-    role: isOpenResponseMessageInputItem(params.inputItem) ? params.inputItem.role : 'user',
-    phase: null,
-    content: {
-      source: 'self_continuation',
-      reason: 'final_answer',
-      trace_id: params.queueMessage.traceId,
-      run_id: params.runId,
-      session_key: params.queueMessage.sessionKey,
-      chat_type: params.queueMessage.chatType,
-      peer_id: params.queueMessage.peerId,
-      peer_name: params.queueMessage.peerName || null,
-      input_items: [params.inputItem],
-      system_reminder: reminder
-    },
-    visibility: 'model_visible',
-    sourceType: 'agent_runtime',
-    sourceId: params.runId || null,
-    traceId: params.queueMessage.traceId,
-    runId: params.runId,
-    metadata: {
-      queue_source: params.queueMessage.source,
-      prompt_facing_runtime_reminder: true,
-      triggered_by: 'final_answer'
-    }
-  };
-}
-
 function buildForkInputStackItem(params: {
   forkRunId: string;
   sliceId: string;
@@ -19743,9 +19620,7 @@ export function buildInitialInput(
   pendingProactiveShare: string | null = null,
   developerContextBlock: string | null = null,
   triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger',
-  appendSelfContinuationOnTerminalFinalAnswer = false,
   runtimeEnergyState: RuntimeEnergyState | null = null,
-  appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
   inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
   precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null,
   diaryIndexSnapshot: string | null = null,
@@ -19820,17 +19695,6 @@ export function buildInitialInput(
     const replayItems = replayItemsRaw.filter((item) => !isReplayItemStrippedByTextGate(item));
     const appendKnownReplayItems = () => {
       items.push(...replayItems);
-      if (
-        appendSelfContinuationOnTerminalFinalAnswer
-        && turnIndex === history.length - 1
-        // Detect the terminal final_answer from the RAW items; the final_answer text
-        // itself stays stripped, only the self-continuation reminder is appended.
-        && isAssistantFinalAnswerInputItem(replayItemsRaw[replayItemsRaw.length - 1])
-      ) {
-        const selfContinuationInputItem = buildSelfContinuationInputItem();
-        items.push(selfContinuationInputItem);
-        appendedSelfContinuationInputItems?.push(selfContinuationInputItem);
-      }
     };
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
