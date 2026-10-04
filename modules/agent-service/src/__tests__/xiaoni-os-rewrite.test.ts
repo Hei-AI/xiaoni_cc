@@ -9,6 +9,7 @@ import {
   stripFillerSentences,
   truncateXiaoniOsToLimit,
   XIAONI_OS_REWRITE_MAX_ATTEMPTS,
+  XIAONI_OS_REWRITE_MIN_CHAR_LIMIT,
   type XiaoniOsFetchFill,
   type XiaoniOsFillRequest
 } from '../services/xiaoni-os-rewrite';
@@ -42,7 +43,7 @@ function scriptedFill(script: Array<string | null | Error>): { fetchFill: Xiaoni
     if (next === null) {
       return null;
     }
-    return { text: next, llmCallId: `fill-${requests.length}`, model: 'claude-sonnet-5-5', forkRunId: `xiaoni-os-fill-fork:run:${requests.length}` };
+    return { text: next, llmCallId: `fill-${requests.length}`, model: 'claude-sonnet-5-5', forkRunId: null };
   };
   return { fetchFill, requests };
 }
@@ -86,38 +87,38 @@ test('stripFillerSentences: 剔掉填充句、保留人话;全剔光 → null', 
 });
 
 
-test('leg: the fork gets the original char count as its limit; a rewrite within it is used as-is', async () => {
+test('leg: a short original gets the floor limit, so the polish has room for the next step; used as-is', async () => {
   const original = '读到第三章了，有点累，先歇着吧。';
-  const fill = scriptedFill([block('第三章读完，接着读第四章。')]);
+  const fill = scriptedFill([block('第三章读完，接着读第四章，先把第四章的目录过一遍，看看哪几节和手上的活有关。')]);
   const result = await runXiaoniOsRewriteLeg({ text: original, fetchFill: fill.fetchFill });
-  assert.deepEqual(fill.requests, [{ charLimit: countXiaoniOsChars(original), retry: null }]);
+  assert.deepEqual(fill.requests, [{ charLimit: XIAONI_OS_REWRITE_MIN_CHAR_LIMIT, retry: null }]);
   assert.equal(result.outcome, 'rewritten');
-  assert.equal(result.rewrittenText, '第三章读完，接着读第四章。');
+  assert.equal(result.rewrittenText, '第三章读完，接着读第四章，先把第四章的目录过一遍，看看哪几节和手上的活有关。');
   assert.equal(result.rewriteRetries, 0);
   assert.equal(result.truncated, false);
-  assert.equal(result.fillForkRunId, 'xiaoni-os-fill-fork:run:1');
 });
 
-test('leg: over the limit → rewrite again with the over-length feedback; the next version within it is used', async () => {
-  const original = '十个字的原文在这里。';
-  const fill = scriptedFill([block('这一版明显超过了十个字的上限。'), block('改好的九个字的。')]);
+test('leg: a long original is the limit itself; over it → rewrite again with the over-length feedback', async () => {
+  const original = `${'长'.repeat(119)}。`;
+  const fill = scriptedFill([block(`${'超'.repeat(129)}。`), block('改好的短版本。')]);
   const result = await runXiaoniOsRewriteLeg({ text: original, fetchFill: fill.fetchFill });
   assert.equal(fill.requests.length, 2);
-  assert.deepEqual(fill.requests[1], { charLimit: 10, retry: { kind: 'over_length', chars: 15 } });
+  assert.deepEqual(fill.requests[0], { charLimit: 120, retry: null });
+  assert.deepEqual(fill.requests[1], { charLimit: 120, retry: { kind: 'over_length', chars: 130 } });
   assert.equal(result.outcome, 'rewritten');
-  assert.equal(result.rewrittenText, '改好的九个字的。');
+  assert.equal(result.rewrittenText, '改好的短版本。');
   assert.equal(result.rewriteRetries, 1);
 });
 
 test('leg: still over the limit after every attempt → truncated within the limit, never the original', async () => {
   const original = '十个字的原文在这里。';
-  const fill = scriptedFill(Array.from({ length: XIAONI_OS_REWRITE_MAX_ATTEMPTS }, () => block('短句一。这一句太长了超过上限。')));
+  const fill = scriptedFill(Array.from({ length: XIAONI_OS_REWRITE_MAX_ATTEMPTS }, () => block(`短句一。${'太长'.repeat(60)}。`)));
   const result = await runXiaoniOsRewriteLeg({ text: original, fetchFill: fill.fetchFill });
   assert.equal(fill.requests.length, XIAONI_OS_REWRITE_MAX_ATTEMPTS);
   assert.equal(result.outcome, 'rewritten');
   assert.equal(result.truncated, true);
   assert.equal(result.rewrittenText, '短句一。');
-  assert.ok(countXiaoniOsChars(result.rewrittenText!) <= 10);
+  assert.ok(countXiaoniOsChars(result.rewrittenText!) <= XIAONI_OS_REWRITE_MIN_CHAR_LIMIT);
 });
 
 test('leg: no block → rewrite again with the no-block feedback', async () => {
