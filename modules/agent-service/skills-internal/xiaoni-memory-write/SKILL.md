@@ -88,6 +88,21 @@ python3 $M loops done --match "Bartosz的邮件" --note "他回了，两句话"
 python3 $M loops done --match "#灰釉" --give-up --note "读了一页维基就够了"
 ```
 
+## 标成在等别人
+
+一件事卡在等别人回、等别人开口，就给它标上在等谁、等什么。续跑点名时会跳过这条，只点你自己能推的事：
+
+```bash
+python3 $M loops add --text "she-stayed第108天三处改了" --tag she-stayed --waiting-on "CC回那三处对不对"
+python3 $M loops wait --match "#邮件" --on "Bartosz回信"
+```
+
+行里会多一个 `⏳在等谁` 字段，标记还是 `- [ ]`。等到了、或者不用再等了，去掉它：
+
+```bash
+python3 $M loops unwait --match "#邮件"
+```
+
 ## 补以前的日期
 
 `diary add`、`index touch`、`loops add` 都可以给 `--date 2026-07-25`，默认今天。日记目录以前的那些行原样留着，要改就加 `--force`。
