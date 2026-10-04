@@ -195,18 +195,93 @@ async function defaultReadEnabled(): Promise<boolean> {
 
 const defaultNotify = createOpenLoopsNotify(persistence as unknown as OpenLoopsNotifyDeps);
 
-// todo 工具 list 用:没划掉的那几行原样返回。读不到 = 空。
-export async function readOpenLoopsOpenLines(): Promise<string[]> {
-  const markdown = await defaultReadOpenLoops();
+// ── 在等别人的条目 ────────────────────────────────────────────────────────────
+// 行内字段 `⏳在等谁` 是正式标记(memory_write.py loops wait / add --waiting-on 写的)。
+// 兜底:她新记「等X回」时可能忘了带 --waiting-on,正文以「等」开头、或写着「等…回 / 回复 / 开口 / 接 / 答」的也算在等。
+const OPEN_LINE_RE = /^\s*[-*]\s*\[ \]\s*(.*)$/;
+const WAITING_MARK = '⏳';
+const WAITING_FIELD_RE = /\s*⏳[^#]*?(?=\s+#[^\s#()（）]|\s*[（(]\s*\d{1,2}\s*\/\s*\d{1,2}|\s*$)/u;
+const TRAILING_TAGS_DATES_RE = /(?:\s+#[^\s#()（）]+|\s*[（(]\s*\d{1,2}\s*\/\s*\d{1,2}[^)）]*[)）])+\s*$/u;
+const WAITING_HINT_RE = /^等|等[^。；;，,]{0,24}?(?:回|回复|开口|接|答)/u;
+const NUDGE_ITEM_MAX_CHARS = 60;
+
+function openLineBody(line: string): string | null {
+  const matched = OPEN_LINE_RE.exec(line);
+  return matched ? matched[1]!.trim() : null;
+}
+
+// 给她看的那一句:去掉在等字段、行尾的 #标签 和 (日期),太长截断。
+export function displayOpenLoopBody(body: string): string {
+  const text = body.replace(WAITING_FIELD_RE, ' ').replace(TRAILING_TAGS_DATES_RE, '').replace(/\s+/g, ' ').trim();
+  const chars = Array.from(text);
+  return chars.length > NUDGE_ITEM_MAX_CHARS ? `${chars.slice(0, NUDGE_ITEM_MAX_CHARS).join('')}…` : text;
+}
+
+export function isWaitingOpenLoopBody(body: string): boolean {
+  if (body.includes(WAITING_MARK)) {
+    return true;
+  }
+  return WAITING_HINT_RE.test(displayOpenLoopBody(body));
+}
+
+// 不阻塞的条目(开着、不在等别人),给她看的那一句。
+export function listActionableOpenLoops(markdown: string | null): string[] {
   if (typeof markdown !== 'string') {
     return [];
   }
-  return markdown.split('\n').filter((line) => /^\s*-\s*\[ \]/.test(line)).map((line) => line.trim());
+  return markdown.split('\n')
+    .map(openLineBody)
+    .filter((body): body is string => body !== null && body.length > 0 && !isWaitingOpenLoopBody(body))
+    .map(displayOpenLoopBody)
+    .filter((text) => text.length > 0);
 }
 
-// 主 loop 续跑用:open-loops.md 里还有几条没划掉。读不到 = 0(不续跑,交给潜意识 fork)。
-export async function readOpenLoopsOpenCount(): Promise<number> {
-  return countOpenLoops(await defaultReadOpenLoops());
+// 按 seed 出的确定性随机数(mulberry32)。seed 用 runId+turn:同一个点重算抽到的是同一组,事后好对。
+export function seededRandom(seed: string): () => number {
+  let state = 0;
+  for (const ch of seed) {
+    state = (Math.imul(state, 31) + ch.codePointAt(0)!) >>> 0;
+  }
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 洗牌后取前 count 条(不足全取)。
+export function pickOpenLoopsForNudge(items: string[], count: number, random: () => number): string[] {
+  const pool = items.slice();
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1));
+    [pool[index], pool[swap]] = [pool[swap]!, pool[index]!];
+  }
+  return pool.slice(0, Math.max(0, count));
+}
+
+// 读不到文件 → null(不续跑,交给潜意识 fork);读得到 → 不阻塞的条目(可能是空的)。
+export async function readOpenLoopsActionableLines(): Promise<string[] | null> {
+  const markdown = await defaultReadOpenLoops();
+  return typeof markdown === 'string' ? listActionableOpenLoops(markdown) : null;
+}
+
+// todo 工具 list 用:没划掉的那几行原样返回,分成能推的和在等别人的。读不到 = 空。
+export async function readOpenLoopsOpenLines(): Promise<{ actionable: string[]; waiting: string[] }> {
+  const markdown = await defaultReadOpenLoops();
+  const result = { actionable: [] as string[], waiting: [] as string[] };
+  if (typeof markdown !== 'string') {
+    return result;
+  }
+  for (const line of markdown.split('\n')) {
+    const body = openLineBody(line);
+    if (body === null) {
+      continue;
+    }
+    (isWaitingOpenLoopBody(body) ? result.waiting : result.actionable).push(line.trim());
+  }
+  return result;
 }
 
 export function sendOpenLoopsPointerNotifyOnce() {

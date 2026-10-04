@@ -96,8 +96,7 @@ import {
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import { stripExecCommandCommentsInCanonicalResponse } from './exec-command-comments';
-import { readOpenLoopsOpenCount, readOpenLoopsOpenLines } from './xiaoni-open-loops-notify';
-import { pickRecallLeadForContinuation } from './xiaoni-recall-delivery';
+import { pickOpenLoopsForNudge, readOpenLoopsActionableLines, readOpenLoopsOpenLines, seededRandom } from './xiaoni-open-loops-notify';
 import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
 import {
   applyXiaoniOsRewriteInPlace,
@@ -223,6 +222,8 @@ const XIAONI_OS_POLISH_MODEL = process.env.XIAONI_OS_POLISH_MODEL || 'claude-son
 // 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑。被提醒后她真动了手
 // (调了算「动过」的工具)就重新数;连续这么多次提醒都只说话不动手,才结束这一轮、交给潜意识 fork。
 // 官方无人值守 agent 指南:同一件事自动续 2~3 次后停——防的是卡住,不是限她干多久。
+// 续跑一次点几件不阻塞的事。
+const LOOP_CONTINUATION_PICK_COUNT = 3;
 const LOOP_CONTINUATION_MAX = Math.max(0, Number.parseInt(process.env.XIAONI_LOOP_CONTINUATION_MAX || '3', 10) || 0);
 // 同一份 seed 最多重试这么多次。到顶就丢弃,退回「等下一个主 run 或 clock_ping(≤2h)」。
 // 5 次 × 60s ≈ 5 分钟的自愈窗口,再往后大概率不是瞬时故障,不值得每分钟烧一个 ~490K 的 fork 请求。
@@ -1028,7 +1029,10 @@ const IDLE_ESCALATION_AFTER_ROUNDS = 2;
 // 不再发下一次模型请求)。被拒结果里已经写明 retry_after,再试只会得到同一个结果 —— 实测她会
 // 每 12 秒试一次直到 run 撑满(单 run 最多 24 次)。收帧后 settledOnFinalAnswer=false → 不点潜意识
 // fork,下一次唤醒只来自真实事件 / 报时。只影响引擎控制流,不改任何请求字节。
-const REST_REJECTED_FRAME_YIELD_AFTER = 3;
+const REST_REJECTED_FRAME_YIELD_AFTER = 4;
+// 第 3 次被拒时不收帧:在这次被拒的工具结果里写上「已经 3 次没睡着、去做点事」和几件能推的事,让她接着动。
+// 第 4 次还被拒才收帧(REST_REJECTED_FRAME_YIELD_AFTER)。
+const REST_REJECTED_GUARD_AT = 3;
 const consecutiveIdlePlanFailuresBySession = new Map<string, number>();
 // 上一份真正发出去的 plan 原文(已剥 <xiaoni_plan> 包装)，升级时原样回贴给 fork 看。
 const lastEmittedSubconsciousPlanBySession = new Map<string, string>();
@@ -2077,17 +2081,20 @@ const TODO_TOOL = {
 
 - add:记一件你要做的事。text 写这件事本身(要做什么、在等什么、还差什么),tag 写这件事的名字,同一件事一直用同一个。跟已经开着的某条像,它会列出来问你;真是另一件事,带上 confirm_new 再记一次。
 - done:划掉一件。match 写那条里的几个字,或者 #标签。做完了就划;不做了也划,带上 give_up。note 可以顺手记一句怎么完的。
-- list:看现在还开着的。
+- wait:一件开着的事卡在等别人(等谁回、等谁开口),标上在等谁、等什么。match 找那条,waiting_on 写在等什么。add 时也可以直接带 waiting_on。
+- unwait:等到了,或者不用等了,去掉在等标记。
+- list:看现在还开着的,分成你能推的和在等别人的。
 
-想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一件事一条:读到哪、做到哪一步写进日记,不用为了更新进度划掉再记。这个文件只用 todo 改。一轮以文字收尾时,这里还有没划掉的,会有人提醒你一句。`,
+想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一件事一条:读到哪、做到哪一步写进日记,不用为了更新进度划掉再记。这个文件只用 todo 改。一轮以文字收尾时,会从你能推的那些里点几件给你;标了在等的不会点。`,
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'done', 'list'] },
+        action: { type: 'string', enum: ['add', 'done', 'wait', 'unwait', 'list'] },
         text: { type: 'string', description: 'add 用:这件事本身。' },
         tag: { type: 'string', description: 'add 用:这件事的名字,只用中英文、数字、-、_。' },
         confirm_new: { type: 'boolean', description: 'add 用:确认跟已有的那条是两件事。' },
-        match: { type: 'string', description: 'done 用:那条里的几个字,或者 #标签。' },
+        match: { type: 'string', description: 'done / wait / unwait 用:那条里的几个字,或者 #标签。' },
+        waiting_on: { type: 'string', description: 'wait 必填、add 可选:在等谁、等什么。' },
         note: { type: 'string', description: 'done 用:怎么完的,一句话。' },
         give_up: { type: 'boolean', description: 'done 用:不做了。' }
       },
@@ -9040,6 +9047,8 @@ export class AgentLoopService {
       let runRestRejectedCount = 0;
       // 连续几次续跑提醒之后她都没动手(见 LOOP_CONTINUATION_MAX);一动手就归零。
       let loopContinuationCount = 0;
+      // 「去找点别的事做」这个 run 已经说过一次:再说没有新信息,她再停就交给 fork。
+      let loopContinuationFindOtherSent = false;
       // exec_command 用法提醒(open-loops 直接写 / 单纯读文件)每种每个 run 只发一次,不然她每读一次就多一条同样的话。
       const execUsageRemindedInRun = new Set<string>();
 
@@ -9500,6 +9509,31 @@ export class AgentLoopService {
               deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
+            // 第 3 次被拒:身体的回答里加上「已经 3 次没睡着、去做点事」和几件能推的事(和续跑同一个构建),
+            // 不另插 user 消息。在 continuation / 落栈之前改,工具结果原样冻结进 stack,replay 字节一致。
+            if (
+              toolCall.name === TOOL_NAMES.recoverEnergy
+              && toolResult.rest_rejected === true
+              && runRestRejectedCount + 1 === REST_REJECTED_GUARD_AT
+              && typeof toolResult.system_reminder === 'string'
+            ) {
+              const guardNudge = await this.buildOpenLoopsNudge(`${queueMessage.id}:${turn}:rest-guard`, {
+                allowFindOther: true
+              }).catch(() => null);
+              if (guardNudge) {
+                toolResult.system_reminder = `${toolResult.system_reminder}\n${formatSystemReminderBlock(renderPromptSnippet('recover_energy_rejected_guard.md', {
+                  COUNT: REST_REJECTED_GUARD_AT,
+                  NUDGE: guardNudge.text
+                }).trim())}`;
+                await this.store.logTimelineEvent({
+                  traceId: payload.traceId,
+                  eventType: 'decision',
+                  eventName: 'rest_rejected_guard',
+                  eventPhase: null,
+                  metadata: { run_id: queueMessage.id, turn, kind: guardNudge.kind, picked: guardNudge.picked, actionable_count: guardNudge.actionableCount }
+                }).catch(() => {});
+              }
+            }
             const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
             const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
               loopInput: requestInput,
@@ -9728,17 +9762,17 @@ export class AgentLoopService {
             });
           }
         }
-        // 续跑:这一轮以文字收尾(没有工具调用)。open-loops 里还有没做完的事 → 追加一条「还有没做完的事」;
-        // 空的 → 精排从联想里挑一条旧事当方向。都没有,或已续满 → 照旧结束,交给潜意识 fork。
+        // 续跑:这一轮以文字收尾(没有工具调用)。从 open-loops 里不阻塞的事随机点 3 件,追加一条 user 消息;
+        // 一件都没有 → 「去找点别的事做」(每个 run 最多一次)。已续满 / 找别的已说过 → 照旧结束,交给潜意识 fork。
         // 追加的 user 条目落 stack(下一 run 逐字节 replay),和正常一轮往下长一样,不碰已缓存前缀。
         if (!leaseRelease && actionPlan.hasFinalAnswer && !hasToolCall && loopContinuationCount < LOOP_CONTINUATION_MAX) {
-          const anchorText = (outputItems as OpenResponseInputItem[])
-            .filter(isAssistantTextOutputReplayItem)
-            .map((item) => flattenMessageContent((item as Extract<OpenResponseInputItem, { type: 'message' }>).content))
-            .join('\n')
-            .trim();
-          const nudge = await this.buildLoopContinuationNudge(anchorText).catch(() => null);
+          const nudge = await this.buildOpenLoopsNudge(`${queueMessage.id}:${turn}`, {
+            allowFindOther: !loopContinuationFindOtherSent
+          }).catch(() => null);
           if (nudge) {
+            if (nudge.kind === 'find_other') {
+              loopContinuationFindOtherSent = true;
+            }
             loopContinuationCount += 1;
             const nudgeItem = buildUserSceneInputItem([nudge.text]);
             await this.appendAgentStackItemsSafe({
@@ -9762,7 +9796,7 @@ export class AgentLoopService {
               eventType: 'decision',
               eventName: 'loop_continuation',
               eventPhase: null,
-              metadata: { run_id: queueMessage.id, turn, kind: nudge.kind, count: loopContinuationCount }
+              metadata: { run_id: queueMessage.id, turn, kind: nudge.kind, count: loopContinuationCount, picked: nudge.picked, actionable_count: nudge.actionableCount }
             }).catch(() => {});
             await appendAvailableQueueNotifyToLoop();
             continue;
@@ -14690,17 +14724,33 @@ export class AgentLoopService {
     return payload;
   }
 
-  // 续跑的提示:open-loops 有没划掉的 → 一句「还有没做完的事」(不点名,她自己去看);空的 → 精排挑一条联想。
-  private async buildLoopContinuationNudge(anchorText: string): Promise<{ kind: 'open_loops' | 'recall'; text: string } | null> {
-    if ((await readOpenLoopsOpenCount()) > 0) {
-      return { kind: 'open_loops', text: readPromptSnippet('loop_continuation_open_loops.md').trim() };
+  // 续跑 / 第 3 次被拒共用的那条话:open-loops 里不阻塞的事(开着、不在等别人)随机点 3 件;一件都没有 →
+  // 「去找点别的事情做」;文件读不到 → null(不续跑)。随机用 seed(runId:turn)定下来,抽中的写进 timeline,事后好对她做了哪件。
+  // 文字在这里一次生成,落栈后 replay 读存下来的字节,不会重算。
+  private async buildOpenLoopsNudge(
+    seed: string,
+    options: { allowFindOther: boolean }
+  ): Promise<{ kind: 'open_loops' | 'find_other'; text: string; picked: string[]; actionableCount: number } | null> {
+    const actionable = await readOpenLoopsActionableLines();
+    if (actionable === null) {
+      return null;
     }
-    const hook = await pickRecallLeadForContinuation(anchorText);
-    if (hook) {
-      return { kind: 'recall', text: renderPromptSnippet('loop_continuation_recall.md', { HOOK: hook }).trim() };
+    if (actionable.length === 0) {
+      if (!options.allowFindOther) {
+        return null;
+      }
+      return { kind: 'find_other', text: readPromptSnippet('loop_continuation_find_other.md').trim(), picked: [], actionableCount: 0 };
     }
-    return null;
+    const picked = pickOpenLoopsForNudge(actionable, LOOP_CONTINUATION_PICK_COUNT, seededRandom(seed));
+    const these = ['', '这件', '这两件', '这三件'][picked.length] || `这${picked.length}件`;
+    const text = renderPromptSnippet('loop_continuation_open_loops.md', {
+      COUNT: actionable.length,
+      THESE: these,
+      ITEMS: picked.map((item, index) => `${index + 1}. ${item}`).join('\n')
+    }).trim();
+    return { kind: 'open_loops', text, picked, actionableCount: actionable.length };
   }
+
 
   // xiaoni_os 改写的单条编排:取正文 → runXiaoniOsRewriteLeg(独立润色小请求,不许失败)→ 就地冻结:
   //   rewritten → 正文替换为润色版 + 准入;kept / failed_open(请求次次挂掉)→ 原文准入。每段 xiaoni_os 都进上下文。
@@ -15759,19 +15809,24 @@ export class AgentLoopService {
     const str = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
     const action = str(args.action);
     if (action === 'list') {
-      const open = await readOpenLoopsOpenLines();
-      return { ok: true, open_count: open.length, open };
+      const { actionable, waiting } = await readOpenLoopsOpenLines();
+      return { ok: true, open_count: actionable.length + waiting.length, actionable, waiting };
     }
     let cliArgs: string[];
     if (action === 'add') {
       cliArgs = ['loops', 'add', '--text', str(args.text), '--tag', str(args.tag)];
       if (args.confirm_new === true) cliArgs.push('--confirm-new');
+      if (str(args.waiting_on)) cliArgs.push('--waiting-on', str(args.waiting_on));
+    } else if (action === 'wait') {
+      cliArgs = ['loops', 'wait', '--match', str(args.match), '--on', str(args.waiting_on)];
+    } else if (action === 'unwait') {
+      cliArgs = ['loops', 'unwait', '--match', str(args.match)];
     } else if (action === 'done') {
       cliArgs = ['loops', 'done', '--match', str(args.match)];
       if (str(args.note)) cliArgs.push('--note', str(args.note));
       if (args.give_up === true) cliArgs.push('--give-up');
     } else {
-      return { ok: false, message: 'action 只有 add、done、list。' };
+      return { ok: false, message: 'action 只有 add、done、wait、unwait、list。' };
     }
     const cmd = ['python3', `${XIAONI_MEMORY_WRITE_SKILL_DIR}/memory_write.py`, ...cliArgs].map(shellSingleQuote).join(' ');
     const result = await this.executeCommand({ cmd, login: false }, toolCall, queueMessage);
@@ -19574,7 +19629,7 @@ function buildLoopContinuationStackItem(params: {
   queueMessage: QueueMessageRecord['payload'];
   runId: string;
   turn: number;
-  kind: 'open_loops' | 'recall';
+  kind: 'open_loops' | 'find_other';
   inputItem: OpenResponseInputItem;
 }) {
   return {
