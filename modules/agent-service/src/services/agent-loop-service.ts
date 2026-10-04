@@ -9223,7 +9223,13 @@ export class AgentLoopService {
           .map((item) => structuredClone(item));
         if (PSYCH_ASSESSMENT_GATE_ENABLED) {
           const assistantTextItems = (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem);
-          for (const assistantTextItem of assistantTextItems) {
+          // 只润色收尾段(这次输出没有工具调用,这段话让这一轮停下)。中途段和工具调用在同一条消息里,她正在动手,
+          // 原文直接准入:润色补的「下一步」可能和她手上那个工具对不上,还要白等一次请求。
+          const turnEndsWithText = !(outputItems as OpenResponseInputItem[]).some((item) => item?.type === 'function_call');
+          if (!turnEndsWithText) {
+            stampTextAdmitInPlace(assistantTextItems, true);
+          }
+          for (const assistantTextItem of turnEndsWithText ? assistantTextItems : []) {
             await this.runXiaoniOsRewriteForItem({
               item: assistantTextItem as unknown as Record<string, unknown>,
               traceId: payload.traceId,
