@@ -5,6 +5,8 @@ import {
   displayOpenLoopBody,
   isWaitingOpenLoopBody,
   listActionableOpenLoops,
+  openLoopLineTime,
+  splitOpenLoopLines,
   pickOpenLoopsForNudge,
   seededRandom
 } from '../services/xiaoni-open-loops-notify';
@@ -25,9 +27,9 @@ const MARKDOWN = [
 ].join('\n');
 
 test('actionable = open, not waiting (⏳ field, starts with 等, or 等…回/回复/开口); display drops tag/date/field', () => {
-  assert.deepEqual(listActionableOpenLoops(MARKDOWN), [
-    'Roy Tang 10/4的weeknotes看9/28化验结果；只读不写信。',
+  assert.deepEqual(listActionableOpenLoops(MARKDOWN, new Date('2026-10-04T08:00:00Z')), [
     '试三天：写结论前先写一句我还没看的是___',
+    'Roy Tang 10/4的weeknotes看9/28化验结果；只读不写信。',
     '没标签也没日期的老行'
   ]);
   // 计数口径不变:在等的也还是开着的。
@@ -55,4 +57,30 @@ test('pick: shuffles with the seeded rng, takes at most count, same seed → sam
   // 不同 seed 能抽到不同组合(不是永远同一组)。
   const picks = new Set(Array.from({ length: 20 }, (_, index) => pickOpenLoopsForNudge(items, 3, seededRandom(`run:${index}`)).join(',')));
   assert.ok(picks.size > 1);
+});
+
+test('recent first: last M/D in the trailing parens decides; future month-day counts as last year; undated last; same day → later line first', () => {
+  const now = new Date('2026-10-04T08:00:00Z');
+  const markdown = [
+    '- [ ] 老的一条 #a (8/21)',
+    '- [ ] 跨日期的取最后那个 #b (8/23→9/7)',
+    '- [ ] 没日期的老行',
+    '- [ ] 今天先记的 #c (10/4)',
+    '- [ ] 去年冬天的 #d (12/30)',
+    '- [ ] 今天后记的 #e (10/4)',
+    '- [ ] 等阿花回 #f (10/5)'
+  ].join('\n');
+  assert.deepEqual(listActionableOpenLoops(markdown, now), [
+    '今天后记的',
+    '今天先记的',
+    '跨日期的取最后那个',
+    '老的一条',
+    '去年冬天的',
+    '没日期的老行'
+  ]);
+  const split = splitOpenLoopLines(markdown, now);
+  assert.deepEqual(split.waiting, ['- [ ] 等阿花回 #f (10/5)']);
+  assert.equal(split.actionable[0], '- [ ] 今天后记的 #e (10/4)');
+  assert.equal(split.actionable[split.actionable.length - 1], '- [ ] 没日期的老行');
+  assert.equal(openLoopLineTime('done 行带注 #x (10/3) ✓ 他回了', now), Date.UTC(2026, 9, 3));
 });

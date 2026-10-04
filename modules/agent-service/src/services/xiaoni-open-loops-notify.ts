@@ -225,13 +225,57 @@ export function isWaitingOpenLoopBody(body: string): boolean {
 }
 
 // 不阻塞的条目(开着、不在等别人),给她看的那一句。
-export function listActionableOpenLoops(markdown: string | null): string[] {
+// ── 按时间排序 ────────────────────────────────────────────────────────────────
+// 文件只追加、不重排(memory_write.py 的规矩);给她看的时候再排:最近的在前,久的在后。
+// 时间取行尾 `(M/D)` 里最后一个日期(`(8/23→9/7)` 取 9/7);没写年份,比今天晚的月日算去年。
+// 没有日期的行排最后,同一天的保持文件里的先后(后记的在前)。
+const LINE_DATE_RE = /[（(]([^()（）]*\d{1,2}\s*\/\s*\d{1,2}[^()（）]*)[)）]\s*(?:[✓—].*)?$/u;
+
+export function openLoopLineTime(body: string, now: Date = new Date()): number | null {
+  const group = LINE_DATE_RE.exec(body);
+  if (!group) {
+    return null;
+  }
+  const dates = Array.from(group[1]!.matchAll(/(\d{1,2})\s*\/\s*(\d{1,2})/gu));
+  const last = dates[dates.length - 1];
+  if (!last) {
+    return null;
+  }
+  const month = Number(last[1]);
+  const day = Number(last[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const east8 = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  let year = east8.getUTCFullYear();
+  const candidate = Date.UTC(year, month - 1, day);
+  if (candidate > Date.UTC(year, east8.getUTCMonth(), east8.getUTCDate())) {
+    year -= 1;
+  }
+  return Date.UTC(year, month - 1, day);
+}
+
+// 最近的在前;没日期的在最后;同一天按文件里后记的在前。
+export function sortOpenLoopsRecentFirst<T>(items: T[], bodyOf: (item: T) => string, now: Date = new Date()): T[] {
+  return items
+    .map((item, index) => ({ item, index, time: openLoopLineTime(bodyOf(item), now) }))
+    .sort((a, b) => {
+      if (a.time === null || b.time === null) {
+        return a.time === b.time ? b.index - a.index : (a.time === null ? 1 : -1);
+      }
+      return b.time - a.time || b.index - a.index;
+    })
+    .map((entry) => entry.item);
+}
+
+export function listActionableOpenLoops(markdown: string | null, now: Date = new Date()): string[] {
   if (typeof markdown !== 'string') {
     return [];
   }
-  return markdown.split('\n')
+  const bodies = markdown.split('\n')
     .map(openLineBody)
-    .filter((body): body is string => body !== null && body.length > 0 && !isWaitingOpenLoopBody(body))
+    .filter((body): body is string => body !== null && body.length > 0 && !isWaitingOpenLoopBody(body));
+  return sortOpenLoopsRecentFirst(bodies, (body) => body, now)
     .map(displayOpenLoopBody)
     .filter((text) => text.length > 0);
 }
@@ -267,21 +311,26 @@ export async function readOpenLoopsActionableLines(): Promise<string[] | null> {
   return typeof markdown === 'string' ? listActionableOpenLoops(markdown) : null;
 }
 
-// todo 工具 list 用:没划掉的那几行原样返回,分成能推的和在等别人的。读不到 = 空。
-export async function readOpenLoopsOpenLines(): Promise<{ actionable: string[]; waiting: string[] }> {
-  const markdown = await defaultReadOpenLoops();
-  const result = { actionable: [] as string[], waiting: [] as string[] };
+// todo 工具 list 用:没划掉的那几行原样返回,分成能推的和在等别人的,各自最近的在前。读不到 = 空。
+export function splitOpenLoopLines(markdown: string | null, now: Date = new Date()): { actionable: string[]; waiting: string[] } {
+  const actionable: string[] = [];
+  const waiting: string[] = [];
   if (typeof markdown !== 'string') {
-    return result;
+    return { actionable, waiting };
   }
   for (const line of markdown.split('\n')) {
     const body = openLineBody(line);
     if (body === null) {
       continue;
     }
-    (isWaitingOpenLoopBody(body) ? result.waiting : result.actionable).push(line.trim());
+    (isWaitingOpenLoopBody(body) ? waiting : actionable).push(line.trim());
   }
-  return result;
+  const sortLines = (lines: string[]) => sortOpenLoopsRecentFirst(lines, (line) => openLineBody(line) ?? line, now);
+  return { actionable: sortLines(actionable), waiting: sortLines(waiting) };
+}
+
+export async function readOpenLoopsOpenLines(): Promise<{ actionable: string[]; waiting: string[] }> {
+  return splitOpenLoopLines(await defaultReadOpenLoops());
 }
 
 export function sendOpenLoopsPointerNotifyOnce() {
