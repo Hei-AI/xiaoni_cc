@@ -17310,7 +17310,6 @@ export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload'
 // Notify Bucket reasons that are the runtime speaking to her (operator notices). Everything else
 // that arrives through the bucket is perception. See buildCurrentTurnInputItems.
 const OPERATOR_NOTICE_REASONS = new Set([
-  'subconscious_agent',
   'deep_dive_round',
   'core_memory_compression_done',
   'open_loops_pointer',
@@ -17325,14 +17324,21 @@ function isOperatorNoticePayload(queueMessage: QueueMessageRecord['payload']) {
   return typeof reason === 'string' && OPERATOR_NOTICE_REASONS.has(reason);
 }
 
-// The user turn in front of an operator notice: when it arrived, as she perceives it.
-function buildWakePerceptionInputItem(queueMessage: QueueMessageRecord['payload']): OpenResponseInputItem | null {
+// When it arrived, as she perceives it (「现在是 …」). From the queue message itself, so a rebuild
+// produces the same bytes.
+function renderWakePerceptionText(queueMessage: QueueMessageRecord['payload']): string | null {
   const raw = queueMessage.receivedAt || queueMessage.messageTimestamp;
   const at = raw ? new Date(raw) : null;
   if (!at || Number.isNaN(at.getTime())) {
     return null;
   }
-  return buildUserSceneInputItem([renderPromptSnippet('runtime_wake_perception.md', { NOW_EAST8: formatEast8Timestamp(at) }).trim()]);
+  return renderPromptSnippet('runtime_wake_perception.md', { NOW_EAST8: formatEast8Timestamp(at) }).trim();
+}
+
+// The user turn in front of an operator notice.
+function buildWakePerceptionInputItem(queueMessage: QueueMessageRecord['payload']): OpenResponseInputItem | null {
+  const text = renderWakePerceptionText(queueMessage);
+  return text ? buildUserSceneInputItem([text]) : null;
 }
 
 function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
@@ -19984,11 +19990,19 @@ function buildCurrentTurnInputItems(
   // Two kinds of Notify Bucket trigger, mapped onto Claude's roles:
   //   - perception (something happened in her world: QQ, a finished task, a memory surfacing, the
   //     clock) -> a user turn: in Claude, input from outside the model is a user turn.
-  //   - operator notice (the runtime / body / 阿花 speaking to her: <xiaoni_plan>, deep-dive round,
-  //     compression done, ...) -> a developer item, which on the 5.5 models goes out as a
+  //   - operator notice (the runtime / body speaking to her: deep-dive round, compression done, ...)
+  //     -> a developer item, which on the 5.5 models goes out as a
   //     mid-conversation role:system message. That message must follow a user turn, and a wake
   //     usually follows her last answer, so it is preceded by a real perception: the time it arrived.
   // The time comes from the queue message itself, so a rebuild produces the same bytes.
+  // 潜意识 fork 的 plan 是阿花对她说的话:一条普通 user 消息,前面是到达时间,不带标签、不走 developer。
+  if (isSubconsciousAgentNotifyPayload(queueMessage)) {
+    const perception = renderWakePerceptionText(queueMessage);
+    return [{
+      ...(buildUserSceneInputItem([...(perception ? [perception] : []), ...parts]) as Record<string, unknown>),
+      cache_volatile: true
+    } as unknown as OpenResponseInputItem];
+  }
   if (isOperatorNoticePayload(queueMessage)) {
     const perception = buildWakePerceptionInputItem(queueMessage);
     return [...(perception ? [perception] : []), buildDeveloperInputItem(parts)]
