@@ -4447,7 +4447,6 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
     runtimeEnergyState: { energy: 0.91, maxEnergy: 1 }
   });
 
-  assert.equal(continuation.forcedVisibleReply, null);
   assert.equal(continuation.inputItems.length, 1);
   loopInput.push(...continuation.inputItems);
   const lastItem = loopInput.at(-1);
@@ -4572,7 +4571,6 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
   assert.equal('energy_cost' in output, false);
   assert.equal('energy' in output, false);
   assert.equal('max_energy' in output, false);
-  assert.equal(continuation.forcedVisibleReply, null);
 });
 
 test('applyToolResultToLoopInput no longer annotates replayed tool output with energy', () => {
@@ -8155,7 +8153,6 @@ test('applyToolResultToLoopInput replays recover_energy system reminder as funct
     rawArguments: '{"reason":"done","outcome":"complete","xiaoni_os":"不接，把边界记下来。"}'
   }, recoverResult);
 
-  assert.equal(continuation.forcedVisibleReply, null);
   assert.equal(continuation.inputItems.length, 1);
   assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
   assert.equal(continuation.inputItems[0]?.call_id, 'call-2');

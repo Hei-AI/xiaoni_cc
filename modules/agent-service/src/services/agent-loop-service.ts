@@ -293,10 +293,6 @@ type FeedbackWriterToolChoice = OpenResponseToolChoice | undefined;
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
   oneShotInputItems: OpenResponseInputItem[];
-  forcedVisibleReply: {
-    toolName: string;
-    args: Record<string, unknown>;
-  } | null;
 };
 
 type ToolContinuationContext = {
@@ -6982,8 +6978,7 @@ export function applyToolResultToLoopInput(
   const oneShotInputItems: OpenResponseInputItem[] = [];
   return {
     inputItems,
-    oneShotInputItems,
-    forcedVisibleReply: null
+    oneShotInputItems
   };
 }
 
@@ -9504,59 +9499,6 @@ export class AgentLoopService {
                 completed_at: new Date().toISOString(),
                 status: 'completed'
               });
-            }
-            if (continuation.forcedVisibleReply) {
-              await this.store.logTimelineEvent({
-                traceId: payload.traceId,
-                eventType: 'decision',
-                eventName: 'forced_visible_reply',
-                eventPhase: null,
-                metadata: {
-                  source_tool_name: toolCall.name,
-                  tool_name: continuation.forcedVisibleReply.toolName
-                }
-              });
-              const forcedToolResult = await this.sendMessage(
-                continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-                {
-                  ...buildInternalExplicitSendTargetArgs(
-                    continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-                    payload
-                  ),
-                  ...continuation.forcedVisibleReply.args
-                },
-                payload
-              );
-              if (typeof forcedToolResult?.xiaoni_os === 'string' && forcedToolResult.xiaoni_os.trim().length > 0) {
-                persistedXiaoniOs = forcedToolResult.xiaoni_os.trim();
-              }
-              if (typeof forcedToolResult?.pending_share === 'string' && forcedToolResult.pending_share.trim().length > 0) {
-                persistedPendingShare = forcedToolResult.pending_share.trim();
-              }
-              await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
-              await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, continuation.forcedVisibleReply.toolName, forcedToolResult, true);
-              await this.store.logTimelineEvent({
-                traceId: payload.traceId,
-                eventType: 'decision',
-                eventName: 'delivery_commit',
-                eventPhase: null,
-                metadata: {
-                  tool_name: continuation.forcedVisibleReply.toolName,
-                  forced: true
-                }
-              });
-              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-              deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
-              leaseRelease = buildLeaseReleaseRecord({
-                reason: 'visible_delivery_committed',
-                detail: 'A visible reply was forced after a side-effecting tool produced work that still needed an acknowledgement.',
-                outcome: 'forced_visible_delivery_committed',
-                noVisibleDelivery: false,
-                visibleDeliveryCommitted: true,
-                source: `tool:${continuation.forcedVisibleReply.toolName}`,
-                toolResult: forcedToolResult
-              });
-              break;
             }
             if (continuation.inputItems.length > 0) {
               appendLoopInputItems(continuation.inputItems);
@@ -12350,15 +12292,6 @@ export class AgentLoopService {
             hasVisibleReply: false,
             runtimeEnergyState
           });
-          if (continuation.forcedVisibleReply) {
-            rawToolResult = {
-              ...rawToolResult,
-              forced_visible_reply_rejected: true,
-              error_message: 'subconscious agent fork cannot force visible delivery'
-            };
-            toolStatus = 'failed';
-            toolErrorMessage = 'subconscious agent fork cannot force visible delivery';
-          }
           const toolOutputRows = await this.appendSubconsciousAgentForkItemsSafe({
             forkRunId,
             traceId: params.queueMessage.traceId,
@@ -14207,9 +14140,6 @@ export class AgentLoopService {
                 hasVisibleReply: false,
                 runtimeEnergyState
               });
-              if (continuation.forcedVisibleReply) {
-                throw new Error('core memory compression fork must not force visible delivery');
-              }
               const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
                 forkRunId,
                 traceId: params.queueMessage.traceId,
@@ -17059,8 +16989,7 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     runId: string,
     toolName: string,
-    toolResult: Record<string, unknown>,
-    forced = false
+    toolResult: Record<string, unknown>
   ) {
     const recorder = (this.store as RuntimeStore & {
       recordVisibleDeliveryLifeEvents?: RuntimeStore['recordVisibleDeliveryLifeEvents'];
@@ -17072,8 +17001,7 @@ export class AgentLoopService {
       queueMessage,
       runId,
       toolName,
-      toolResult,
-      forced
+      toolResult
     }).catch((error) => {
       moduleLogger.warn('Failed to record visible delivery life events', {
         traceId: queueMessage.traceId,
@@ -19955,32 +19883,6 @@ function resolveOptionalToolTargetId(args: Record<string, unknown>, ...keys: str
   return null;
 }
 
-function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
-  const explicitUserId = resolveOptionalToolTargetId(args, 'user_id', 'target_user_id');
-  const userId = explicitUserId
-    ?? parseOptionalInteger(queueMessage.senderId)
-    ?? parseOptionalInteger(queueMessage.peerId)
-    ?? parseOptionalInteger(queueMessage.inboundContext.NativeChannelId);
-  if (!Number.isFinite(userId)) {
-    throw new Error(`Invalid private target in queue payload: sender=${queueMessage.senderId || 'unknown'}, peer=${queueMessage.peerId || 'unknown'}`);
-  }
-  return userId;
-}
-
-function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
-  const explicitGroupId = resolveOptionalToolTargetId(args, 'group_id', 'target_group_id');
-  if (explicitGroupId === null && queueMessage.chatType !== 'group') {
-    throw new Error('Cannot derive a default group target from a non-group queue payload');
-  }
-  const groupId = explicitGroupId ?? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
-  if (!Number.isFinite(groupId)) {
-    throw new Error(
-      `Invalid group target in queue payload: ${queueMessage.inboundContext.NativeChannelId || queueMessage.peerId || 'unknown'}`
-    );
-  }
-  return groupId;
-}
-
 function buildRetryableSendToolError(
   messageType: 'private' | 'group',
   toolName: string,
@@ -20011,12 +19913,6 @@ function buildRetryableSendToolError(
     xiaoni_os: xiaoniOs,
     pending_share: pendingShare
   };
-}
-
-function buildInternalExplicitSendTargetArgs(messageType: 'private' | 'group', queueMessage: QueueMessageRecord['payload']) {
-  return messageType === 'private'
-    ? { user_id: resolvePrivateTargetUserId(queueMessage) }
-    : { group_id: resolveGroupTargetId(queueMessage) };
 }
 
 function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {
