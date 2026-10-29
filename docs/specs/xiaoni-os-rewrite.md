@@ -28,3 +28,11 @@
 准入与改写在首次落栈前就地冻结；live 和 replay 使用同一正文。下一 run 不重新润色、重新抽签或重新渲染时间。四支冻结缓存用例必须通过，真实缓存读数另用相邻 `wire_request` 和 usage 检查。
 
 Plan 的生成、身份和投递只维护在 stack ledger；OS 润色不代替 Plan，也不替主 agent 发言。历史分类及 fill fork 证据可通过 Git 和 Raw Trace 查询，不能解释为现行实现。
+
+## 整合验证边界（2026-10-29）
+
+本轮合入及四服务定向部署后，agent 定向 71 项、事件去重含真库 8 项、载荷清理真库 6 项、模型设置真库 3 项、memory-write 81 项、验证码脚本 9 项、provider 定向 28 项、行动流 53 项通过；四支冻结缓存测试文件保持原样。旧 broad runtime suite 的 8 项陈旧断言在合入前 main 同样失败，整套另有超时，不能称全量测试通过。
+
+主 runtime 保持关闭，故没有部署后相邻主 slice 的真实缓存读数；启动缓存心跳遇到 Anthropic OAuth 403（组织不允许 OAuth），不能将健康检查或历史命中率当作模型调用验收。
+
+按操作要求关闭 LLM 探针：runtime control 的 `cache_heartbeat_paused=true`、`debug_cache_heartbeat_interval_ms=0`；本机 `agent-service.env` 的 `AGENT_CACHE_HEARTBEAT_ENABLED=false`、`XIAONI_RECALL_JUDGE_WARM_INTERVAL_MS=0`。这些只关闭主请求缓存保温和召回精排预热，不改变 canonical/replay 字节；普通 HTTP/容器 healthcheck 保留。真实调用与缓存验收待运行恢复且上游认证可用后再做。
