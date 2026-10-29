@@ -155,3 +155,5 @@
   **2026-08-07 改道**：投递走 Notify Bucket，不做尾注入（理由见上面 §v2）。
 - 语义式在场排除。
 - energy 解平后叠进旋钮。
+
+待实现设计草案：[联想候选进入自驱动 fork](specs/xiaoni-association-into-subconscious-fork.md)。它不改变本页现行投递契约。

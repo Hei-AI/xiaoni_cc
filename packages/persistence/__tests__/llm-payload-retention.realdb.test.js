@@ -185,3 +185,23 @@ dbTest('无 cutoff → no_read_cutoff,不删任何东西', async () => {
   assert.equal(result.reason, 'no_read_cutoff');
   assert.deepEqual(await ids('llm_request_slices', 'slice_id'), ['evicted']);
 });
+
+
+dbTest('nullable index bounds follow GREATEST semantics and never prune a different identity', async () => {
+  await seedStack();
+  await insertSlice('input-only-old', { inputEnd: 9 });
+  await insertSlice('output-only-old', { outputEnd: 9 });
+  await insertSlice('one-new-bound', { inputEnd: 11, outputEnd: 9 });
+  await insertSlice('other-identity', { inputEnd: 1, outputEnd: 2 });
+  await sql.execute("UPDATE llm_request_slices SET identity_key = 'other' WHERE slice_id = 'other-identity'", []);
+  await persistence.pruneLlmPayloadsBeforeReadCutoff({ readCutoffAfterStackIndex: 10 });
+  assert.deepEqual(await ids('llm_request_slices', 'slice_id'), ['one-new-bound', 'other-identity']);
+});
+
+dbTest('no retained boundary never enables time-based pruning', async () => {
+  await insertSlice('indexed-old', { inputEnd: 1, outputEnd: 2 });
+  await insertSlice('no-index-old', { createdAt: BEFORE });
+  const result = await persistence.pruneLlmPayloadsBeforeReadCutoff({ readCutoffAfterStackIndex: 10 });
+  assert.equal(result.contextStartedAt, null);
+  assert.deepEqual(await ids('llm_request_slices', 'slice_id'), ['no-index-old']);
+});

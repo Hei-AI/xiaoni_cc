@@ -98724,26 +98724,61 @@ export namespace Prisma {
 
   export type ImageVisionForkRunMinAggregateOutputType = {
     id: bigint | null
-    identity_key: string | null
     fork_run_id: string | null
-    created_at: Date | null
+    identity_key: string | null
     status: string | null
+    trace_id: string | null
+    run_id: string | null
+    asset_id: string | null
+    image_id: string | null
+    media_tag: string | null
+    observation_id: string | null
+    description: string | null
+    error_message: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
   }
 
   export type ImageVisionForkRunMaxAggregateOutputType = {
     id: bigint | null
-    identity_key: string | null
     fork_run_id: string | null
-    created_at: Date | null
+    identity_key: string | null
     status: string | null
+    trace_id: string | null
+    run_id: string | null
+    asset_id: string | null
+    image_id: string | null
+    media_tag: string | null
+    observation_id: string | null
+    description: string | null
+    error_message: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
   }
 
   export type ImageVisionForkRunCountAggregateOutputType = {
     id: number
-    identity_key: number
     fork_run_id: number
-    created_at: number
+    identity_key: number
     status: number
+    trace_id: number
+    run_id: number
+    asset_id: number
+    image_id: number
+    media_tag: number
+    observation_id: number
+    description: number
+    artifact: number
+    error_message: number
+    metadata: number
+    started_at: number
+    completed_at: number
+    created_at: number
+    updated_at: number
     _all: number
   }
 
@@ -98758,26 +98793,61 @@ export namespace Prisma {
 
   export type ImageVisionForkRunMinAggregateInputType = {
     id?: true
-    identity_key?: true
     fork_run_id?: true
-    created_at?: true
+    identity_key?: true
     status?: true
+    trace_id?: true
+    run_id?: true
+    asset_id?: true
+    image_id?: true
+    media_tag?: true
+    observation_id?: true
+    description?: true
+    error_message?: true
+    started_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
   }
 
   export type ImageVisionForkRunMaxAggregateInputType = {
     id?: true
-    identity_key?: true
     fork_run_id?: true
-    created_at?: true
+    identity_key?: true
     status?: true
+    trace_id?: true
+    run_id?: true
+    asset_id?: true
+    image_id?: true
+    media_tag?: true
+    observation_id?: true
+    description?: true
+    error_message?: true
+    started_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
   }
 
   export type ImageVisionForkRunCountAggregateInputType = {
     id?: true
-    identity_key?: true
     fork_run_id?: true
-    created_at?: true
+    identity_key?: true
     status?: true
+    trace_id?: true
+    run_id?: true
+    asset_id?: true
+    image_id?: true
+    media_tag?: true
+    observation_id?: true
+    description?: true
+    artifact?: true
+    error_message?: true
+    metadata?: true
+    started_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
     _all?: true
   }
 
@@ -98869,10 +98939,23 @@ export namespace Prisma {
 
   export type ImageVisionForkRunGroupByOutputType = {
     id: bigint
-    identity_key: string
     fork_run_id: string
-    created_at: Date
+    identity_key: string
     status: string
+    trace_id: string | null
+    run_id: string | null
+    asset_id: string | null
+    image_id: string | null
+    media_tag: string | null
+    observation_id: string | null
+    description: string | null
+    artifact: JsonValue
+    error_message: string | null
+    metadata: JsonValue
+    started_at: Date
+    completed_at: Date | null
+    created_at: Date
+    updated_at: Date
     _count: ImageVisionForkRunCountAggregateOutputType | null
     _avg: ImageVisionForkRunAvgAggregateOutputType | null
     _sum: ImageVisionForkRunSumAggregateOutputType | null
@@ -98896,47 +98979,112 @@ export namespace Prisma {
 
   export type ImageVisionForkRunSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    identity_key?: boolean
     status?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    asset_id?: boolean
+    image_id?: boolean
+    media_tag?: boolean
+    observation_id?: boolean
+    description?: boolean
+    artifact?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkRun"]>
 
   export type ImageVisionForkRunSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    identity_key?: boolean
     status?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    asset_id?: boolean
+    image_id?: boolean
+    media_tag?: boolean
+    observation_id?: boolean
+    description?: boolean
+    artifact?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkRun"]>
 
   export type ImageVisionForkRunSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    identity_key?: boolean
     status?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    asset_id?: boolean
+    image_id?: boolean
+    media_tag?: boolean
+    observation_id?: boolean
+    description?: boolean
+    artifact?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkRun"]>
 
   export type ImageVisionForkRunSelectScalar = {
     id?: boolean
-    identity_key?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    identity_key?: boolean
     status?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    asset_id?: boolean
+    image_id?: boolean
+    media_tag?: boolean
+    observation_id?: boolean
+    description?: boolean
+    artifact?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
   }
 
-  export type ImageVisionForkRunOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fork_run_id" | "created_at" | "status", ExtArgs["result"]["imageVisionForkRun"]>
+  export type ImageVisionForkRunOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "fork_run_id" | "identity_key" | "status" | "trace_id" | "run_id" | "asset_id" | "image_id" | "media_tag" | "observation_id" | "description" | "artifact" | "error_message" | "metadata" | "started_at" | "completed_at" | "created_at" | "updated_at", ExtArgs["result"]["imageVisionForkRun"]>
 
   export type $ImageVisionForkRunPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "ImageVisionForkRun"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: bigint
-      identity_key: string
       fork_run_id: string
-      created_at: Date
+      identity_key: string
       status: string
+      trace_id: string | null
+      run_id: string | null
+      asset_id: string | null
+      image_id: string | null
+      media_tag: string | null
+      observation_id: string | null
+      description: string | null
+      artifact: Prisma.JsonValue
+      error_message: string | null
+      metadata: Prisma.JsonValue
+      started_at: Date
+      completed_at: Date | null
+      created_at: Date
+      updated_at: Date
     }, ExtArgs["result"]["imageVisionForkRun"]>
     composites: {}
   }
@@ -99361,10 +99509,23 @@ export namespace Prisma {
    */
   interface ImageVisionForkRunFieldRefs {
     readonly id: FieldRef<"ImageVisionForkRun", 'BigInt'>
-    readonly identity_key: FieldRef<"ImageVisionForkRun", 'String'>
     readonly fork_run_id: FieldRef<"ImageVisionForkRun", 'String'>
-    readonly created_at: FieldRef<"ImageVisionForkRun", 'DateTime'>
+    readonly identity_key: FieldRef<"ImageVisionForkRun", 'String'>
     readonly status: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly trace_id: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly run_id: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly asset_id: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly image_id: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly media_tag: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly observation_id: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly description: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly artifact: FieldRef<"ImageVisionForkRun", 'Json'>
+    readonly error_message: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly metadata: FieldRef<"ImageVisionForkRun", 'Json'>
+    readonly started_at: FieldRef<"ImageVisionForkRun", 'DateTime'>
+    readonly completed_at: FieldRef<"ImageVisionForkRun", 'DateTime'>
+    readonly created_at: FieldRef<"ImageVisionForkRun", 'DateTime'>
+    readonly updated_at: FieldRef<"ImageVisionForkRun", 'DateTime'>
   }
     
 
@@ -99745,62 +99906,154 @@ export namespace Prisma {
 
   export type ImageVisionForkItemAvgAggregateOutputType = {
     id: number | null
+    item_index: number | null
   }
 
   export type ImageVisionForkItemSumAggregateOutputType = {
     id: bigint | null
+    item_index: bigint | null
   }
 
   export type ImageVisionForkItemMinAggregateOutputType = {
     id: bigint | null
-    identity_key: string | null
+    event_id: string | null
     fork_run_id: string | null
+    identity_key: string | null
+    item_index: bigint | null
+    item_kind: string | null
+    role: string | null
+    phase: string | null
+    provider_item_id: string | null
+    tool_call_id: string | null
+    llm_request_slice_id: string | null
+    visibility: string | null
+    source_type: string | null
+    source_id: string | null
+    trace_id: string | null
+    run_id: string | null
     created_at: Date | null
+    updated_at: Date | null
   }
 
   export type ImageVisionForkItemMaxAggregateOutputType = {
     id: bigint | null
-    identity_key: string | null
+    event_id: string | null
     fork_run_id: string | null
+    identity_key: string | null
+    item_index: bigint | null
+    item_kind: string | null
+    role: string | null
+    phase: string | null
+    provider_item_id: string | null
+    tool_call_id: string | null
+    llm_request_slice_id: string | null
+    visibility: string | null
+    source_type: string | null
+    source_id: string | null
+    trace_id: string | null
+    run_id: string | null
     created_at: Date | null
+    updated_at: Date | null
   }
 
   export type ImageVisionForkItemCountAggregateOutputType = {
     id: number
-    identity_key: number
+    event_id: number
     fork_run_id: number
+    identity_key: number
+    item_index: number
+    item_kind: number
+    role: number
+    phase: number
+    provider_item_id: number
+    tool_call_id: number
+    llm_request_slice_id: number
+    content: number
+    visibility: number
+    source_type: number
+    source_id: number
+    trace_id: number
+    run_id: number
+    metadata: number
     created_at: number
+    updated_at: number
     _all: number
   }
 
 
   export type ImageVisionForkItemAvgAggregateInputType = {
     id?: true
+    item_index?: true
   }
 
   export type ImageVisionForkItemSumAggregateInputType = {
     id?: true
+    item_index?: true
   }
 
   export type ImageVisionForkItemMinAggregateInputType = {
     id?: true
-    identity_key?: true
+    event_id?: true
     fork_run_id?: true
+    identity_key?: true
+    item_index?: true
+    item_kind?: true
+    role?: true
+    phase?: true
+    provider_item_id?: true
+    tool_call_id?: true
+    llm_request_slice_id?: true
+    visibility?: true
+    source_type?: true
+    source_id?: true
+    trace_id?: true
+    run_id?: true
     created_at?: true
+    updated_at?: true
   }
 
   export type ImageVisionForkItemMaxAggregateInputType = {
     id?: true
-    identity_key?: true
+    event_id?: true
     fork_run_id?: true
+    identity_key?: true
+    item_index?: true
+    item_kind?: true
+    role?: true
+    phase?: true
+    provider_item_id?: true
+    tool_call_id?: true
+    llm_request_slice_id?: true
+    visibility?: true
+    source_type?: true
+    source_id?: true
+    trace_id?: true
+    run_id?: true
     created_at?: true
+    updated_at?: true
   }
 
   export type ImageVisionForkItemCountAggregateInputType = {
     id?: true
-    identity_key?: true
+    event_id?: true
     fork_run_id?: true
+    identity_key?: true
+    item_index?: true
+    item_kind?: true
+    role?: true
+    phase?: true
+    provider_item_id?: true
+    tool_call_id?: true
+    llm_request_slice_id?: true
+    content?: true
+    visibility?: true
+    source_type?: true
+    source_id?: true
+    trace_id?: true
+    run_id?: true
+    metadata?: true
     created_at?: true
+    updated_at?: true
     _all?: true
   }
 
@@ -99892,9 +100145,25 @@ export namespace Prisma {
 
   export type ImageVisionForkItemGroupByOutputType = {
     id: bigint
-    identity_key: string
+    event_id: string
     fork_run_id: string
+    identity_key: string
+    item_index: bigint
+    item_kind: string
+    role: string | null
+    phase: string | null
+    provider_item_id: string | null
+    tool_call_id: string | null
+    llm_request_slice_id: string | null
+    content: JsonValue
+    visibility: string
+    source_type: string | null
+    source_id: string | null
+    trace_id: string | null
+    run_id: string | null
+    metadata: JsonValue
     created_at: Date
+    updated_at: Date
     _count: ImageVisionForkItemCountAggregateOutputType | null
     _avg: ImageVisionForkItemAvgAggregateOutputType | null
     _sum: ImageVisionForkItemSumAggregateOutputType | null
@@ -99918,42 +100187,122 @@ export namespace Prisma {
 
   export type ImageVisionForkItemSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
+    event_id?: boolean
     fork_run_id?: boolean
+    identity_key?: boolean
+    item_index?: boolean
+    item_kind?: boolean
+    role?: boolean
+    phase?: boolean
+    provider_item_id?: boolean
+    tool_call_id?: boolean
+    llm_request_slice_id?: boolean
+    content?: boolean
+    visibility?: boolean
+    source_type?: boolean
+    source_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    metadata?: boolean
     created_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkItem"]>
 
   export type ImageVisionForkItemSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
+    event_id?: boolean
     fork_run_id?: boolean
+    identity_key?: boolean
+    item_index?: boolean
+    item_kind?: boolean
+    role?: boolean
+    phase?: boolean
+    provider_item_id?: boolean
+    tool_call_id?: boolean
+    llm_request_slice_id?: boolean
+    content?: boolean
+    visibility?: boolean
+    source_type?: boolean
+    source_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    metadata?: boolean
     created_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkItem"]>
 
   export type ImageVisionForkItemSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
+    event_id?: boolean
     fork_run_id?: boolean
+    identity_key?: boolean
+    item_index?: boolean
+    item_kind?: boolean
+    role?: boolean
+    phase?: boolean
+    provider_item_id?: boolean
+    tool_call_id?: boolean
+    llm_request_slice_id?: boolean
+    content?: boolean
+    visibility?: boolean
+    source_type?: boolean
+    source_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    metadata?: boolean
     created_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkItem"]>
 
   export type ImageVisionForkItemSelectScalar = {
     id?: boolean
-    identity_key?: boolean
+    event_id?: boolean
     fork_run_id?: boolean
+    identity_key?: boolean
+    item_index?: boolean
+    item_kind?: boolean
+    role?: boolean
+    phase?: boolean
+    provider_item_id?: boolean
+    tool_call_id?: boolean
+    llm_request_slice_id?: boolean
+    content?: boolean
+    visibility?: boolean
+    source_type?: boolean
+    source_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    metadata?: boolean
     created_at?: boolean
+    updated_at?: boolean
   }
 
-  export type ImageVisionForkItemOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fork_run_id" | "created_at", ExtArgs["result"]["imageVisionForkItem"]>
+  export type ImageVisionForkItemOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "event_id" | "fork_run_id" | "identity_key" | "item_index" | "item_kind" | "role" | "phase" | "provider_item_id" | "tool_call_id" | "llm_request_slice_id" | "content" | "visibility" | "source_type" | "source_id" | "trace_id" | "run_id" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["imageVisionForkItem"]>
 
   export type $ImageVisionForkItemPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "ImageVisionForkItem"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: bigint
-      identity_key: string
+      event_id: string
       fork_run_id: string
+      identity_key: string
+      item_index: bigint
+      item_kind: string
+      role: string | null
+      phase: string | null
+      provider_item_id: string | null
+      tool_call_id: string | null
+      llm_request_slice_id: string | null
+      content: Prisma.JsonValue
+      visibility: string
+      source_type: string | null
+      source_id: string | null
+      trace_id: string | null
+      run_id: string | null
+      metadata: Prisma.JsonValue
       created_at: Date
+      updated_at: Date
     }, ExtArgs["result"]["imageVisionForkItem"]>
     composites: {}
   }
@@ -100378,9 +100727,25 @@ export namespace Prisma {
    */
   interface ImageVisionForkItemFieldRefs {
     readonly id: FieldRef<"ImageVisionForkItem", 'BigInt'>
-    readonly identity_key: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly event_id: FieldRef<"ImageVisionForkItem", 'String'>
     readonly fork_run_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly identity_key: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly item_index: FieldRef<"ImageVisionForkItem", 'BigInt'>
+    readonly item_kind: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly role: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly phase: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly provider_item_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly tool_call_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly llm_request_slice_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly content: FieldRef<"ImageVisionForkItem", 'Json'>
+    readonly visibility: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly source_type: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly source_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly trace_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly run_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly metadata: FieldRef<"ImageVisionForkItem", 'Json'>
     readonly created_at: FieldRef<"ImageVisionForkItem", 'DateTime'>
+    readonly updated_at: FieldRef<"ImageVisionForkItem", 'DateTime'>
   }
     
 
@@ -100761,68 +101126,206 @@ export namespace Prisma {
 
   export type ImageVisionForkSliceAvgAggregateOutputType = {
     id: number | null
+    input_start_index: number | null
+    input_end_index: number | null
+    output_start_index: number | null
+    output_end_index: number | null
+    agent_turn: number | null
+    processing_time_ms: number | null
   }
 
   export type ImageVisionForkSliceSumAggregateOutputType = {
     id: bigint | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    output_start_index: bigint | null
+    output_end_index: bigint | null
+    agent_turn: number | null
+    processing_time_ms: number | null
   }
 
   export type ImageVisionForkSliceMinAggregateOutputType = {
     id: bigint | null
-    identity_key: string | null
+    slice_id: string | null
     fork_run_id: string | null
-    created_at: Date | null
+    llm_call_id: string | null
+    identity_key: string | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    output_start_index: bigint | null
+    output_end_index: bigint | null
     status: string | null
+    trace_id: string | null
+    run_id: string | null
+    agent_turn: number | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    created_at: Date | null
+    completed_at: Date | null
+    updated_at: Date | null
   }
 
   export type ImageVisionForkSliceMaxAggregateOutputType = {
     id: bigint | null
-    identity_key: string | null
+    slice_id: string | null
     fork_run_id: string | null
-    created_at: Date | null
+    llm_call_id: string | null
+    identity_key: string | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    output_start_index: bigint | null
+    output_end_index: bigint | null
     status: string | null
+    trace_id: string | null
+    run_id: string | null
+    agent_turn: number | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    created_at: Date | null
+    completed_at: Date | null
+    updated_at: Date | null
   }
 
   export type ImageVisionForkSliceCountAggregateOutputType = {
     id: number
-    identity_key: number
+    slice_id: number
     fork_run_id: number
-    created_at: number
+    llm_call_id: number
+    identity_key: number
+    input_start_index: number
+    input_end_index: number
+    input_stack_item_ids: number
+    output_start_index: number
+    output_end_index: number
+    canonical_request: number
+    wire_request: number
+    canonical_response: number
+    wire_response: number
+    raw_response: number
+    output_items: number
     status: number
+    token_usage: number
+    trace_id: number
+    run_id: number
+    agent_turn: number
+    model_name: number
+    model_provider: number
+    request_format_version: number
+    wire_provider_format: number
+    processing_time_ms: number
+    metadata: number
+    created_at: number
+    completed_at: number
+    updated_at: number
     _all: number
   }
 
 
   export type ImageVisionForkSliceAvgAggregateInputType = {
     id?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
+    agent_turn?: true
+    processing_time_ms?: true
   }
 
   export type ImageVisionForkSliceSumAggregateInputType = {
     id?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
+    agent_turn?: true
+    processing_time_ms?: true
   }
 
   export type ImageVisionForkSliceMinAggregateInputType = {
     id?: true
-    identity_key?: true
+    slice_id?: true
     fork_run_id?: true
-    created_at?: true
+    llm_call_id?: true
+    identity_key?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
     status?: true
+    trace_id?: true
+    run_id?: true
+    agent_turn?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
   }
 
   export type ImageVisionForkSliceMaxAggregateInputType = {
     id?: true
-    identity_key?: true
+    slice_id?: true
     fork_run_id?: true
-    created_at?: true
+    llm_call_id?: true
+    identity_key?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
     status?: true
+    trace_id?: true
+    run_id?: true
+    agent_turn?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
   }
 
   export type ImageVisionForkSliceCountAggregateInputType = {
     id?: true
-    identity_key?: true
+    slice_id?: true
     fork_run_id?: true
-    created_at?: true
+    llm_call_id?: true
+    identity_key?: true
+    input_start_index?: true
+    input_end_index?: true
+    input_stack_item_ids?: true
+    output_start_index?: true
+    output_end_index?: true
+    canonical_request?: true
+    wire_request?: true
+    canonical_response?: true
+    wire_response?: true
+    raw_response?: true
+    output_items?: true
     status?: true
+    token_usage?: true
+    trace_id?: true
+    run_id?: true
+    agent_turn?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    metadata?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
     _all?: true
   }
 
@@ -100914,10 +101417,35 @@ export namespace Prisma {
 
   export type ImageVisionForkSliceGroupByOutputType = {
     id: bigint
-    identity_key: string
+    slice_id: string
     fork_run_id: string
-    created_at: Date
+    llm_call_id: string | null
+    identity_key: string
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    input_stack_item_ids: JsonValue
+    output_start_index: bigint | null
+    output_end_index: bigint | null
+    canonical_request: JsonValue
+    wire_request: JsonValue | null
+    canonical_response: JsonValue | null
+    wire_response: JsonValue | null
+    raw_response: JsonValue | null
+    output_items: JsonValue
     status: string
+    token_usage: JsonValue
+    trace_id: string | null
+    run_id: string | null
+    agent_turn: number | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    metadata: JsonValue
+    created_at: Date
+    completed_at: Date | null
+    updated_at: Date
     _count: ImageVisionForkSliceCountAggregateOutputType | null
     _avg: ImageVisionForkSliceAvgAggregateOutputType | null
     _sum: ImageVisionForkSliceSumAggregateOutputType | null
@@ -100941,47 +101469,172 @@ export namespace Prisma {
 
   export type ImageVisionForkSliceSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
+    slice_id?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
     status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkSlice"]>
 
   export type ImageVisionForkSliceSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
+    slice_id?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
     status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkSlice"]>
 
   export type ImageVisionForkSliceSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
-    identity_key?: boolean
+    slice_id?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
     status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
   }, ExtArgs["result"]["imageVisionForkSlice"]>
 
   export type ImageVisionForkSliceSelectScalar = {
     id?: boolean
-    identity_key?: boolean
+    slice_id?: boolean
     fork_run_id?: boolean
-    created_at?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
     status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
   }
 
-  export type ImageVisionForkSliceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fork_run_id" | "created_at" | "status", ExtArgs["result"]["imageVisionForkSlice"]>
+  export type ImageVisionForkSliceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "slice_id" | "fork_run_id" | "llm_call_id" | "identity_key" | "input_start_index" | "input_end_index" | "input_stack_item_ids" | "output_start_index" | "output_end_index" | "canonical_request" | "wire_request" | "canonical_response" | "wire_response" | "raw_response" | "output_items" | "status" | "token_usage" | "trace_id" | "run_id" | "agent_turn" | "model_name" | "model_provider" | "request_format_version" | "wire_provider_format" | "processing_time_ms" | "metadata" | "created_at" | "completed_at" | "updated_at", ExtArgs["result"]["imageVisionForkSlice"]>
 
   export type $ImageVisionForkSlicePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "ImageVisionForkSlice"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: bigint
-      identity_key: string
+      slice_id: string
       fork_run_id: string
-      created_at: Date
+      llm_call_id: string | null
+      identity_key: string
+      input_start_index: bigint | null
+      input_end_index: bigint | null
+      input_stack_item_ids: Prisma.JsonValue
+      output_start_index: bigint | null
+      output_end_index: bigint | null
+      canonical_request: Prisma.JsonValue
+      wire_request: Prisma.JsonValue | null
+      canonical_response: Prisma.JsonValue | null
+      wire_response: Prisma.JsonValue | null
+      raw_response: Prisma.JsonValue | null
+      output_items: Prisma.JsonValue
       status: string
+      token_usage: Prisma.JsonValue
+      trace_id: string | null
+      run_id: string | null
+      agent_turn: number | null
+      model_name: string | null
+      model_provider: string | null
+      request_format_version: string | null
+      wire_provider_format: string | null
+      processing_time_ms: number | null
+      metadata: Prisma.JsonValue
+      created_at: Date
+      completed_at: Date | null
+      updated_at: Date
     }, ExtArgs["result"]["imageVisionForkSlice"]>
     composites: {}
   }
@@ -101406,10 +102059,35 @@ export namespace Prisma {
    */
   interface ImageVisionForkSliceFieldRefs {
     readonly id: FieldRef<"ImageVisionForkSlice", 'BigInt'>
-    readonly identity_key: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly slice_id: FieldRef<"ImageVisionForkSlice", 'String'>
     readonly fork_run_id: FieldRef<"ImageVisionForkSlice", 'String'>
-    readonly created_at: FieldRef<"ImageVisionForkSlice", 'DateTime'>
+    readonly llm_call_id: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly identity_key: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly input_start_index: FieldRef<"ImageVisionForkSlice", 'BigInt'>
+    readonly input_end_index: FieldRef<"ImageVisionForkSlice", 'BigInt'>
+    readonly input_stack_item_ids: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly output_start_index: FieldRef<"ImageVisionForkSlice", 'BigInt'>
+    readonly output_end_index: FieldRef<"ImageVisionForkSlice", 'BigInt'>
+    readonly canonical_request: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly wire_request: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly canonical_response: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly wire_response: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly raw_response: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly output_items: FieldRef<"ImageVisionForkSlice", 'Json'>
     readonly status: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly token_usage: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly trace_id: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly run_id: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly agent_turn: FieldRef<"ImageVisionForkSlice", 'Int'>
+    readonly model_name: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly model_provider: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly request_format_version: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly wire_provider_format: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly processing_time_ms: FieldRef<"ImageVisionForkSlice", 'Int'>
+    readonly metadata: FieldRef<"ImageVisionForkSlice", 'Json'>
+    readonly created_at: FieldRef<"ImageVisionForkSlice", 'DateTime'>
+    readonly completed_at: FieldRef<"ImageVisionForkSlice", 'DateTime'>
+    readonly updated_at: FieldRef<"ImageVisionForkSlice", 'DateTime'>
   }
     
 
@@ -103587,10 +104265,23 @@ export namespace Prisma {
 
   export const ImageVisionForkRunScalarFieldEnum: {
     id: 'id',
-    identity_key: 'identity_key',
     fork_run_id: 'fork_run_id',
+    identity_key: 'identity_key',
+    status: 'status',
+    trace_id: 'trace_id',
+    run_id: 'run_id',
+    asset_id: 'asset_id',
+    image_id: 'image_id',
+    media_tag: 'media_tag',
+    observation_id: 'observation_id',
+    description: 'description',
+    artifact: 'artifact',
+    error_message: 'error_message',
+    metadata: 'metadata',
+    started_at: 'started_at',
+    completed_at: 'completed_at',
     created_at: 'created_at',
-    status: 'status'
+    updated_at: 'updated_at'
   };
 
   export type ImageVisionForkRunScalarFieldEnum = (typeof ImageVisionForkRunScalarFieldEnum)[keyof typeof ImageVisionForkRunScalarFieldEnum]
@@ -103598,9 +104289,25 @@ export namespace Prisma {
 
   export const ImageVisionForkItemScalarFieldEnum: {
     id: 'id',
-    identity_key: 'identity_key',
+    event_id: 'event_id',
     fork_run_id: 'fork_run_id',
-    created_at: 'created_at'
+    identity_key: 'identity_key',
+    item_index: 'item_index',
+    item_kind: 'item_kind',
+    role: 'role',
+    phase: 'phase',
+    provider_item_id: 'provider_item_id',
+    tool_call_id: 'tool_call_id',
+    llm_request_slice_id: 'llm_request_slice_id',
+    content: 'content',
+    visibility: 'visibility',
+    source_type: 'source_type',
+    source_id: 'source_id',
+    trace_id: 'trace_id',
+    run_id: 'run_id',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
   };
 
   export type ImageVisionForkItemScalarFieldEnum = (typeof ImageVisionForkItemScalarFieldEnum)[keyof typeof ImageVisionForkItemScalarFieldEnum]
@@ -103608,10 +104315,35 @@ export namespace Prisma {
 
   export const ImageVisionForkSliceScalarFieldEnum: {
     id: 'id',
-    identity_key: 'identity_key',
+    slice_id: 'slice_id',
     fork_run_id: 'fork_run_id',
+    llm_call_id: 'llm_call_id',
+    identity_key: 'identity_key',
+    input_start_index: 'input_start_index',
+    input_end_index: 'input_end_index',
+    input_stack_item_ids: 'input_stack_item_ids',
+    output_start_index: 'output_start_index',
+    output_end_index: 'output_end_index',
+    canonical_request: 'canonical_request',
+    wire_request: 'wire_request',
+    canonical_response: 'canonical_response',
+    wire_response: 'wire_response',
+    raw_response: 'raw_response',
+    output_items: 'output_items',
+    status: 'status',
+    token_usage: 'token_usage',
+    trace_id: 'trace_id',
+    run_id: 'run_id',
+    agent_turn: 'agent_turn',
+    model_name: 'model_name',
+    model_provider: 'model_provider',
+    request_format_version: 'request_format_version',
+    wire_provider_format: 'wire_provider_format',
+    processing_time_ms: 'processing_time_ms',
+    metadata: 'metadata',
     created_at: 'created_at',
-    status: 'status'
+    completed_at: 'completed_at',
+    updated_at: 'updated_at'
   };
 
   export type ImageVisionForkSliceScalarFieldEnum = (typeof ImageVisionForkSliceScalarFieldEnum)[keyof typeof ImageVisionForkSliceScalarFieldEnum]
@@ -112732,37 +113464,89 @@ export namespace Prisma {
     OR?: ImageVisionForkRunWhereInput[]
     NOT?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
     id?: BigIntFilter<"ImageVisionForkRun"> | bigint | number
-    identity_key?: StringFilter<"ImageVisionForkRun"> | string
     fork_run_id?: StringFilter<"ImageVisionForkRun"> | string
-    created_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    identity_key?: StringFilter<"ImageVisionForkRun"> | string
     status?: StringFilter<"ImageVisionForkRun"> | string
+    trace_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    run_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    asset_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    image_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    media_tag?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    observation_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    description?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    artifact?: JsonFilter<"ImageVisionForkRun">
+    error_message?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    metadata?: JsonFilter<"ImageVisionForkRun">
+    started_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    completed_at?: DateTimeNullableFilter<"ImageVisionForkRun"> | Date | string | null
+    created_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    updated_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
   }
 
   export type ImageVisionForkRunOrderByWithRelationInput = {
     id?: SortOrder
-    identity_key?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    identity_key?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    asset_id?: SortOrderInput | SortOrder
+    image_id?: SortOrderInput | SortOrder
+    media_tag?: SortOrderInput | SortOrder
+    observation_id?: SortOrderInput | SortOrder
+    description?: SortOrderInput | SortOrder
+    artifact?: SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkRunWhereUniqueInput = Prisma.AtLeast<{
     id?: bigint | number
+    fork_run_id?: string
     AND?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
     OR?: ImageVisionForkRunWhereInput[]
     NOT?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
     identity_key?: StringFilter<"ImageVisionForkRun"> | string
-    fork_run_id?: StringFilter<"ImageVisionForkRun"> | string
-    created_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
     status?: StringFilter<"ImageVisionForkRun"> | string
-  }, "id">
+    trace_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    run_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    asset_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    image_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    media_tag?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    observation_id?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    description?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    artifact?: JsonFilter<"ImageVisionForkRun">
+    error_message?: StringNullableFilter<"ImageVisionForkRun"> | string | null
+    metadata?: JsonFilter<"ImageVisionForkRun">
+    started_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    completed_at?: DateTimeNullableFilter<"ImageVisionForkRun"> | Date | string | null
+    created_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    updated_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+  }, "id" | "fork_run_id">
 
   export type ImageVisionForkRunOrderByWithAggregationInput = {
     id?: SortOrder
-    identity_key?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    identity_key?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    asset_id?: SortOrderInput | SortOrder
+    image_id?: SortOrderInput | SortOrder
+    media_tag?: SortOrderInput | SortOrder
+    observation_id?: SortOrderInput | SortOrder
+    description?: SortOrderInput | SortOrder
+    artifact?: SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
     _count?: ImageVisionForkRunCountOrderByAggregateInput
     _avg?: ImageVisionForkRunAvgOrderByAggregateInput
     _max?: ImageVisionForkRunMaxOrderByAggregateInput
@@ -112775,10 +113559,23 @@ export namespace Prisma {
     OR?: ImageVisionForkRunScalarWhereWithAggregatesInput[]
     NOT?: ImageVisionForkRunScalarWhereWithAggregatesInput | ImageVisionForkRunScalarWhereWithAggregatesInput[]
     id?: BigIntWithAggregatesFilter<"ImageVisionForkRun"> | bigint | number
-    identity_key?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
     fork_run_id?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
-    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkRun"> | Date | string
+    identity_key?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
     status?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
+    trace_id?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    asset_id?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    image_id?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    media_tag?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    observation_id?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    description?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    artifact?: JsonWithAggregatesFilter<"ImageVisionForkRun">
+    error_message?: StringNullableWithAggregatesFilter<"ImageVisionForkRun"> | string | null
+    metadata?: JsonWithAggregatesFilter<"ImageVisionForkRun">
+    started_at?: DateTimeWithAggregatesFilter<"ImageVisionForkRun"> | Date | string
+    completed_at?: DateTimeNullableWithAggregatesFilter<"ImageVisionForkRun"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkRun"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"ImageVisionForkRun"> | Date | string
   }
 
   export type ImageVisionForkItemWhereInput = {
@@ -112786,33 +113583,98 @@ export namespace Prisma {
     OR?: ImageVisionForkItemWhereInput[]
     NOT?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
     id?: BigIntFilter<"ImageVisionForkItem"> | bigint | number
-    identity_key?: StringFilter<"ImageVisionForkItem"> | string
+    event_id?: StringFilter<"ImageVisionForkItem"> | string
     fork_run_id?: StringFilter<"ImageVisionForkItem"> | string
+    identity_key?: StringFilter<"ImageVisionForkItem"> | string
+    item_index?: BigIntFilter<"ImageVisionForkItem"> | bigint | number
+    item_kind?: StringFilter<"ImageVisionForkItem"> | string
+    role?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    phase?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    provider_item_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    tool_call_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    llm_request_slice_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    content?: JsonFilter<"ImageVisionForkItem">
+    visibility?: StringFilter<"ImageVisionForkItem"> | string
+    source_type?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    source_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    trace_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    run_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    metadata?: JsonFilter<"ImageVisionForkItem">
     created_at?: DateTimeFilter<"ImageVisionForkItem"> | Date | string
+    updated_at?: DateTimeFilter<"ImageVisionForkItem"> | Date | string
   }
 
   export type ImageVisionForkItemOrderByWithRelationInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    event_id?: SortOrder
     fork_run_id?: SortOrder
+    identity_key?: SortOrder
+    item_index?: SortOrder
+    item_kind?: SortOrder
+    role?: SortOrderInput | SortOrder
+    phase?: SortOrderInput | SortOrder
+    provider_item_id?: SortOrderInput | SortOrder
+    tool_call_id?: SortOrderInput | SortOrder
+    llm_request_slice_id?: SortOrderInput | SortOrder
+    content?: SortOrder
+    visibility?: SortOrder
+    source_type?: SortOrderInput | SortOrder
+    source_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    metadata?: SortOrder
     created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkItemWhereUniqueInput = Prisma.AtLeast<{
     id?: bigint | number
+    event_id?: string
+    fork_run_id_item_index?: ImageVisionForkItemFork_run_idItem_indexCompoundUniqueInput
     AND?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
     OR?: ImageVisionForkItemWhereInput[]
     NOT?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
-    identity_key?: StringFilter<"ImageVisionForkItem"> | string
     fork_run_id?: StringFilter<"ImageVisionForkItem"> | string
+    identity_key?: StringFilter<"ImageVisionForkItem"> | string
+    item_index?: BigIntFilter<"ImageVisionForkItem"> | bigint | number
+    item_kind?: StringFilter<"ImageVisionForkItem"> | string
+    role?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    phase?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    provider_item_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    tool_call_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    llm_request_slice_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    content?: JsonFilter<"ImageVisionForkItem">
+    visibility?: StringFilter<"ImageVisionForkItem"> | string
+    source_type?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    source_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    trace_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    run_id?: StringNullableFilter<"ImageVisionForkItem"> | string | null
+    metadata?: JsonFilter<"ImageVisionForkItem">
     created_at?: DateTimeFilter<"ImageVisionForkItem"> | Date | string
-  }, "id">
+    updated_at?: DateTimeFilter<"ImageVisionForkItem"> | Date | string
+  }, "id" | "event_id" | "fork_run_id_item_index">
 
   export type ImageVisionForkItemOrderByWithAggregationInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    event_id?: SortOrder
     fork_run_id?: SortOrder
+    identity_key?: SortOrder
+    item_index?: SortOrder
+    item_kind?: SortOrder
+    role?: SortOrderInput | SortOrder
+    phase?: SortOrderInput | SortOrder
+    provider_item_id?: SortOrderInput | SortOrder
+    tool_call_id?: SortOrderInput | SortOrder
+    llm_request_slice_id?: SortOrderInput | SortOrder
+    content?: SortOrder
+    visibility?: SortOrder
+    source_type?: SortOrderInput | SortOrder
+    source_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    metadata?: SortOrder
     created_at?: SortOrder
+    updated_at?: SortOrder
     _count?: ImageVisionForkItemCountOrderByAggregateInput
     _avg?: ImageVisionForkItemAvgOrderByAggregateInput
     _max?: ImageVisionForkItemMaxOrderByAggregateInput
@@ -112825,9 +113687,25 @@ export namespace Prisma {
     OR?: ImageVisionForkItemScalarWhereWithAggregatesInput[]
     NOT?: ImageVisionForkItemScalarWhereWithAggregatesInput | ImageVisionForkItemScalarWhereWithAggregatesInput[]
     id?: BigIntWithAggregatesFilter<"ImageVisionForkItem"> | bigint | number
-    identity_key?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    event_id?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
     fork_run_id?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    identity_key?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    item_index?: BigIntWithAggregatesFilter<"ImageVisionForkItem"> | bigint | number
+    item_kind?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    role?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    phase?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    provider_item_id?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    tool_call_id?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    llm_request_slice_id?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    content?: JsonWithAggregatesFilter<"ImageVisionForkItem">
+    visibility?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    source_type?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    source_id?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    trace_id?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"ImageVisionForkItem"> | string | null
+    metadata?: JsonWithAggregatesFilter<"ImageVisionForkItem">
     created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkItem"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"ImageVisionForkItem"> | Date | string
   }
 
   export type ImageVisionForkSliceWhereInput = {
@@ -112835,37 +113713,137 @@ export namespace Prisma {
     OR?: ImageVisionForkSliceWhereInput[]
     NOT?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
     id?: BigIntFilter<"ImageVisionForkSlice"> | bigint | number
-    identity_key?: StringFilter<"ImageVisionForkSlice"> | string
+    slice_id?: StringFilter<"ImageVisionForkSlice"> | string
     fork_run_id?: StringFilter<"ImageVisionForkSlice"> | string
-    created_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+    llm_call_id?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    identity_key?: StringFilter<"ImageVisionForkSlice"> | string
+    input_start_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    input_end_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    input_stack_item_ids?: JsonFilter<"ImageVisionForkSlice">
+    output_start_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    output_end_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    canonical_request?: JsonFilter<"ImageVisionForkSlice">
+    wire_request?: JsonNullableFilter<"ImageVisionForkSlice">
+    canonical_response?: JsonNullableFilter<"ImageVisionForkSlice">
+    wire_response?: JsonNullableFilter<"ImageVisionForkSlice">
+    raw_response?: JsonNullableFilter<"ImageVisionForkSlice">
+    output_items?: JsonFilter<"ImageVisionForkSlice">
     status?: StringFilter<"ImageVisionForkSlice"> | string
+    token_usage?: JsonFilter<"ImageVisionForkSlice">
+    trace_id?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    run_id?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    agent_turn?: IntNullableFilter<"ImageVisionForkSlice"> | number | null
+    model_name?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    model_provider?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    request_format_version?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    wire_provider_format?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    processing_time_ms?: IntNullableFilter<"ImageVisionForkSlice"> | number | null
+    metadata?: JsonFilter<"ImageVisionForkSlice">
+    created_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+    completed_at?: DateTimeNullableFilter<"ImageVisionForkSlice"> | Date | string | null
+    updated_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
   }
 
   export type ImageVisionForkSliceOrderByWithRelationInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    slice_id?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    identity_key?: SortOrder
+    input_start_index?: SortOrderInput | SortOrder
+    input_end_index?: SortOrderInput | SortOrder
+    input_stack_item_ids?: SortOrder
+    output_start_index?: SortOrderInput | SortOrder
+    output_end_index?: SortOrderInput | SortOrder
+    canonical_request?: SortOrder
+    wire_request?: SortOrderInput | SortOrder
+    canonical_response?: SortOrderInput | SortOrder
+    wire_response?: SortOrderInput | SortOrder
+    raw_response?: SortOrderInput | SortOrder
+    output_items?: SortOrder
     status?: SortOrder
+    token_usage?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    agent_turn?: SortOrderInput | SortOrder
+    model_name?: SortOrderInput | SortOrder
+    model_provider?: SortOrderInput | SortOrder
+    request_format_version?: SortOrderInput | SortOrder
+    wire_provider_format?: SortOrderInput | SortOrder
+    processing_time_ms?: SortOrderInput | SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkSliceWhereUniqueInput = Prisma.AtLeast<{
     id?: bigint | number
+    slice_id?: string
     AND?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
     OR?: ImageVisionForkSliceWhereInput[]
     NOT?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
-    identity_key?: StringFilter<"ImageVisionForkSlice"> | string
     fork_run_id?: StringFilter<"ImageVisionForkSlice"> | string
-    created_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+    llm_call_id?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    identity_key?: StringFilter<"ImageVisionForkSlice"> | string
+    input_start_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    input_end_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    input_stack_item_ids?: JsonFilter<"ImageVisionForkSlice">
+    output_start_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    output_end_index?: BigIntNullableFilter<"ImageVisionForkSlice"> | bigint | number | null
+    canonical_request?: JsonFilter<"ImageVisionForkSlice">
+    wire_request?: JsonNullableFilter<"ImageVisionForkSlice">
+    canonical_response?: JsonNullableFilter<"ImageVisionForkSlice">
+    wire_response?: JsonNullableFilter<"ImageVisionForkSlice">
+    raw_response?: JsonNullableFilter<"ImageVisionForkSlice">
+    output_items?: JsonFilter<"ImageVisionForkSlice">
     status?: StringFilter<"ImageVisionForkSlice"> | string
-  }, "id">
+    token_usage?: JsonFilter<"ImageVisionForkSlice">
+    trace_id?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    run_id?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    agent_turn?: IntNullableFilter<"ImageVisionForkSlice"> | number | null
+    model_name?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    model_provider?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    request_format_version?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    wire_provider_format?: StringNullableFilter<"ImageVisionForkSlice"> | string | null
+    processing_time_ms?: IntNullableFilter<"ImageVisionForkSlice"> | number | null
+    metadata?: JsonFilter<"ImageVisionForkSlice">
+    created_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+    completed_at?: DateTimeNullableFilter<"ImageVisionForkSlice"> | Date | string | null
+    updated_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+  }, "id" | "slice_id">
 
   export type ImageVisionForkSliceOrderByWithAggregationInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    slice_id?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    identity_key?: SortOrder
+    input_start_index?: SortOrderInput | SortOrder
+    input_end_index?: SortOrderInput | SortOrder
+    input_stack_item_ids?: SortOrder
+    output_start_index?: SortOrderInput | SortOrder
+    output_end_index?: SortOrderInput | SortOrder
+    canonical_request?: SortOrder
+    wire_request?: SortOrderInput | SortOrder
+    canonical_response?: SortOrderInput | SortOrder
+    wire_response?: SortOrderInput | SortOrder
+    raw_response?: SortOrderInput | SortOrder
+    output_items?: SortOrder
     status?: SortOrder
+    token_usage?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    agent_turn?: SortOrderInput | SortOrder
+    model_name?: SortOrderInput | SortOrder
+    model_provider?: SortOrderInput | SortOrder
+    request_format_version?: SortOrderInput | SortOrder
+    wire_provider_format?: SortOrderInput | SortOrder
+    processing_time_ms?: SortOrderInput | SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    updated_at?: SortOrder
     _count?: ImageVisionForkSliceCountOrderByAggregateInput
     _avg?: ImageVisionForkSliceAvgOrderByAggregateInput
     _max?: ImageVisionForkSliceMaxOrderByAggregateInput
@@ -112878,10 +113856,35 @@ export namespace Prisma {
     OR?: ImageVisionForkSliceScalarWhereWithAggregatesInput[]
     NOT?: ImageVisionForkSliceScalarWhereWithAggregatesInput | ImageVisionForkSliceScalarWhereWithAggregatesInput[]
     id?: BigIntWithAggregatesFilter<"ImageVisionForkSlice"> | bigint | number
-    identity_key?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
+    slice_id?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
     fork_run_id?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
-    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkSlice"> | Date | string
+    llm_call_id?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    identity_key?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
+    input_start_index?: BigIntNullableWithAggregatesFilter<"ImageVisionForkSlice"> | bigint | number | null
+    input_end_index?: BigIntNullableWithAggregatesFilter<"ImageVisionForkSlice"> | bigint | number | null
+    input_stack_item_ids?: JsonWithAggregatesFilter<"ImageVisionForkSlice">
+    output_start_index?: BigIntNullableWithAggregatesFilter<"ImageVisionForkSlice"> | bigint | number | null
+    output_end_index?: BigIntNullableWithAggregatesFilter<"ImageVisionForkSlice"> | bigint | number | null
+    canonical_request?: JsonWithAggregatesFilter<"ImageVisionForkSlice">
+    wire_request?: JsonNullableWithAggregatesFilter<"ImageVisionForkSlice">
+    canonical_response?: JsonNullableWithAggregatesFilter<"ImageVisionForkSlice">
+    wire_response?: JsonNullableWithAggregatesFilter<"ImageVisionForkSlice">
+    raw_response?: JsonNullableWithAggregatesFilter<"ImageVisionForkSlice">
+    output_items?: JsonWithAggregatesFilter<"ImageVisionForkSlice">
     status?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
+    token_usage?: JsonWithAggregatesFilter<"ImageVisionForkSlice">
+    trace_id?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    agent_turn?: IntNullableWithAggregatesFilter<"ImageVisionForkSlice"> | number | null
+    model_name?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    model_provider?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    request_format_version?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    wire_provider_format?: StringNullableWithAggregatesFilter<"ImageVisionForkSlice"> | string | null
+    processing_time_ms?: IntNullableWithAggregatesFilter<"ImageVisionForkSlice"> | number | null
+    metadata?: JsonWithAggregatesFilter<"ImageVisionForkSlice">
+    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkSlice"> | Date | string
+    completed_at?: DateTimeNullableWithAggregatesFilter<"ImageVisionForkSlice"> | Date | string | null
+    updated_at?: DateTimeWithAggregatesFilter<"ImageVisionForkSlice"> | Date | string
   }
 
   export type AgentQueueMessageCreateInput = {
@@ -123894,163 +124897,541 @@ export namespace Prisma {
 
   export type ImageVisionForkRunCreateInput = {
     id?: bigint | number
-    identity_key?: string
     fork_run_id: string
+    identity_key?: string
+    status?: string
+    trace_id?: string | null
+    run_id?: string | null
+    asset_id?: string | null
+    image_id?: string | null
+    media_tag?: string | null
+    observation_id?: string | null
+    description?: string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: Date | string
+    completed_at?: Date | string | null
     created_at?: Date | string
-    status: string
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkRunUncheckedCreateInput = {
     id?: bigint | number
-    identity_key?: string
     fork_run_id: string
+    identity_key?: string
+    status?: string
+    trace_id?: string | null
+    run_id?: string | null
+    asset_id?: string | null
+    image_id?: string | null
+    media_tag?: string | null
+    observation_id?: string | null
+    description?: string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: Date | string
+    completed_at?: Date | string | null
     created_at?: Date | string
-    status: string
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkRunUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    identity_key?: StringFieldUpdateOperationsInput | string
     status?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    asset_id?: NullableStringFieldUpdateOperationsInput | string | null
+    image_id?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: NullableStringFieldUpdateOperationsInput | string | null
+    observation_id?: NullableStringFieldUpdateOperationsInput | string | null
+    description?: NullableStringFieldUpdateOperationsInput | string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkRunUncheckedUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    identity_key?: StringFieldUpdateOperationsInput | string
     status?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    asset_id?: NullableStringFieldUpdateOperationsInput | string | null
+    image_id?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: NullableStringFieldUpdateOperationsInput | string | null
+    observation_id?: NullableStringFieldUpdateOperationsInput | string | null
+    description?: NullableStringFieldUpdateOperationsInput | string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkRunCreateManyInput = {
     id?: bigint | number
-    identity_key?: string
     fork_run_id: string
+    identity_key?: string
+    status?: string
+    trace_id?: string | null
+    run_id?: string | null
+    asset_id?: string | null
+    image_id?: string | null
+    media_tag?: string | null
+    observation_id?: string | null
+    description?: string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: Date | string
+    completed_at?: Date | string | null
     created_at?: Date | string
-    status: string
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkRunUpdateManyMutationInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    identity_key?: StringFieldUpdateOperationsInput | string
     status?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    asset_id?: NullableStringFieldUpdateOperationsInput | string | null
+    image_id?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: NullableStringFieldUpdateOperationsInput | string | null
+    observation_id?: NullableStringFieldUpdateOperationsInput | string | null
+    description?: NullableStringFieldUpdateOperationsInput | string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkRunUncheckedUpdateManyInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    identity_key?: StringFieldUpdateOperationsInput | string
     status?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    asset_id?: NullableStringFieldUpdateOperationsInput | string | null
+    image_id?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: NullableStringFieldUpdateOperationsInput | string | null
+    observation_id?: NullableStringFieldUpdateOperationsInput | string | null
+    description?: NullableStringFieldUpdateOperationsInput | string | null
+    artifact?: JsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkItemCreateInput = {
     id?: bigint | number
-    identity_key?: string
+    event_id: string
     fork_run_id: string
+    identity_key?: string
+    item_index: bigint | number
+    item_kind: string
+    role?: string | null
+    phase?: string | null
+    provider_item_id?: string | null
+    tool_call_id?: string | null
+    llm_request_slice_id?: string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: string
+    source_type?: string | null
+    source_id?: string | null
+    trace_id?: string | null
+    run_id?: string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: Date | string
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkItemUncheckedCreateInput = {
     id?: bigint | number
-    identity_key?: string
+    event_id: string
     fork_run_id: string
+    identity_key?: string
+    item_index: bigint | number
+    item_kind: string
+    role?: string | null
+    phase?: string | null
+    provider_item_id?: string | null
+    tool_call_id?: string | null
+    llm_request_slice_id?: string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: string
+    source_type?: string | null
+    source_id?: string | null
+    trace_id?: string | null
+    run_id?: string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: Date | string
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkItemUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    event_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    item_index?: BigIntFieldUpdateOperationsInput | bigint | number
+    item_kind?: StringFieldUpdateOperationsInput | string
+    role?: NullableStringFieldUpdateOperationsInput | string | null
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    provider_item_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: StringFieldUpdateOperationsInput | string
+    source_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkItemUncheckedUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    event_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    item_index?: BigIntFieldUpdateOperationsInput | bigint | number
+    item_kind?: StringFieldUpdateOperationsInput | string
+    role?: NullableStringFieldUpdateOperationsInput | string | null
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    provider_item_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: StringFieldUpdateOperationsInput | string
+    source_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkItemCreateManyInput = {
     id?: bigint | number
-    identity_key?: string
+    event_id: string
     fork_run_id: string
+    identity_key?: string
+    item_index: bigint | number
+    item_kind: string
+    role?: string | null
+    phase?: string | null
+    provider_item_id?: string | null
+    tool_call_id?: string | null
+    llm_request_slice_id?: string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: string
+    source_type?: string | null
+    source_id?: string | null
+    trace_id?: string | null
+    run_id?: string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: Date | string
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkItemUpdateManyMutationInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    event_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    item_index?: BigIntFieldUpdateOperationsInput | bigint | number
+    item_kind?: StringFieldUpdateOperationsInput | string
+    role?: NullableStringFieldUpdateOperationsInput | string | null
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    provider_item_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: StringFieldUpdateOperationsInput | string
+    source_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkItemUncheckedUpdateManyInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    event_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    item_index?: BigIntFieldUpdateOperationsInput | bigint | number
+    item_kind?: StringFieldUpdateOperationsInput | string
+    role?: NullableStringFieldUpdateOperationsInput | string | null
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    provider_item_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: JsonNullValueInput | InputJsonValue
+    visibility?: StringFieldUpdateOperationsInput | string
+    source_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkSliceCreateInput = {
     id?: bigint | number
-    identity_key?: string
+    slice_id: string
     fork_run_id: string
+    llm_call_id?: string | null
+    identity_key?: string
+    input_start_index?: bigint | number | null
+    input_end_index?: bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: bigint | number | null
+    output_end_index?: bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: string | null
+    run_id?: string | null
+    agent_turn?: number | null
+    model_name?: string | null
+    model_provider?: string | null
+    request_format_version?: string | null
+    wire_provider_format?: string | null
+    processing_time_ms?: number | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: Date | string
-    status: string
+    completed_at?: Date | string | null
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkSliceUncheckedCreateInput = {
     id?: bigint | number
-    identity_key?: string
+    slice_id: string
     fork_run_id: string
+    llm_call_id?: string | null
+    identity_key?: string
+    input_start_index?: bigint | number | null
+    input_end_index?: bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: bigint | number | null
+    output_end_index?: bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: string | null
+    run_id?: string | null
+    agent_turn?: number | null
+    model_name?: string | null
+    model_provider?: string | null
+    request_format_version?: string | null
+    wire_provider_format?: string | null
+    processing_time_ms?: number | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: Date | string
-    status: string
+    completed_at?: Date | string | null
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkSliceUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    slice_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
     status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkSliceUncheckedUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    slice_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
     status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkSliceCreateManyInput = {
     id?: bigint | number
-    identity_key?: string
+    slice_id: string
     fork_run_id: string
+    llm_call_id?: string | null
+    identity_key?: string
+    input_start_index?: bigint | number | null
+    input_end_index?: bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: bigint | number | null
+    output_end_index?: bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: string | null
+    run_id?: string | null
+    agent_turn?: number | null
+    model_name?: string | null
+    model_provider?: string | null
+    request_format_version?: string | null
+    wire_provider_format?: string | null
+    processing_time_ms?: number | null
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: Date | string
-    status: string
+    completed_at?: Date | string | null
+    updated_at?: Date | string
   }
 
   export type ImageVisionForkSliceUpdateManyMutationInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    slice_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
     status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ImageVisionForkSliceUncheckedUpdateManyInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
-    identity_key?: StringFieldUpdateOperationsInput | string
+    slice_id?: StringFieldUpdateOperationsInput | string
     fork_run_id?: StringFieldUpdateOperationsInput | string
-    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
     status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type BigIntFilter<$PrismaModel = never> = {
@@ -129926,10 +131307,23 @@ export namespace Prisma {
 
   export type ImageVisionForkRunCountOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    identity_key?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    asset_id?: SortOrder
+    image_id?: SortOrder
+    media_tag?: SortOrder
+    observation_id?: SortOrder
+    description?: SortOrder
+    artifact?: SortOrder
+    error_message?: SortOrder
+    metadata?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkRunAvgOrderByAggregateInput = {
@@ -129938,83 +131332,225 @@ export namespace Prisma {
 
   export type ImageVisionForkRunMaxOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    identity_key?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    asset_id?: SortOrder
+    image_id?: SortOrder
+    media_tag?: SortOrder
+    observation_id?: SortOrder
+    description?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkRunMinOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    identity_key?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    asset_id?: SortOrder
+    image_id?: SortOrder
+    media_tag?: SortOrder
+    observation_id?: SortOrder
+    description?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkRunSumOrderByAggregateInput = {
     id?: SortOrder
   }
 
+  export type ImageVisionForkItemFork_run_idItem_indexCompoundUniqueInput = {
+    fork_run_id: string
+    item_index: bigint | number
+  }
+
   export type ImageVisionForkItemCountOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    event_id?: SortOrder
     fork_run_id?: SortOrder
+    identity_key?: SortOrder
+    item_index?: SortOrder
+    item_kind?: SortOrder
+    role?: SortOrder
+    phase?: SortOrder
+    provider_item_id?: SortOrder
+    tool_call_id?: SortOrder
+    llm_request_slice_id?: SortOrder
+    content?: SortOrder
+    visibility?: SortOrder
+    source_type?: SortOrder
+    source_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    metadata?: SortOrder
     created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkItemAvgOrderByAggregateInput = {
     id?: SortOrder
+    item_index?: SortOrder
   }
 
   export type ImageVisionForkItemMaxOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    event_id?: SortOrder
     fork_run_id?: SortOrder
+    identity_key?: SortOrder
+    item_index?: SortOrder
+    item_kind?: SortOrder
+    role?: SortOrder
+    phase?: SortOrder
+    provider_item_id?: SortOrder
+    tool_call_id?: SortOrder
+    llm_request_slice_id?: SortOrder
+    visibility?: SortOrder
+    source_type?: SortOrder
+    source_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
     created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkItemMinOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    event_id?: SortOrder
     fork_run_id?: SortOrder
+    identity_key?: SortOrder
+    item_index?: SortOrder
+    item_kind?: SortOrder
+    role?: SortOrder
+    phase?: SortOrder
+    provider_item_id?: SortOrder
+    tool_call_id?: SortOrder
+    llm_request_slice_id?: SortOrder
+    visibility?: SortOrder
+    source_type?: SortOrder
+    source_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
     created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkItemSumOrderByAggregateInput = {
     id?: SortOrder
+    item_index?: SortOrder
   }
 
   export type ImageVisionForkSliceCountOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    slice_id?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    llm_call_id?: SortOrder
+    identity_key?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    input_stack_item_ids?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    canonical_request?: SortOrder
+    wire_request?: SortOrder
+    canonical_response?: SortOrder
+    wire_response?: SortOrder
+    raw_response?: SortOrder
+    output_items?: SortOrder
     status?: SortOrder
+    token_usage?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    agent_turn?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkSliceAvgOrderByAggregateInput = {
     id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    agent_turn?: SortOrder
+    processing_time_ms?: SortOrder
   }
 
   export type ImageVisionForkSliceMaxOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    slice_id?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    llm_call_id?: SortOrder
+    identity_key?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    agent_turn?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkSliceMinOrderByAggregateInput = {
     id?: SortOrder
-    identity_key?: SortOrder
+    slice_id?: SortOrder
     fork_run_id?: SortOrder
-    created_at?: SortOrder
+    llm_call_id?: SortOrder
+    identity_key?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
     status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    agent_turn?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type ImageVisionForkSliceSumOrderByAggregateInput = {
     id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    agent_turn?: SortOrder
+    processing_time_ms?: SortOrder
   }
 
   export type BigIntFieldUpdateOperationsInput = {

@@ -20,8 +20,10 @@ test('executor cannot invent cells or verify while targets remain', () => {
 });
 test('model reply 10 is not sufficient without real image challenge and server evidence', () => {
   const verdict={success:true,mode:'live',hostname:'captcha.liahuas.top'};
-  assert.equal(isVerifiedCompletion(true,verdict,{result:10}),true);
-  assert.equal(isVerifiedCompletion(false,verdict,{result:10}),false);
-  for(const change of [{success:false},{mode:'test'},{hostname:'localhost'}])assert.equal(isVerifiedCompletion(true,{...verdict,...change},{result:10}),false);
-  assert.equal(isVerifiedCompletion(true,verdict,{result:0}),false);
+  assert.equal(isVerifiedCompletion(true,verdict,{result:10},true),true);
+  assert.equal(isVerifiedCompletion(false,verdict,{result:10},true),false);
+  assert.equal(isVerifiedCompletion(true,verdict,{result:10},false),false);
+  assert.equal(isVerifiedCompletion(true,verdict,{result:10}),false);
+  for(const change of [{success:false},{mode:'test'},{hostname:'localhost'}])assert.equal(isVerifiedCompletion(true,{...verdict,...change},{result:10},true),false);
+  assert.equal(isVerifiedCompletion(true,verdict,{result:0},true),false);
 });

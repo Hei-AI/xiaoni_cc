@@ -18,7 +18,7 @@ function validateDecision(observation, decision) {
   }
   return indices;
 }
-function isVerifiedCompletion(sawImages, verdict, verification) {
-  return verification?.result === 10 && sawImages === true && verdict?.success === true && verdict.mode === 'live' && verdict.hostname === 'captcha.liahuas.top';
+function isVerifiedCompletion(sawImages, verdict, verification, imageVerifySubmitted) {
+  return verification?.result === 10 && sawImages === true && imageVerifySubmitted === true && verdict?.success === true && verdict.mode === 'live' && verdict.hostname === 'captcha.liahuas.top';
 }
 module.exports = { validateObservation, validateDecision, isVerifiedCompletion };

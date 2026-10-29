@@ -14,11 +14,12 @@ const { createHash } = require('node:crypto');
     model, instructions: job.prompt,
     input: [{ type: 'message', role: 'user', content: [
       { type: 'input_text', text: JSON.stringify(job.state) },
+      ...(job.contextImage ? [{ type: 'input_image', image_url: `data:image/png;base64,${job.contextImage}` }] : []),
       ...(job.image ? [{ type: 'input_image', image_url: `data:image/png;base64,${job.image}` }] : [])
     ] }],
     tools: [{ type: 'function', function: { name: 'stage_result', description: 'Return only the result of the assigned stage.', parameters: job.schema } }],
     tool_choice: { type: 'allowed_tools', mode: 'required', tools: [{ type: 'function', name: 'stage_result' }] },
-    parallel_tool_calls: false, max_output_tokens: 1600, store: false
+    parallel_tool_calls: false, max_output_tokens: job.stage === 'tile' ? 300 : 1600, store: false
   };
   const result = await service.executeSubconsciousAgentForkTurn(request,
     { traceId: job.runId, runId: job.runId, sessionKey: job.runId, inboundContext: {} },
@@ -36,9 +37,14 @@ const { createHash } = require('node:crypto');
   const calls = service.responseActionRouter.route(result.canonical_response).toolCalls;
   if (calls.length !== 1 || calls[0].name !== 'stage_result') throw new Error('Invalid stage tool result');
   const wire = JSON.stringify(result.wire_request || {});
+  const wireImageCount = (result.wire_request?.messages || []).reduce((count, message) =>
+    count + (Array.isArray(message.content) ? message.content.filter(part => part.type === 'image' || part.type === 'input_image').length : 0), 0);
+  const expectedImages = Number(Boolean(job.image)) + Number(Boolean(job.contextImage));
+  if (wireImageCount !== expectedImages) throw new Error(`Wire image mismatch: expected ${expectedImages}, got ${wireImageCount}`);
   console.log('STAGE_RESULT:' + JSON.stringify({
     value: calls[0].args, model: result.model || model, slice: result.llm_call_id,
     imageInWire: /"type":"image"|"type":"input_image"/.test(wire),
+    wireImageCount,
     inputItems: (result.canonical_request || request).input?.length,
     wireMessageCount: result.wire_request?.messages?.length,
     wireRoles: result.wire_request?.messages?.map(message => message.role)

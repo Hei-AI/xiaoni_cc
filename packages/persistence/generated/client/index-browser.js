@@ -1693,25 +1693,79 @@ exports.Prisma.FailureReviewForkSliceScalarFieldEnum = {
 
 exports.Prisma.ImageVisionForkRunScalarFieldEnum = {
   id: 'id',
-  identity_key: 'identity_key',
   fork_run_id: 'fork_run_id',
+  identity_key: 'identity_key',
+  status: 'status',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  asset_id: 'asset_id',
+  image_id: 'image_id',
+  media_tag: 'media_tag',
+  observation_id: 'observation_id',
+  description: 'description',
+  artifact: 'artifact',
+  error_message: 'error_message',
+  metadata: 'metadata',
+  started_at: 'started_at',
+  completed_at: 'completed_at',
   created_at: 'created_at',
-  status: 'status'
+  updated_at: 'updated_at'
 };
 
 exports.Prisma.ImageVisionForkItemScalarFieldEnum = {
   id: 'id',
-  identity_key: 'identity_key',
+  event_id: 'event_id',
   fork_run_id: 'fork_run_id',
-  created_at: 'created_at'
+  identity_key: 'identity_key',
+  item_index: 'item_index',
+  item_kind: 'item_kind',
+  role: 'role',
+  phase: 'phase',
+  provider_item_id: 'provider_item_id',
+  tool_call_id: 'tool_call_id',
+  llm_request_slice_id: 'llm_request_slice_id',
+  content: 'content',
+  visibility: 'visibility',
+  source_type: 'source_type',
+  source_id: 'source_id',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
 };
 
 exports.Prisma.ImageVisionForkSliceScalarFieldEnum = {
   id: 'id',
-  identity_key: 'identity_key',
+  slice_id: 'slice_id',
   fork_run_id: 'fork_run_id',
+  llm_call_id: 'llm_call_id',
+  identity_key: 'identity_key',
+  input_start_index: 'input_start_index',
+  input_end_index: 'input_end_index',
+  input_stack_item_ids: 'input_stack_item_ids',
+  output_start_index: 'output_start_index',
+  output_end_index: 'output_end_index',
+  canonical_request: 'canonical_request',
+  wire_request: 'wire_request',
+  canonical_response: 'canonical_response',
+  wire_response: 'wire_response',
+  raw_response: 'raw_response',
+  output_items: 'output_items',
+  status: 'status',
+  token_usage: 'token_usage',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  agent_turn: 'agent_turn',
+  model_name: 'model_name',
+  model_provider: 'model_provider',
+  request_format_version: 'request_format_version',
+  wire_provider_format: 'wire_provider_format',
+  processing_time_ms: 'processing_time_ms',
+  metadata: 'metadata',
   created_at: 'created_at',
-  status: 'status'
+  completed_at: 'completed_at',
+  updated_at: 'updated_at'
 };
 
 exports.Prisma.SortOrder = {

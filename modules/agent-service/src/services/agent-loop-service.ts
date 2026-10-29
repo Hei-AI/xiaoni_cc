@@ -8979,7 +8979,7 @@ export class AgentLoopService {
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         await this.yieldBeforeMainAgentModelSlice();
-        // REQ2 STW: between LLM requests (previous response fully landed on the stack, next
+          // REQ2 STW: between LLM requests (previous response fully landed on the stack, next
         // request not built yet) is a silent point — if a background compression fork has
         // committed a new context window and all forks have drained, atomically switch to the
         // compressed (smaller) context now. Costs one cold prefill; every later request +
@@ -9716,14 +9716,19 @@ export class AgentLoopService {
         // The settling response is pure text with no action (a turn with a function_call never
         // settles), so any settle on a final_answer triggers the fork — regardless of how many
         // tools the run used before settling. "她一 settle 在 final_answer 上就给方向。"
+        const restRejectedYield = leaseRelease?.outcome === 'rest_rejected_frame_yield';
         this.lastMainAgentForkSeed = {
           canonicalRequest: cloneCanonicalAgentTurnRequest(currentCanonicalRequest),
           // 她的【原话】,不是改写腿替换后的(见 currentTurnOriginalNarrationItems)。
           recentNarrationItems: this.currentTurnOriginalNarrationItems.length > 0
             ? this.currentTurnOriginalNarrationItems
             : (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
-          settledOnFinalAnswer: actionPlan.hasFinalAnswer
+          settledOnFinalAnswer: actionPlan.hasFinalAnswer || restRejectedYield
         };
+        await this.maybeEnqueueRestAvailableNotify(payload).catch((error: unknown) => {
+          moduleLogger.warn('Failed to enqueue rest-available notify', { traceId: payload.traceId,
+            error: error instanceof Error ? error.message : String(error) });
+        });
         // 连续空转记账。归零【只有一种场景】(user 拍板 2026-07-27):这个 run 存在有效产出——
         // 调过任何非 recover_energy 的工具(真动手了)。
         // 被外部消息唤醒【不】归零:她真要响应消息必然调工具(回消息/开屏读)本来就归零;
@@ -9754,7 +9759,7 @@ export class AgentLoopService {
           && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
         if (!runDrivenOnlyByClockPing && !runDrivenOnlyBySherlock && !runDrivenOnlyByDeepDiveRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
-            settledOnFinalAnswer: actionPlan.hasFinalAnswer,
+            settledOnFinalAnswer: actionPlan.hasFinalAnswer || restRejectedYield,
             didRealWork: runTouchedWorld
           });
         }
@@ -13535,6 +13540,119 @@ export class AgentLoopService {
     }
   }
 
+  async maybeEnqueueRestAvailableNotify(
+    triggerPayload: QueueMessageRecord['payload'],
+    now: Date = new Date()
+  ): Promise<'enqueued' | 'skipped_not_ready' | 'skipped_sleeping' | 'skipped_duplicate' | 'unavailable'> {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      return 'unavailable';
+    }
+    const energyState = await this.getCurrentRuntimeEnergyState(triggerPayload).catch(() => null);
+    if (!energyState) {
+      return 'unavailable';
+    }
+    const effectiveEnergyPolicy = await this.resolveEffectiveEnergyPolicy();
+    const sessionPolicy = recoverySessionPolicyFromSnapshot(
+      createRecoveryPolicySnapshot(now, effectiveEnergyPolicy.policy)
+    )!;
+    const gate = shouldAcceptVoluntaryRecovery({
+      energy: energyState.energy,
+      maxEnergy: energyState.maxEnergy,
+      lastWakeAt: energyState.lastWakeAt ?? null,
+      recentSleepSessions: energyState.recentSleepSessions ?? null,
+      now,
+      policy: sessionPolicy.policy
+    });
+    if (!gate.accepted) {
+      return 'skipped_not_ready';
+    }
+    const activeSessionReader = (this.store as RuntimeStore & {
+      getActiveAgentRecoverySession?: RuntimeStore['getActiveAgentRecoverySession'];
+    }).getActiveAgentRecoverySession;
+    if (typeof activeSessionReader === 'function') {
+      const sleeping = await activeSessionReader.call(this.store).catch(() => null);
+      if (sleeping) {
+        return 'skipped_sleeping';
+      }
+    }
+
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const botAccountId = agentConfig.botAccountId;
+    const messageSid = `rest-available:${sessionKey}:${now.getTime()}`;
+    const reminderText = formatSystemReminderBlock(
+      renderPromptSnippet('recover_energy_available_reminder.md', {
+        CURRENT_TIME: formatEast8Timestamp(now),
+        AWAKE_ANCHOR: renderWakeAnchorSentence(energyState.lastWakeAt ?? null, now)
+      }).split('\n').map((line) => line.trimEnd()).join('\n')
+    );
+    const rawPayload = {
+      reason: 'rest_available',
+      pressure: gate.pressure,
+      required_pressure: gate.requiredPressure,
+      last_wake_at: energyState.lastWakeAt ?? null
+    };
+    const inboundContext = {
+      Body: reminderText,
+      BodyForAgent: reminderText,
+      BodyForCommands: reminderText,
+      RawBody: reminderText,
+      CommandBody: reminderText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: reminderText,
+      commandBody: reminderText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: reminderText,
+        reason: 'rest_available',
+        createdAt: now.toISOString()
+      }
+    };
+    const result = await enqueuer.call(this.store, {
+      message: {
+        traceId: messageSid,
+        source: 'system_reminder',
+        messageSid,
+        // Durable one-shot per wake: completed rows retain the key, so settle cannot rearm itself.
+        dedupeKey: `rest-available:${sessionKey}:${energyState.lastWakeAt || "initial"}`,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: reminderText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+    return result && (result as { created?: boolean; superseded?: boolean }).created === false
+      && !(result as { superseded?: boolean }).superseded
+      ? 'skipped_duplicate'
+      : 'enqueued';
+  }
+
   // REQ2 STW: adopt a committed core-memory compression MID-RUN, at a between-turns
   // silent point, so a long-lived run (a busy group that keeps folding messages into
   // one run) actually shrinks instead of waiting for a settle that may never come.
@@ -17156,6 +17274,7 @@ export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload'
 // Notify Bucket reasons that are the runtime speaking to her (operator notices). Everything else
 // that arrives through the bucket is perception. See buildCurrentTurnInputItems.
 const OPERATOR_NOTICE_REASONS = new Set([
+  'rest_available',
   'deep_dive_round',
   'core_memory_compression_done',
   'open_loops_pointer',

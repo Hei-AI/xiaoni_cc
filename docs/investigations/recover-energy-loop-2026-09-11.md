@@ -391,9 +391,11 @@
 
 用户纠正：`wakesXiaoni` 只用于睡眠中的独立唤醒窗口累计；醒着时所有 Notify 每轮自然消费，这是大前提。09-11 我加在 claim 上的「只有开窗行才起 run」是我读过头了、且会让她纯文本收工后没人找就停住，已整个删除。§3.6 与 §6 C1/C3 里「不该开窗」的说法作废；R3 的数据（召回打开 216 个 run 等）仍是事实，但处理它们不走 claim 闸，走召回自身的触发与投递（C6）。
 
-### 8.2 暂缓（分支 d6b500ac，未合 main）
+### 8.2 历史暂缓与后续整合
 
-试睡收帧=settle + 被拒文案三件事 + rest-available 推送。原因：§4.5 实验证明文案里的 plan 行会被她系统性跳过，且审查指出 rest-available 每次 settle 都会重挂一条开窗行、没有节流（settle → run → settle 自激）。等外源刺激库（§9.4）与节流一起改完再上。
+2026-09-11 当时暂缓：试睡收帧=settle + 被拒文案三件事 + rest-available 推送。原因：§4.5 实验证明文案里的 plan 行会被她系统性跳过，且审查指出 rest-available 每次 settle 都会重挂一条开窗行、没有节流（settle → run → settle 自激）。等外源刺激库（§9.4）与节流一起改完再上。
+
+2026-10-29 整合：不恢复旧 plan 前两行文案或旧 claim 开窗闸；采用 actionable open-loops 的同源提醒，保留第三次被拒提示、第四次收帧。休息可用通知改为每个 lastWakeAt 持久化一次的非轮换 dedupe key，避免旧 latest-wins 槽在消费后再次挂起。当前行为以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准。
 
 ### 8.3 原实施记录（2026-09-11 晚，分支 `worktree-fix-notify-window-discipline`）
 

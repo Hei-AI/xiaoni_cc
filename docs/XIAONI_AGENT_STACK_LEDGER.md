@@ -15,8 +15,7 @@
 当前 stack 的最后可回放输入仍停在 `assistant final_answer`，runtime 会启动一个
 no-persist 的自驱动（self-driven）fork（工程名；对小腻而言是潜意识）。fork 看到主 agent 当前上下文，并在请求尾部追加
 `docs/xiaoni_prompt/self_continuation_reminder.md` 作为 developer message；它的最终产出
-必须是一段自然语言。fork 可以多轮运行，并可用受限工具（当前是 `exec_command`，以及
-配置开启时的 `web_search`）先寻找“还没做完的事 / 可继续 seed / 可找的乐子”。工程只把
+必须是一段自然语言。fork 可以多轮运行；工具权限遵循下文 Self-Driven Agent Fork 的 Plan 提交限制。工程只把
 最终自然语言原样投递回 `agent_queue_messages`，主 agent 后续仍必须从 Notify Bucket
 claim 到这条 row 后才会继续。
 
@@ -32,13 +31,11 @@ agent_stack_items[0..n]
   -> yield to the next runtime loop iteration
 ```
 
-`final_answer` 不是主 runtime 的终止条件。它只是模型本 slice 没有更多工具调用的
-输出形态；当前 frame 只记录这个 `final_answer` 并 yield 回
-`AgentLoopService.runRuntimeLoop()` 主 `while` 顶部。下一次 runtime iteration 会先重新
-pick notify。claim 不到 notify 且没有恢复回调时，主 agent 不直接收到
-`self_continuation`；runtime 只会在尾项仍是 `assistant final_answer` 时运行自驱动 fork，
-由 fork 决定是否产出一段新的自然语言刺激。fork 无输出、失败或选择休息时只记录 fork run，
-不投递 notify，也不调用主 agent。
+`final_answer` 不是主 runtime 的终止条件。无工具的收尾可在同一个 run 内追加一次冻结的续跑提示：从 open-loops 中抽取最多三件未完成且不在等别人的事；没有可推条目时只提示一次找别的事。连续只说话不动手达到续跑上限才 yield；动手后重置计数。读不到清单时不凭空制造待办。旧的主 agent `self_continuation` 路径已删除，该命名模板仅供自驱动 fork 使用。
+
+续跑条目按 run/turn seed 抽取后立即落栈，replay 只读冻结字节。`todo` 支持 add/done/wait/unwait/list；等待条目保留在清单但不被点名。第三次休息被拒给同源待办提醒，第四次被拒收帧并计入 idle settle、提供 fork seed。
+
+身体满足主动休息门槛且未睡着时，run 收尾可投递一次 `rest_available`。其持久化 dedupe key 包含 session 和 lastWakeAt，**不使用会在 claim 后轮换的 latest-wins 槽**：同一醒来周期完成消费后不能重挂，重启也不能重挂；新的醒来周期才允许下一条。文本在 enqueue 时冻结。它不恢复旧的 Notify claim 开窗闸。
 
 当前实现边界：
 
@@ -181,8 +178,7 @@ attention lease；`open_inbox` 只表示看列表，不给所有会话开 lease�
 `phone_notification`、`attention_lease`、`image_task_notification`、普通
 `system_reminder` 都是当前输入，不是 QQ 正文，也不是 assistant 历史。无 notify
 场景不再给主 agent 直接追加 `self_continuation`；旧的 self-continuation 策略只作为
-自驱动 fork 尾部 developer message，fork 产出的自然语言再以普通 `system_reminder`
-notify 被主 agent claim。
+自驱动 fork 尾部 developer message。fork 产出的自然语言经 Notify Bucket 被主 agent claim；在主请求中以阿花的普通 user 消息出现，不包 `<xiaoni_plan>`、不提升为 developer。
 它们可以作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，但不得写入
 `conversation_items` 或 `conversations.user_message`。
 
@@ -225,7 +221,7 @@ fork 只允许执行 `exec_command`；如果模型请求其它业务工具，工
 ### Self-Driven Agent Fork（自驱动 fork）
 
 自驱动（self-driven）fork 是空 Notify Bucket 后的刺激生成器，不是主 agent 的旁路输入通道。
-（工程上称自驱动 fork；对小腻而言仍是潜意识，见 `system_prompt.md` 的 `<xiaoni_plan>`。
+（工程上称自驱动 fork；输出经队列以阿花的普通 user 消息投递。
 持久化层表名、`source`/`kind` 仍保留 `subconscious_agent_fork*` 不变。）
 触发条件必须同时满足：`claimNextQueueMessage()` 没有消息、没有待处理工具恢复回调、
 当前 stack 尾项仍是 `assistant final_answer`。fork 复用主 agent 当前上下文，但在请求尾部
@@ -328,6 +324,12 @@ assembly 固定前缀。`phone_notification`、`image_task_notification`、
 自驱动 fork 投递回来的 `system_reminder`、`core_memory_pressure` 这类 reminder
 只属于当前输入，可写入 stack 作为本轮 `runtime_input`，但不能写成 QQ 正文或
 assistant 历史。
+
+### 观测载荷保留期
+
+agent-service 默认每小时按主 session 的 `read_cutoff` 运行 Prisma 分批清理（`AGENT_LLM_PAYLOAD_RETENTION_ENABLED`、`AGENT_LLM_PAYLOAD_RETENTION_INTERVAL_MS`）。只清理完全退出上下文的主请求快照及早于首个保留块的 fork/usage 载荷；跨 cutoff、running slice 和 running fork 的行保留。主 stack、tool executions、fork run 摘要不动，不运行 schema migration；图像 fork 增加的 Prisma 映射指向已有主栈表。
+
+历史 Raw Trace 载荷会随清理消失，已累计 usage rollup 保留；将来若强制从源表全量重建 rollup，被删源数据不能恢复。replay 从 stack 读取，不从这些快照读取。
 
 ### `llm_request_slices`
 
