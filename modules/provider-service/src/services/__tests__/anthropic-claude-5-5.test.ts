@@ -279,3 +279,25 @@ test('a request carrying its own effort (main agent + fork clones) overrides the
     assert.deepEqual(bogus.output_config, { effort: 'low' });
   });
 });
+
+test('5.5: a user message folded in after a tool result rides the same user turn as a text block after the tool_result', () => {
+  // 主 loop 中途折进来的 notify(潜意识 plan 现在是普通 user 消息)不能变成 tool_result 的一部分,
+  // 也不能变成 mid-conversation system:同一个 user turn 里,排在最后一个 tool_result 之后的 text 块。
+  const { body } = translateCanonicalToMessages({
+    model: 'claude-sonnet-5-5',
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '开始' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'exec_command', arguments: '{"cmd":"ls"}' },
+      { type: 'function_call_output', call_id: 'call_1', output: 'a.txt' },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '现在是 2026-10-04 15:00:00（东八区）。' }, { type: 'input_text', text: '去把 notes 也建成仓库。' }] }
+    ]
+  } as OpenResponseCreateRequest);
+  const last = body.messages[body.messages.length - 1] as any;
+  assert.equal(last.role, 'user');
+  assert.equal(last.content[0].type, 'tool_result');
+  assert.equal(last.content[0].tool_use_id, 'call_1');
+  assert.doesNotMatch(JSON.stringify(last.content[0]), /notes/);
+  const texts = last.content.slice(1).map((block: any) => block.type === 'text' ? block.text : '').join('\n');
+  assert.match(texts, /去把 notes 也建成仓库。/);
+  assert.equal(body.messages.some((message: any) => message.role === 'system'), false);
+});

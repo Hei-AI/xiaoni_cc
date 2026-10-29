@@ -96,13 +96,12 @@ import {
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import { stripExecCommandCommentsInCanonicalResponse } from './exec-command-comments';
-import { readOpenLoopsOpenCount, readOpenLoopsOpenLines } from './xiaoni-open-loops-notify';
-import { pickRecallLeadForContinuation } from './xiaoni-recall-delivery';
+import { pickOpenLoopsForNudge, readOpenLoopsActionableLines, readOpenLoopsOpenLines, seededRandom } from './xiaoni-open-loops-notify';
+import { callRecallLlmDetailed } from './xiaoni-recall-llm-client';
 import {
   applyXiaoniOsRewriteInPlace,
   extractAssistantItemText,
   type XiaoniOsFillRequest,
-  type XiaoniOsFillResult,
   runXiaoniOsRewriteLeg
 } from './xiaoni-os-rewrite';
 // 专题物化的三个归一化函数**只从这里拿**,不在本文件另写第四个:
@@ -216,16 +215,16 @@ function buildXiaoniHeadAvatarInputItem(): OpenResponseInputItem | null {
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
-// 每段 xiaoni_os 都交给填充 fork 重写(克隆主请求 + 尾部重写提醒,不放行工具,不投 notify),见 xiaoni-os-rewrite.ts。
-// OFF = 不重写,原文进上下文。
-const XIAONI_OS_FILL_FORK_ENABLED = process.env.XIAONI_OS_FILL_FORK_ENABLED !== 'false';
+// 每段 xiaoni_os 都交给一个独立的润色小请求(system = xiaoni_os_polish_system.md,user = 原文),见 xiaoni-os-rewrite.ts。
+// 不克隆主请求:润色只需要这一段原文。OFF = 不润色,原文进上下文。
+const XIAONI_OS_POLISH_ENABLED = process.env.XIAONI_OS_POLISH_ENABLED !== 'false';
+const XIAONI_OS_POLISH_MODEL = process.env.XIAONI_OS_POLISH_MODEL || 'claude-sonnet-5-5';
 // 续跑上限:她一轮以文字收尾时,主 loop 在同一个 run 里追加一条 user 提示接着跑。被提醒后她真动了手
 // (调了算「动过」的工具)就重新数;连续这么多次提醒都只说话不动手,才结束这一轮、交给潜意识 fork。
 // 官方无人值守 agent 指南:同一件事自动续 2~3 次后停——防的是卡住,不是限她干多久。
+// 续跑一次点几件不阻塞的事。
+const LOOP_CONTINUATION_PICK_COUNT = 3;
 const LOOP_CONTINUATION_MAX = Math.max(0, Number.parseInt(process.env.XIAONI_LOOP_CONTINUATION_MAX || '3', 10) || 0);
-// fork 克隆主请求,effort 也跟着主 agent(high):thinking 也算在这个上限里。600/800 是按 low 定的,
-// 10-02 实测 high 下 thinking 一口气吃满 600、正文 0 字。4000 和 sherlock 同值;超长正文照样由清洗那步拦。
-const XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS = 4000;
 // 同一份 seed 最多重试这么多次。到顶就丢弃,退回「等下一个主 run 或 clock_ping(≤2h)」。
 // 5 次 × 60s ≈ 5 分钟的自愈窗口,再往后大概率不是瞬时故障,不值得每分钟烧一个 ~490K 的 fork 请求。
 const SUBCONSCIOUS_AGENT_FORK_MAX_CONSECUTIVE_FAILURES = 5;
@@ -294,10 +293,6 @@ type FeedbackWriterToolChoice = OpenResponseToolChoice | undefined;
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
   oneShotInputItems: OpenResponseInputItem[];
-  forcedVisibleReply: {
-    toolName: string;
-    args: Record<string, unknown>;
-  } | null;
 };
 
 type ToolContinuationContext = {
@@ -578,7 +573,6 @@ type ContextBudgetPlan = {
   // the runtime_input 存档 (persisted for next-run replay) both reuse this exact
   // array instead of each rebuilding it, so the cached bytes == the replayed bytes.
   currentTurnInputItems: OpenResponseInputItem[];
-  selfContinuationInputItem: OpenResponseInputItem | null;
   summarySourceInput: OpenResponseInputItem[] | null;
   retainedHistory: ConversationTurn[];
   runtimeIdentityFacts: RuntimeIdentityFactProjection[];
@@ -1030,7 +1024,10 @@ const IDLE_ESCALATION_AFTER_ROUNDS = 2;
 // 不再发下一次模型请求)。被拒结果里已经写明 retry_after,再试只会得到同一个结果 —— 实测她会
 // 每 12 秒试一次直到 run 撑满(单 run 最多 24 次)。收帧后 settledOnFinalAnswer=false → 不点潜意识
 // fork,下一次唤醒只来自真实事件 / 报时。只影响引擎控制流,不改任何请求字节。
-const REST_REJECTED_FRAME_YIELD_AFTER = 3;
+const REST_REJECTED_FRAME_YIELD_AFTER = 4;
+// 第 3 次被拒时不收帧:在这次被拒的工具结果里写上「已经 3 次没睡着、去做点事」和几件能推的事,让她接着动。
+// 第 4 次还被拒才收帧(REST_REJECTED_FRAME_YIELD_AFTER)。
+const REST_REJECTED_GUARD_AT = 3;
 const consecutiveIdlePlanFailuresBySession = new Map<string, number>();
 // 上一份真正发出去的 plan 原文(已剥 <xiaoni_plan> 包装)，升级时原样回贴给 fork 看。
 const lastEmittedSubconsciousPlanBySession = new Map<string, string>();
@@ -2079,17 +2076,20 @@ const TODO_TOOL = {
 
 - add:记一件你要做的事。text 写这件事本身(要做什么、在等什么、还差什么),tag 写这件事的名字,同一件事一直用同一个。跟已经开着的某条像,它会列出来问你;真是另一件事,带上 confirm_new 再记一次。
 - done:划掉一件。match 写那条里的几个字,或者 #标签。做完了就划;不做了也划,带上 give_up。note 可以顺手记一句怎么完的。
-- list:看现在还开着的。
+- wait:一件开着的事卡在等别人(等谁回、等谁开口),标上在等谁、等什么。match 找那条,waiting_on 写在等什么。add 时也可以直接带 waiting_on。
+- unwait:等到了,或者不用等了,去掉在等标记。
+- list:看现在还开着的,分成你能推的和在等别人的。
 
-想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一件事一条:读到哪、做到哪一步写进日记,不用为了更新进度划掉再记。这个文件只用 todo 改。一轮以文字收尾时,这里还有没划掉的,会有人提醒你一句。`,
+想到要做的、答应了别人的、在等别人回的,先记上;做完马上划掉。一件事一条:读到哪、做到哪一步写进日记,不用为了更新进度划掉再记。这个文件只用 todo 改。一轮以文字收尾时,会从你能推的那些里点几件给你;标了在等的不会点。`,
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'done', 'list'] },
+        action: { type: 'string', enum: ['add', 'done', 'wait', 'unwait', 'list'] },
         text: { type: 'string', description: 'add 用:这件事本身。' },
         tag: { type: 'string', description: 'add 用:这件事的名字,只用中英文、数字、-、_。' },
         confirm_new: { type: 'boolean', description: 'add 用:确认跟已有的那条是两件事。' },
-        match: { type: 'string', description: 'done 用:那条里的几个字,或者 #标签。' },
+        match: { type: 'string', description: 'done / wait / unwait 用:那条里的几个字,或者 #标签。' },
+        waiting_on: { type: 'string', description: 'wait 必填、add 可选:在等谁、等什么。' },
         note: { type: 'string', description: 'done 用:怎么完的,一句话。' },
         give_up: { type: 'boolean', description: 'done 用:不做了。' }
       },
@@ -4873,70 +4873,36 @@ function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem)
   ]);
 }
 
-// 主 agent 的续航提醒。**这条路径不许动** —— 它的产物经 buildSelfContinuationInputItem 冻结进
-// stack(content.system_reminder)，是主 run replay 要逐字节重建的东西。空转计数/升级段绝不能从这里进去。
+// 润色小请求的 user 输入:原文包在 <xiaoni_os> 块里;重写时追加一句反馈(超字数 / 没按块交)。
+function renderXiaoniOsPolishUserInput(text: string, request: XiaoniOsFillRequest): string {
+  const parts = [`<xiaoni_os>\n${text.trim()}\n</xiaoni_os>`];
+  if (request.retry?.kind === 'over_length') {
+    parts.push(renderPromptSnippet('xiaoni_os_rewrite_retry_over_length.md', { LIMIT: request.charLimit, CHARS: request.retry.chars }).trim());
+  } else if (request.retry?.kind === 'no_block') {
+    parts.push(readPromptSnippet('xiaoni_os_rewrite_retry_no_block.md').trim());
+  }
+  return parts.join('\n\n');
+}
+
+// 潜意识 fork 尾部的基础提醒(self_continuation_reminder.md)。只给 fork 用:主 agent 那条
+// 「文字收尾就追加这份提醒」的旧路径已删除。
 function renderSelfContinuationReminder() {
   return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
 }
 
-// 自驱动 fork 的引导 prompt。与主 agent 的续航提醒【同源不同路】：
-//  - 不升级时：直接返回 renderSelfContinuationReminder() 本身 → 与主 agent 结构性逐字节一致，
-//    不是靠复制一份文案再比对(那样迟早漂)。
-//  - 升级时：在同一个 system_reminder 块里追加升级段。这段【只】出现在 fork 的尾部追加 item 里，
+// 自驱动 fork 的引导 prompt:
+//  - 不升级时:直接返回 renderSelfContinuationReminder() 本身。
+//  - 升级时:在同一个 system_reminder 块里追加升级段。这段【只】出现在 fork 的尾部追加 item 里,
 //    fork 请求带 no_persist、不写 stack、不进主 run replay → 主 agent 永远看不到计数这回事。
-//  - 工具契约段(IDLE_PLAN_SKILL_SUBMISSION_ENABLED)：同样只进 fork 尾部。开关 ON 时才渲染，因为
-//    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的；两者共用一个开关就是为了让
-//    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙，就是因为正文里根本没写规则)。
-// 潜意识填充 fork 的尾部指令。固定文本(文件读,mtime 缓存),追加在克隆请求尾部 cache_volatile 之后 → 不进可缓存前缀。
-// 字数上限 = 原文字数,直接写进提醒;重写时在同一个块里追加一句反馈。只进 fork 尾部(cache_volatile,no_persist),
-// 不碰共享前缀、不进主 run replay。
-function renderXiaoniOsRewriteReminder(fileName: string, request: XiaoniOsFillRequest): string {
-  const parts = [renderPromptSnippet(fileName, { ORIGINAL_CHARS: request.charLimit })];
-  if (request.retry?.kind === 'over_length') {
-    parts.push(renderPromptSnippet('xiaoni_os_rewrite_retry_over_length.md', { LIMIT: request.charLimit, CHARS: request.retry.chars }));
-  } else if (request.retry?.kind === 'no_block') {
-    parts.push(readPromptSnippet('xiaoni_os_rewrite_retry_no_block.md'));
-  }
-  return formatSystemReminderBlock(parts.join('\n\n'));
-}
-
-export function renderXiaoniOsClosingRewriteReminder(request: XiaoniOsFillRequest): string {
-  return renderXiaoniOsRewriteReminder('xiaoni_os_closing_rewrite_reminder.md', request);
-}
-
-export function renderXiaoniOsFillReminder(request: XiaoniOsFillRequest): string {
-  return renderXiaoniOsRewriteReminder('xiaoni_os_fill_reminder.md', request);
-}
-
-// 填充 fork 输出里的 <xiaoni_os> 块原文(含壳,交给 normalizeXiaoniOsFillText 拆)。只看最后一条 assistant 文本。
-export function extractXiaoniOsFillBlock(outputItems: Array<Record<string, unknown>>): string | null {
-  for (let index = outputItems.length - 1; index >= 0; index -= 1) {
-    const item = outputItems[index]!;
-    if (item.type !== 'message' || item.role !== 'assistant') {
-      continue;
-    }
-    const content = item.content;
-    const text = typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? flattenMessageContent(content as OpenResponseInputContentPart[])
-        : typeof item.text === 'string'
-          ? item.text
-          : '';
-    if (/(?:<|&lt;)xiaoni_os(?:>|&gt;)[\s\S]*?(?:<|&lt;)\/xiaoni_os(?:>|&gt;)/u.test(text)) {
-      return text;
-    }
-  }
-  return null;
-}
-
+//  - 工具契约段(IDLE_PLAN_SKILL_SUBMISSION_ENABLED):同样只进 fork 尾部。开关 ON 时才渲染,因为
+//    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的;两者共用一个开关就是为了让
+//    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙,就是因为正文里根本没写规则)。
 function renderSubconsciousForkReminder(params: {
   idleRounds: number;
   lastPlanText: string | null;
 }) {
   const escalating = shouldEscalateSubconsciousFork(params);
   if (!escalating && !IDLE_PLAN_SKILL_SUBMISSION_ENABLED) {
-    // 两段都不追加时，走与主 agent 结构性同源的那一份，逐字节零变化。
     return renderSelfContinuationReminder();
   }
   const sections = [readPromptSnippet('self_continuation_reminder.md')];
@@ -5051,11 +5017,6 @@ export function renderExternalNotify(sourceSystem: string, text: string) {
   }).trim();
 }
 
-function buildSelfContinuationInputItem(): OpenResponseInputItem {
-  // A runtime notice like every other reminder -> developer (see buildCurrentTurnInputItems).
-  return buildDeveloperInputItem([renderSelfContinuationReminder()]);
-}
-
 function isOpenResponseMessageInputItem(item: OpenResponseInputItem | undefined): item is Extract<OpenResponseInputItem, { type: 'message' }> {
   if (!item || item.type !== 'message') {
     return false;
@@ -5085,28 +5046,6 @@ function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined
 // D at its TAIL (buildSubconsciousAgentForkRequest), not via the shared prefix.
 function isAssistantTextOutputReplayItem(item: OpenResponseInputItem | undefined): boolean {
   return Boolean(isOpenResponseMessageInputItem(item) && item.role === 'assistant');
-}
-
-// The self-driven-fork idle gate used to read the last item of the (suppress-mode)
-// requestInput. Now that assistant text (D) is stripped from every replay, requestInput
-// no longer ends in a final_answer, so the gate reads the RAW history instead: did the
-// most recent turn settle on an assistant final_answer (i.e. she is idle)?
-function lastHistoryTurnEndsWithAssistantFinalAnswer(history: ConversationTurn[]): boolean {
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const replay = buildTurnResponseReplayItems(history[index] as StackBackedConversationTurn);
-    if (replay.length === 0) {
-      continue;
-    }
-    return isAssistantFinalAnswerInputItem(replay[replay.length - 1]);
-  }
-  return false;
-}
-
-function shouldAllowSelfContinuationOnTerminalFinalAnswer(
-  options: ReturnType<typeof normalizeRuntimeFrameOptions>
-): boolean {
-  return !options.queueBacked
-    && options.triggerInputMode === 'suppress_current_trigger';
 }
 
 function isPhoneNotificationDirectCueMessage(
@@ -7039,8 +6978,7 @@ export function applyToolResultToLoopInput(
   const oneShotInputItems: OpenResponseInputItem[] = [];
   return {
     inputItems,
-    oneShotInputItems,
-    forcedVisibleReply: null
+    oneShotInputItems
   };
 }
 
@@ -8299,7 +8237,7 @@ export class AgentLoopService {
     const developerContextBlock = [
       baseDeveloperContextBlock
     ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
-    const buildBudgetPlan = (appendSelfContinuationOnTerminalFinalAnswer: boolean) => this.buildContextBudgetPlan({
+    const buildBudgetPlan = () => this.buildContextBudgetPlan({
       history,
       queueMessage,
       runtimePrompt,
@@ -8309,19 +8247,9 @@ export class AgentLoopService {
       runtimeEnergyState,
       contextSessionKey,
       cutoffState,
-      triggerInputMode: 'suppress_current_trigger',
-      appendSelfContinuationOnTerminalFinalAnswer
+      triggerInputMode: 'suppress_current_trigger'
     });
-    // F1: do NOT append the self-continuation tail, even when the raw history ends in an
-    // assistant final_answer. The heartbeat's target is the entry the next NOTIFY-driven wake run
-    // hits — that run is queue-backed, so it does NOT append a self-continuation
-    // (shouldAllowSelfContinuationOnTerminalFinalAnswer requires !queueBacked). The self-cont item
-    // is DURABLE (buildUserSceneInputItem, role:'user'), so appending it would move the tail
-    // breakpoint to [..history, self-cont]; the notify wake's [..history] was never written as a
-    // breakpoint and would cold-read the whole history. Warming the plain [..history] gives the
-    // notify wake a full hit and a self-continuation wake a near-full hit (only its 1-item tail
-    // cold). The buildBudgetPlan(true) overload is retained for callers that genuinely self-continue.
-    const budgetPlan = await buildBudgetPlan(false);
+    const budgetPlan = await buildBudgetPlan();
 
     return {
       canonicalRequest: buildCacheHeartbeatForkRequest(
@@ -8762,7 +8690,6 @@ export class AgentLoopService {
     let budgetPlan: ContextBudgetPlan = {
       requestInput: [],
       currentTurnInputItems: [],
-      selfContinuationInputItem: null,
       summarySourceInput: null,
       retainedHistory: [],
       runtimeIdentityFacts: [],
@@ -8836,7 +8763,6 @@ export class AgentLoopService {
       const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
       const history = await this.loadStackHistoryBlocks(cutoffState, payload.traceId);
       historyCount = history.length;
-      const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
       const resolvedRuntimePrompt = await this.resolveStableRuntimePrompt(payload);
       runtimePrompt = resolvedRuntimePrompt;
@@ -8860,7 +8786,7 @@ export class AgentLoopService {
       const developerContextBlock = [
         baseDeveloperContextBlock
       ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
-      const buildBudgetPlan = (appendSelfContinuationOnTerminalFinalAnswer: boolean) => this.buildContextBudgetPlan({
+      const buildBudgetPlan = () => this.buildContextBudgetPlan({
         history,
         queueMessage: payload,
         runtimePrompt: resolvedRuntimePrompt,
@@ -8871,20 +8797,9 @@ export class AgentLoopService {
         contextSessionKey,
         cutoffState,
         triggerInputMode: options.triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer,
         loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
       });
-      let appendSelfContinuationOnTerminalFinalAnswer = false;
-      budgetPlan = await buildBudgetPlan(false);
-      if (allowSelfContinuationOnTerminalFinalAnswer) {
-        // Detect from raw history: D is stripped from requestInput, so its last item is no
-        // longer a final_answer, but we still want to nudge self-continuation when she just
-        // settled on one.
-        if (lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
-          appendSelfContinuationOnTerminalFinalAnswer = true;
-          budgetPlan = await buildBudgetPlan(true);
-        }
-      }
+      budgetPlan = await buildBudgetPlan();
       await this.ensureRuntimeIdentityRoot(payload, resolvedRuntimePrompt);
       if (!jobId) {
         jobId = await this.store.createLlmJob({
@@ -9045,24 +8960,6 @@ export class AgentLoopService {
           ]
         });
       }
-      const selfContinuationInputItem = budgetPlan.selfContinuationInputItem;
-      if (selfContinuationInputItem) {
-        await this.appendAgentStackItemsSafe({
-          traceId: payload.traceId,
-          runId: queueMessage.id,
-          sourceType: 'agent_runtime',
-          sourceId: queueMessage.id,
-          items: [
-            buildLoopSelfContinuationStackItem({
-              queueMessage: payload,
-              runId: queueMessage.id,
-              turn: 1,
-              inputItem: selfContinuationInputItem
-            }) as Record<string, unknown>
-          ]
-        });
-      }
-
       // 空转记账用的 run 级累加器：这一整个 run 有没有有效产出。
       // 普通工具判在发出那一刻;recover_energy 按【结果】判——身体接受(真睡着)算,被拒(睡不着)不算。
       let runTouchedWorld = false;
@@ -9074,6 +8971,8 @@ export class AgentLoopService {
       let runRestRejectedCount = 0;
       // 连续几次续跑提醒之后她都没动手(见 LOOP_CONTINUATION_MAX);一动手就归零。
       let loopContinuationCount = 0;
+      // 「去找点别的事做」这个 run 已经说过一次:再说没有新信息,她再停就交给 fork。
+      let loopContinuationFindOtherSent = false;
       // exec_command 用法提醒(open-loops 直接写 / 单纯读文件)每种每个 run 只发一次,不然她每读一次就多一条同样的话。
       const execUsageRemindedInRun = new Set<string>();
 
@@ -9257,19 +9156,19 @@ export class AgentLoopService {
           .map((item) => structuredClone(item));
         if (PSYCH_ASSESSMENT_GATE_ENABLED) {
           const assistantTextItems = (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem);
-          // 这次输出没有工具调用 = 这段话让这一轮结束:有事没事都改写(见 runXiaoniOsRewriteLeg 的 closing)。
+          // 只润色收尾段(这次输出没有工具调用,这段话让这一轮停下)。中途段和工具调用在同一条消息里,她正在动手,
+          // 原文直接准入:润色补的「下一步」可能和她手上那个工具对不上,还要白等一次请求。
           const turnEndsWithText = !(outputItems as OpenResponseInputItem[]).some((item) => item?.type === 'function_call');
-          for (const assistantTextItem of assistantTextItems) {
+          if (!turnEndsWithText) {
+            stampTextAdmitInPlace(assistantTextItems, true);
+          }
+          for (const assistantTextItem of turnEndsWithText ? assistantTextItems : []) {
             await this.runXiaoniOsRewriteForItem({
-              closing: turnEndsWithText,
               item: assistantTextItem as unknown as Record<string, unknown>,
               traceId: payload.traceId,
               runId: String(queueMessage.id),
               agentTurn: turn,
-              sliceId,
-              fillFork: XIAONI_OS_FILL_FORK_ENABLED
-                ? { baseRequest: currentCanonicalRequest, queueMessage: payload, runtimePrompt }
-                : null
+              sliceId
             });
           }
         }
@@ -9534,6 +9433,31 @@ export class AgentLoopService {
               deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
+            // 第 3 次被拒:身体的回答里加上「已经 3 次没睡着、去做点事」和几件能推的事(和续跑同一个构建),
+            // 不另插 user 消息。在 continuation / 落栈之前改,工具结果原样冻结进 stack,replay 字节一致。
+            if (
+              toolCall.name === TOOL_NAMES.recoverEnergy
+              && toolResult.rest_rejected === true
+              && runRestRejectedCount + 1 === REST_REJECTED_GUARD_AT
+              && typeof toolResult.system_reminder === 'string'
+            ) {
+              const guardNudge = await this.buildOpenLoopsNudge(`${queueMessage.id}:${turn}:rest-guard`, {
+                allowFindOther: true
+              }).catch(() => null);
+              if (guardNudge) {
+                toolResult.system_reminder = `${toolResult.system_reminder}\n${formatSystemReminderBlock(renderPromptSnippet('recover_energy_rejected_guard.md', {
+                  COUNT: REST_REJECTED_GUARD_AT,
+                  NUDGE: guardNudge.text
+                }).trim())}`;
+                await this.store.logTimelineEvent({
+                  traceId: payload.traceId,
+                  eventType: 'decision',
+                  eventName: 'rest_rejected_guard',
+                  eventPhase: null,
+                  metadata: { run_id: queueMessage.id, turn, kind: guardNudge.kind, picked: guardNudge.picked, actionable_count: guardNudge.actionableCount }
+                }).catch(() => {});
+              }
+            }
             const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
             const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
               loopInput: requestInput,
@@ -9575,59 +9499,6 @@ export class AgentLoopService {
                 completed_at: new Date().toISOString(),
                 status: 'completed'
               });
-            }
-            if (continuation.forcedVisibleReply) {
-              await this.store.logTimelineEvent({
-                traceId: payload.traceId,
-                eventType: 'decision',
-                eventName: 'forced_visible_reply',
-                eventPhase: null,
-                metadata: {
-                  source_tool_name: toolCall.name,
-                  tool_name: continuation.forcedVisibleReply.toolName
-                }
-              });
-              const forcedToolResult = await this.sendMessage(
-                continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-                {
-                  ...buildInternalExplicitSendTargetArgs(
-                    continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-                    payload
-                  ),
-                  ...continuation.forcedVisibleReply.args
-                },
-                payload
-              );
-              if (typeof forcedToolResult?.xiaoni_os === 'string' && forcedToolResult.xiaoni_os.trim().length > 0) {
-                persistedXiaoniOs = forcedToolResult.xiaoni_os.trim();
-              }
-              if (typeof forcedToolResult?.pending_share === 'string' && forcedToolResult.pending_share.trim().length > 0) {
-                persistedPendingShare = forcedToolResult.pending_share.trim();
-              }
-              await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
-              await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, continuation.forcedVisibleReply.toolName, forcedToolResult, true);
-              await this.store.logTimelineEvent({
-                traceId: payload.traceId,
-                eventType: 'decision',
-                eventName: 'delivery_commit',
-                eventPhase: null,
-                metadata: {
-                  tool_name: continuation.forcedVisibleReply.toolName,
-                  forced: true
-                }
-              });
-              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-              deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
-              leaseRelease = buildLeaseReleaseRecord({
-                reason: 'visible_delivery_committed',
-                detail: 'A visible reply was forced after a side-effecting tool produced work that still needed an acknowledgement.',
-                outcome: 'forced_visible_delivery_committed',
-                noVisibleDelivery: false,
-                visibleDeliveryCommitted: true,
-                source: `tool:${continuation.forcedVisibleReply.toolName}`,
-                toolResult: forcedToolResult
-              });
-              break;
             }
             if (continuation.inputItems.length > 0) {
               appendLoopInputItems(continuation.inputItems);
@@ -9762,17 +9633,17 @@ export class AgentLoopService {
             });
           }
         }
-        // 续跑:这一轮以文字收尾(没有工具调用)。open-loops 里还有没做完的事 → 追加一条「还有没做完的事」;
-        // 空的 → 精排从联想里挑一条旧事当方向。都没有,或已续满 → 照旧结束,交给潜意识 fork。
+        // 续跑:这一轮以文字收尾(没有工具调用)。从 open-loops 里不阻塞的事随机点 3 件,追加一条 user 消息;
+        // 一件都没有 → 「去找点别的事做」(每个 run 最多一次)。已续满 / 找别的已说过 → 照旧结束,交给潜意识 fork。
         // 追加的 user 条目落 stack(下一 run 逐字节 replay),和正常一轮往下长一样,不碰已缓存前缀。
         if (!leaseRelease && actionPlan.hasFinalAnswer && !hasToolCall && loopContinuationCount < LOOP_CONTINUATION_MAX) {
-          const anchorText = (outputItems as OpenResponseInputItem[])
-            .filter(isAssistantTextOutputReplayItem)
-            .map((item) => flattenMessageContent((item as Extract<OpenResponseInputItem, { type: 'message' }>).content))
-            .join('\n')
-            .trim();
-          const nudge = await this.buildLoopContinuationNudge(anchorText).catch(() => null);
+          const nudge = await this.buildOpenLoopsNudge(`${queueMessage.id}:${turn}`, {
+            allowFindOther: !loopContinuationFindOtherSent
+          }).catch(() => null);
           if (nudge) {
+            if (nudge.kind === 'find_other') {
+              loopContinuationFindOtherSent = true;
+            }
             loopContinuationCount += 1;
             const nudgeItem = buildUserSceneInputItem([nudge.text]);
             await this.appendAgentStackItemsSafe({
@@ -9796,7 +9667,7 @@ export class AgentLoopService {
               eventType: 'decision',
               eventName: 'loop_continuation',
               eventPhase: null,
-              metadata: { run_id: queueMessage.id, turn, kind: nudge.kind, count: loopContinuationCount }
+              metadata: { run_id: queueMessage.id, turn, kind: nudge.kind, count: loopContinuationCount, picked: nudge.picked, actionable_count: nudge.actionableCount }
             }).catch(() => {});
             await appendAvailableQueueNotifyToLoop();
             continue;
@@ -11028,7 +10899,6 @@ export class AgentLoopService {
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
-    appendSelfContinuationOnTerminalFinalAnswer?: boolean;
     loopContinuationBeforeCurrentTrigger?: boolean;
     // Operator-forced compaction (manual admin trigger). When true the overflow
     // gate is bypassed: instead of compressing only when the live window exceeds
@@ -11105,7 +10975,6 @@ export class AgentLoopService {
     const currentTurnInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
       .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
 
-    const appendedSelfContinuationInputItems: OpenResponseInputItem[] = [];
     const requestInput = buildLoopRequestInput({
       history: initialRetainedHistory,
       queueMessage: params.queueMessage,
@@ -11119,12 +10988,9 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
-      appendedSelfContinuationInputItems,
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
       precomputedCurrentTurnInputItems: currentTurnInputItems
     });
-    const selfContinuationInputItem = appendedSelfContinuationInputItems[0] ?? null;
     // REQ1: no tiktoken pre-estimate. These fields stay in the plan/turn-record for
     // backward-compatible logging only; the real signal is the provider's input_tokens.
     const estimate = { inputTokens: 0, encoding: null, source: null as 'tiktoken' | 'heuristic' | null };
@@ -11133,7 +10999,6 @@ export class AgentLoopService {
       return {
         requestInput,
         currentTurnInputItems,
-        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11160,7 +11025,6 @@ export class AgentLoopService {
       return {
         requestInput,
         currentTurnInputItems,
-        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11190,7 +11054,6 @@ export class AgentLoopService {
       return {
         requestInput,
         currentTurnInputItems,
-        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11258,7 +11121,6 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
 
@@ -11270,7 +11132,6 @@ export class AgentLoopService {
     return {
       requestInput,
       currentTurnInputItems,
-      selfContinuationInputItem,
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11301,7 +11162,6 @@ export class AgentLoopService {
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
-    appendSelfContinuationOnTerminalFinalAnswer?: boolean;
     loopContinuationBeforeCurrentTrigger?: boolean;
   }): Promise<CoreMemoryCompressionCheckpoint | null> {
     const plan = await this.buildContextBudgetPlan(params);
@@ -12432,15 +12292,6 @@ export class AgentLoopService {
             hasVisibleReply: false,
             runtimeEnergyState
           });
-          if (continuation.forcedVisibleReply) {
-            rawToolResult = {
-              ...rawToolResult,
-              forced_visible_reply_rejected: true,
-              error_message: 'subconscious agent fork cannot force visible delivery'
-            };
-            toolStatus = 'failed';
-            toolErrorMessage = 'subconscious agent fork cannot force visible delivery';
-          }
           const toolOutputRows = await this.appendSubconsciousAgentForkItemsSafe({
             forkRunId,
             traceId: params.queueMessage.traceId,
@@ -14289,9 +14140,6 @@ export class AgentLoopService {
                 hasVisibleReply: false,
                 runtimeEnergyState
               });
-              if (continuation.forcedVisibleReply) {
-                throw new Error('core memory compression fork must not force visible delivery');
-              }
               const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
                 forkRunId,
                 traceId: params.queueMessage.traceId,
@@ -14724,214 +14572,68 @@ export class AgentLoopService {
     return payload;
   }
 
-  // 潜意识填充 fork:xiaoni_os 判空转时,克隆主请求(同一热前缀)+ 尾部她的原话 + xiaoni_os_fill_reminder.md,
-  // 一次调用拿 <xiaoni_os> 块。与自驱动 fork 同一克隆、同一执行出口、同一 ledger(subconscious_agent_fork_*,
-  // metadata.trigger = xiaoni_os_idle_fill),区别只在尾部模板与「不放行工具、不投 notify、不动限频 / 升级 / 空转计数」。
-  // 双缓存:克隆 + 尾部追加 cache_volatile,前缀逐字节不变;fork 请求 no_persist,不进下一次主 run replay。
-  private async runXiaoniOsFillFork(params: {
-    baseRequest: CanonicalAgentTurnRequest;
-    queueMessage: QueueMessageRecord['payload'];
-    runtimePrompt: ResolvedAgentRuntimePrompt;
-    narrationItems: OpenResponseInputItem[];
-    // 收尾段的改写:用收尾版引导(去掉收尾意思、落到下一件事);不传 = 中途段的填充版。
-    closing?: boolean;
-    // 字数上限(= 原文字数)+ 重写时的反馈。
-    request: XiaoniOsFillRequest;
-  }): Promise<XiaoniOsFillResult | null> {
-    const forkRunId = `xiaoni-os-fill-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
-    const contextSessionKey = getGlobalPromptContextSessionKey();
-    const baseForkMetadata = {
-      trigger: params.closing ? 'xiaoni_os_closing_rewrite' : 'xiaoni_os_idle_fill',
-      context_session_key: contextSessionKey,
-      no_main_stack_persist: true,
-      no_traffic_persist: true,
-      no_notify: true
-    };
-    await this.recordSubconsciousAgentForkRunSafe({
-      forkRunId,
-      contextSessionKey,
-      status: 'running',
-      traceId: params.queueMessage.traceId,
-      runId: params.queueMessage.runId,
-      metadata: baseForkMetadata
-    });
-    try {
-      const forkRequest = buildSubconsciousAgentForkRequest(
-        params.baseRequest,
-        1,
-        params.narrationItems,
-        params.closing ? renderXiaoniOsClosingRewriteReminder(params.request) : renderXiaoniOsFillReminder(params.request)
-      );
-      // 输出保险丝(与自驱动 fork 同理,顶层采样参数不在前缀里):一到三句 + 块壳,600 够;超长本来就 evict。
-      forkRequest.max_output_tokens = XIAONI_OS_FILL_FORK_MAX_OUTPUT_TOKENS;
-      const modelResult = await this.executeSubconsciousAgentForkTurn(
-        forkRequest,
-        params.queueMessage,
-        params.runtimePrompt,
-        1
-      );
-      const forkSliceId = modelResult.llm_request_slice_id
-        || modelResult.llm_call_id
-        || `xiaoni-os-fill-fork-slice:${forkRunId}`;
-      const inputRows = await this.appendSubconsciousAgentForkItemsSafe({
-        forkRunId,
-        traceId: params.queueMessage.traceId,
-        runId: params.queueMessage.runId,
-        sourceType: 'subconscious_agent_fork_slices',
-        sourceId: forkSliceId,
-        llmRequestSliceId: forkSliceId,
-        items: [buildForkInputStackItem({
-          forkRunId,
-          sliceId: forkSliceId,
-          forkTurn: 1,
-          source: 'subconscious_agent_fork_input',
-          inputItems: forkRequest.input
-        }) as Record<string, unknown>]
-      });
-      const outputItems = extractCanonicalResponseOutputItems(modelResult);
-      const outputRows = await this.appendSubconsciousAgentForkItemsSafe({
-        forkRunId,
-        traceId: params.queueMessage.traceId,
-        runId: params.queueMessage.runId,
-        sourceType: 'subconscious_agent_fork_slices',
-        sourceId: forkSliceId,
-        llmRequestSliceId: forkSliceId,
-        items: buildModelOutputStackItems(outputItems, forkSliceId) as Array<Record<string, unknown>>
-      });
-      const indexesOf = (rows: unknown[]) => rows
-        .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
-        .filter((value) => Number.isFinite(value));
-      const inputItemIndexes = indexesOf(inputRows);
-      const outputItemIndexes = indexesOf(outputRows);
-      await this.recordSubconsciousAgentForkSliceSafe({
-        forkRunId,
-        sliceId: forkSliceId,
-        llmCallId: modelResult.llm_call_id || null,
-        inputStartIndex: inputItemIndexes.length > 0 ? Math.min(...inputItemIndexes) : null,
-        inputEndIndex: inputItemIndexes.length > 0 ? Math.max(...inputItemIndexes) : null,
-        inputStackItemIds: inputRows
-          .map((row) => (row as { id?: unknown }).id)
-          .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number'),
-        outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
-        outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
-        canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
-        wireRequest: modelResult.wire_request || null,
-        canonicalResponse: modelResult.canonical_response || null,
-        wireResponse: modelResult.wire_response || null,
-        rawResponse: modelResult.raw_response || null,
-        outputItems,
-        status: modelResult.success ? 'completed' : 'failed',
-        tokenUsage: buildProviderTokenUsage(modelResult),
-        traceId: params.queueMessage.traceId,
-        runId: params.queueMessage.runId,
-        agentTurn: 1,
-        modelName: modelResult.model || params.runtimePrompt.modelName,
-        modelProvider: modelResult.provider || null,
-        requestFormatVersion: modelResult.request_format_version || null,
-        wireProviderFormat: modelResult.wire_provider_format || null,
-        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
-        metadata: {
-          ...baseForkMetadata,
-          ...buildProviderWireMetadata(modelResult),
-          fork_run_id: forkRunId,
-          fork_turn: 1,
-          execution_mode: 'subconscious_agent_fork'
-        }
-      });
-      const fillText = extractXiaoniOsFillBlock(outputItems);
-      await this.completeSubconsciousAgentForkRunSafe({
-        forkRunId,
-        status: fillText ? 'completed' : 'failed',
-        notifyQueueMessageId: null,
-        summaryText: fillText,
-        errorMessage: fillText ? null : 'no <xiaoni_os> block in fork output',
-        artifact: {
-          llm_request_slice_id: forkSliceId,
-          llm_call_id: modelResult.llm_call_id || null,
-          text_length: fillText ? fillText.length : 0,
-          fork_turn_count: 1,
-          fork_tool_call_count: 0
-        },
-        metadata: baseForkMetadata
-      });
-      if (!fillText) {
-        return null;
-      }
-      return {
-        text: fillText,
-        llmCallId: modelResult.llm_call_id || null,
-        model: modelResult.model || params.runtimePrompt.modelName || null,
-        forkRunId
-      };
-    } catch (error) {
-      await this.completeSubconsciousAgentForkRunSafe({
-        forkRunId,
-        status: 'failed',
-        notifyQueueMessageId: null,
-        summaryText: null,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        artifact: {},
-        metadata: baseForkMetadata
-      });
-      moduleLogger.warn('xiaoni_os fill fork failed', {
-        forkRunId,
-        traceId: params.queueMessage.traceId,
-        error: error instanceof Error ? error.message : String(error)
-      });
+  // 续跑 / 第 3 次被拒共用的那条话:open-loops 里不阻塞的事(开着、不在等别人)随机点 3 件;一件都没有 →
+  // 「去找点别的事情做」;文件读不到 → null(不续跑)。随机用 seed(runId:turn)定下来,抽中的写进 timeline,事后好对她做了哪件。
+  // 文字在这里一次生成,落栈后 replay 读存下来的字节,不会重算。
+  private async buildOpenLoopsNudge(
+    seed: string,
+    options: { allowFindOther: boolean }
+  ): Promise<{ kind: 'open_loops' | 'find_other'; text: string; picked: string[]; actionableCount: number } | null> {
+    const actionable = await readOpenLoopsActionableLines();
+    if (actionable === null) {
       return null;
     }
+    if (actionable.length === 0) {
+      if (!options.allowFindOther) {
+        return null;
+      }
+      return { kind: 'find_other', text: readPromptSnippet('loop_continuation_find_other.md').trim(), picked: [], actionableCount: 0 };
+    }
+    const picked = pickOpenLoopsForNudge(actionable, LOOP_CONTINUATION_PICK_COUNT, seededRandom(seed));
+    const these = ['', '这件', '这两件', '这三件'][picked.length] || `这${picked.length}件`;
+    const text = renderPromptSnippet('loop_continuation_open_loops.md', {
+      COUNT: actionable.length,
+      THESE: these,
+      ITEMS: picked.map((item, index) => `${index + 1}. ${item}`).join('\n')
+    }).trim();
+    return { kind: 'open_loops', text, picked, actionableCount: actionable.length };
   }
 
-  // 续跑的提示:open-loops 有没划掉的 → 一句「还有没做完的事」(不点名,她自己去看);空的 → 精排挑一条联想。
-  private async buildLoopContinuationNudge(anchorText: string): Promise<{ kind: 'open_loops' | 'recall'; text: string } | null> {
-    if ((await readOpenLoopsOpenCount()) > 0) {
-      return { kind: 'open_loops', text: readPromptSnippet('loop_continuation_open_loops.md').trim() };
-    }
-    const hook = await pickRecallLeadForContinuation(anchorText);
-    if (hook) {
-      return { kind: 'recall', text: renderPromptSnippet('loop_continuation_recall.md', { HOOK: hook }).trim() };
-    }
-    return null;
-  }
 
-  // xiaoni_os 改写的单条编排:取正文 → runXiaoniOsRewriteLeg(填充 fork 重写,字数 ≤ 原文,不许失败)→ 就地冻结:
-  //   rewritten → 正文替换为重写版 + 准入;kept / failed_open(fork 次次挂掉)→ 原文准入。每段 xiaoni_os 都进上下文。
-  // 每次结果落 xiaoni_os_rewrites(原文 / 重写 / 去向 / fork run id)。留痕失败不挡准入决定。
+  // xiaoni_os 改写的单条编排:取正文 → runXiaoniOsRewriteLeg(独立润色小请求,不许失败)→ 就地冻结:
+  //   rewritten → 正文替换为润色版 + 准入;kept / failed_open(请求次次挂掉)→ 原文准入。每段 xiaoni_os 都进上下文。
+  // 每次结果落 xiaoni_os_rewrites(原文 / 润色 / 去向 / llm call id)。留痕失败不挡准入决定。
   private async runXiaoniOsRewriteForItem(params: {
     item: Record<string, unknown>;
     traceId: string;
     runId: string;
     agentTurn: number;
     sliceId: string;
-    // 这段是让这一轮结束的那段话(这次输出里没有工具调用)。
-    closing?: boolean;
-    // 起填充 fork 所需的三样(克隆哪份请求 / 哪个 run / 哪份 runtime prompt);null = 开关关着,原文准入。
-    fillFork?: {
-      baseRequest: CanonicalAgentTurnRequest;
-      queueMessage: QueueMessageRecord['payload'];
-      runtimePrompt: ResolvedAgentRuntimePrompt;
-    } | null;
   }): Promise<void> {
     const text = extractAssistantItemText(params.item);
     if (!text.trim()) {
       return;
     }
-    const fillFork = params.fillFork;
-    if (!fillFork) {
-      // 填充 fork 关着(XIAONI_OS_FILL_FORK_ENABLED=false):不改写,原文进上下文。
+    if (!XIAONI_OS_POLISH_ENABLED) {
+      // 润色关着(XIAONI_OS_POLISH_ENABLED=false):原文进上下文。
       stampTextAdmitInPlace([params.item as unknown as OpenResponseInputItem], true);
       return;
     }
     const result = await runXiaoniOsRewriteLeg({
       text,
-      fetchFill: (request) => this.runXiaoniOsFillFork({
-        baseRequest: fillFork.baseRequest,
-        queueMessage: fillFork.queueMessage,
-        runtimePrompt: fillFork.runtimePrompt,
-        narrationItems: this.currentTurnOriginalNarrationItems,
-        closing: params.closing === true,
-        request
-      })
+      fetchFill: async (request) => {
+        const reply = await callRecallLlmDetailed({
+          system: readPromptSnippet('xiaoni_os_polish_system.md'),
+          user: renderXiaoniOsPolishUserInput(text, request)
+        }, {
+          model: XIAONI_OS_POLISH_MODEL,
+          maxTokens: 1024,
+          retries: 1,
+          label: 'xiaoni-os-polish',
+          executionMode: 'xiaoni_os_polish'
+        });
+        return { text: reply.text, llmCallId: reply.llmCallId, model: reply.model, forkRunId: null };
+      }
     });
     if (result.outcome === 'rewritten' && result.rewrittenText) {
       applyXiaoniOsRewriteInPlace(params.item, result.rewrittenText);
@@ -14943,7 +14645,6 @@ export class AgentLoopService {
       runId: params.runId,
       agentTurn: params.agentTurn,
       outcome: result.outcome,
-      closing: params.closing === true,
       truncated: result.truncated,
       fillForkRunId: result.fillForkRunId,
       rewriteRetries: result.rewriteRetries,
@@ -14973,7 +14674,7 @@ export class AgentLoopService {
         rewrittenText: result.rewrittenText,
         rewriteLlmCallId: result.rewriteLlmCallId,
         rewriteModel: result.rewriteModel,
-        rewriteStage: 'fill',
+        rewriteStage: 'polish',
         rewriteRetries: result.rewriteRetries,
         outcome: result.outcome,
         errorMessage: result.errorMessage,
@@ -15956,19 +15657,24 @@ export class AgentLoopService {
     const str = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
     const action = str(args.action);
     if (action === 'list') {
-      const open = await readOpenLoopsOpenLines();
-      return { ok: true, open_count: open.length, open };
+      const { actionable, waiting } = await readOpenLoopsOpenLines();
+      return { ok: true, open_count: actionable.length + waiting.length, actionable, waiting };
     }
     let cliArgs: string[];
     if (action === 'add') {
       cliArgs = ['loops', 'add', '--text', str(args.text), '--tag', str(args.tag)];
       if (args.confirm_new === true) cliArgs.push('--confirm-new');
+      if (str(args.waiting_on)) cliArgs.push('--waiting-on', str(args.waiting_on));
+    } else if (action === 'wait') {
+      cliArgs = ['loops', 'wait', '--match', str(args.match), '--on', str(args.waiting_on)];
+    } else if (action === 'unwait') {
+      cliArgs = ['loops', 'unwait', '--match', str(args.match)];
     } else if (action === 'done') {
       cliArgs = ['loops', 'done', '--match', str(args.match)];
       if (str(args.note)) cliArgs.push('--note', str(args.note));
       if (args.give_up === true) cliArgs.push('--give-up');
     } else {
-      return { ok: false, message: 'action 只有 add、done、list。' };
+      return { ok: false, message: 'action 只有 add、done、wait、unwait、list。' };
     }
     const cmd = ['python3', `${XIAONI_MEMORY_WRITE_SKILL_DIR}/memory_write.py`, ...cliArgs].map(shellSingleQuote).join(' ');
     const result = await this.executeCommand({ cmd, login: false }, toolCall, queueMessage);
@@ -17283,8 +16989,7 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     runId: string,
     toolName: string,
-    toolResult: Record<string, unknown>,
-    forced = false
+    toolResult: Record<string, unknown>
   ) {
     const recorder = (this.store as RuntimeStore & {
       recordVisibleDeliveryLifeEvents?: RuntimeStore['recordVisibleDeliveryLifeEvents'];
@@ -17296,8 +17001,7 @@ export class AgentLoopService {
       queueMessage,
       runId,
       toolName,
-      toolResult,
-      forced
+      toolResult
     }).catch((error) => {
       moduleLogger.warn('Failed to record visible delivery life events', {
         traceId: queueMessage.traceId,
@@ -17452,7 +17156,6 @@ export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload'
 // Notify Bucket reasons that are the runtime speaking to her (operator notices). Everything else
 // that arrives through the bucket is perception. See buildCurrentTurnInputItems.
 const OPERATOR_NOTICE_REASONS = new Set([
-  'subconscious_agent',
   'deep_dive_round',
   'core_memory_compression_done',
   'open_loops_pointer',
@@ -17467,14 +17170,21 @@ function isOperatorNoticePayload(queueMessage: QueueMessageRecord['payload']) {
   return typeof reason === 'string' && OPERATOR_NOTICE_REASONS.has(reason);
 }
 
-// The user turn in front of an operator notice: when it arrived, as she perceives it.
-function buildWakePerceptionInputItem(queueMessage: QueueMessageRecord['payload']): OpenResponseInputItem | null {
+// When it arrived, as she perceives it (「现在是 …」). From the queue message itself, so a rebuild
+// produces the same bytes.
+function renderWakePerceptionText(queueMessage: QueueMessageRecord['payload']): string | null {
   const raw = queueMessage.receivedAt || queueMessage.messageTimestamp;
   const at = raw ? new Date(raw) : null;
   if (!at || Number.isNaN(at.getTime())) {
     return null;
   }
-  return buildUserSceneInputItem([renderPromptSnippet('runtime_wake_perception.md', { NOW_EAST8: formatEast8Timestamp(at) }).trim()]);
+  return renderPromptSnippet('runtime_wake_perception.md', { NOW_EAST8: formatEast8Timestamp(at) }).trim();
+}
+
+// The user turn in front of an operator notice.
+function buildWakePerceptionInputItem(queueMessage: QueueMessageRecord['payload']): OpenResponseInputItem | null {
+  const text = renderWakePerceptionText(queueMessage);
+  return text ? buildUserSceneInputItem([text]) : null;
 }
 
 function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
@@ -19400,18 +19110,16 @@ function buildLoopRequestInput(params: {
   developerContextBlock?: string | null;
   runtimeEnergyState?: RuntimeEnergyState | null;
   triggerInputMode?: RuntimeTriggerInputMode;
-  appendSelfContinuationOnTerminalFinalAnswer?: boolean;
-  appendedSelfContinuationInputItems?: OpenResponseInputItem[];
   loopContinuationBeforeCurrentTrigger?: boolean;
   // When provided, the fresh_trigger current-turn items reuse this exact array
   // instead of rebuilding, so the sent request and the 存档 stay byte-identical.
   precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.runtimeEnergyState ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.runtimeEnergyState ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null),
     ...params.loopContinuation
   ];
 }
@@ -19771,7 +19479,7 @@ function buildLoopContinuationStackItem(params: {
   queueMessage: QueueMessageRecord['payload'];
   runId: string;
   turn: number;
-  kind: 'open_loops' | 'recall';
+  kind: 'open_loops' | 'find_other';
   inputItem: OpenResponseInputItem;
 }) {
   return {
@@ -19795,45 +19503,6 @@ function buildLoopContinuationStackItem(params: {
     sourceId: params.runId || null,
     traceId: params.queueMessage.traceId,
     runId: params.runId
-  };
-}
-
-function buildLoopSelfContinuationStackItem(params: {
-  queueMessage: QueueMessageRecord['payload'];
-  runId: string;
-  turn: number;
-  inputItem: OpenResponseInputItem;
-}) {
-  const reminder = isOpenResponseMessageInputItem(params.inputItem)
-    ? flattenMessageContent(params.inputItem.content)
-    : renderSelfContinuationReminder();
-  return {
-    eventId: `stack:${params.runId || params.queueMessage.traceId}:self-continuation:${params.turn}`,
-    itemKind: 'runtime_input',
-    role: isOpenResponseMessageInputItem(params.inputItem) ? params.inputItem.role : 'user',
-    phase: null,
-    content: {
-      source: 'self_continuation',
-      reason: 'final_answer',
-      trace_id: params.queueMessage.traceId,
-      run_id: params.runId,
-      session_key: params.queueMessage.sessionKey,
-      chat_type: params.queueMessage.chatType,
-      peer_id: params.queueMessage.peerId,
-      peer_name: params.queueMessage.peerName || null,
-      input_items: [params.inputItem],
-      system_reminder: reminder
-    },
-    visibility: 'model_visible',
-    sourceType: 'agent_runtime',
-    sourceId: params.runId || null,
-    traceId: params.queueMessage.traceId,
-    runId: params.runId,
-    metadata: {
-      queue_source: params.queueMessage.source,
-      prompt_facing_runtime_reminder: true,
-      triggered_by: 'final_answer'
-    }
   };
 }
 
@@ -19879,14 +19548,29 @@ export function buildInitialInput(
   pendingProactiveShare: string | null = null,
   developerContextBlock: string | null = null,
   triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger',
-  appendSelfContinuationOnTerminalFinalAnswer = false,
-  runtimeEnergyState: RuntimeEnergyState | null = null,
-  appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
-  inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
-  precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null,
-  diaryIndexSnapshot: string | null = null,
-  peopleIndexSnapshot: string | null = null
+  ...tail: [
+    runtimeEnergyState?: RuntimeEnergyState | null,
+    inputItemsBeforeCurrentTurn?: OpenResponseInputItem[],
+    precomputedCurrentTurnInputItems?: OpenResponseInputItem[] | null,
+    diaryIndexSnapshot?: string | null,
+    peopleIndexSnapshot?: string | null
+  ] | [
+    retiredSelfContinuation?: boolean,
+    runtimeEnergyState?: RuntimeEnergyState | null,
+    retiredSelfContinuationItems?: OpenResponseInputItem[] | null,
+    inputItemsBeforeCurrentTurn?: OpenResponseInputItem[],
+    precomputedCurrentTurnInputItems?: OpenResponseInputItem[] | null,
+    diaryIndexSnapshot?: string | null,
+    peopleIndexSnapshot?: string | null
+  ]
 ): OpenResponseInputItem[] {
+  // Keep positional callers compatible without reviving the retired continuation path.
+  // The frozen replay/cache contract suites keep their original call signatures.
+  const legacy = typeof tail[0] === 'boolean';
+  const inputItemsBeforeCurrentTurn = (tail[legacy ? 3 : 1] ?? []) as OpenResponseInputItem[];
+  const precomputedCurrentTurnInputItems = (tail[legacy ? 4 : 2] ?? null) as OpenResponseInputItem[] | null;
+  const diaryIndexSnapshot = (tail[legacy ? 5 : 3] ?? null) as string | null;
+  const peopleIndexSnapshot = (tail[legacy ? 6 : 4] ?? null) as string | null;
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
     {
@@ -19956,17 +19640,6 @@ export function buildInitialInput(
     const replayItems = replayItemsRaw.filter((item) => !isReplayItemStrippedByTextGate(item));
     const appendKnownReplayItems = () => {
       items.push(...replayItems);
-      if (
-        appendSelfContinuationOnTerminalFinalAnswer
-        && turnIndex === history.length - 1
-        // Detect the terminal final_answer from the RAW items; the final_answer text
-        // itself stays stripped, only the self-continuation reminder is appended.
-        && isAssistantFinalAnswerInputItem(replayItemsRaw[replayItemsRaw.length - 1])
-      ) {
-        const selfContinuationInputItem = buildSelfContinuationInputItem();
-        items.push(selfContinuationInputItem);
-        appendedSelfContinuationInputItems?.push(selfContinuationInputItem);
-      }
     };
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
@@ -20126,11 +19799,19 @@ function buildCurrentTurnInputItems(
   // Two kinds of Notify Bucket trigger, mapped onto Claude's roles:
   //   - perception (something happened in her world: QQ, a finished task, a memory surfacing, the
   //     clock) -> a user turn: in Claude, input from outside the model is a user turn.
-  //   - operator notice (the runtime / body / 阿花 speaking to her: <xiaoni_plan>, deep-dive round,
-  //     compression done, ...) -> a developer item, which on the 5.5 models goes out as a
+  //   - operator notice (the runtime / body speaking to her: deep-dive round, compression done, ...)
+  //     -> a developer item, which on the 5.5 models goes out as a
   //     mid-conversation role:system message. That message must follow a user turn, and a wake
   //     usually follows her last answer, so it is preceded by a real perception: the time it arrived.
   // The time comes from the queue message itself, so a rebuild produces the same bytes.
+  // 潜意识 fork 的 plan 是阿花对她说的话:一条普通 user 消息,前面是到达时间,不带标签、不走 developer。
+  if (isSubconsciousAgentNotifyPayload(queueMessage)) {
+    const perception = renderWakePerceptionText(queueMessage);
+    return [{
+      ...(buildUserSceneInputItem([...(perception ? [perception] : []), ...parts]) as Record<string, unknown>),
+      cache_volatile: true
+    } as unknown as OpenResponseInputItem];
+  }
   if (isOperatorNoticePayload(queueMessage)) {
     const perception = buildWakePerceptionInputItem(queueMessage);
     return [...(perception ? [perception] : []), buildDeveloperInputItem(parts)]
@@ -20219,32 +19900,6 @@ function resolveOptionalToolTargetId(args: Record<string, unknown>, ...keys: str
   return null;
 }
 
-function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
-  const explicitUserId = resolveOptionalToolTargetId(args, 'user_id', 'target_user_id');
-  const userId = explicitUserId
-    ?? parseOptionalInteger(queueMessage.senderId)
-    ?? parseOptionalInteger(queueMessage.peerId)
-    ?? parseOptionalInteger(queueMessage.inboundContext.NativeChannelId);
-  if (!Number.isFinite(userId)) {
-    throw new Error(`Invalid private target in queue payload: sender=${queueMessage.senderId || 'unknown'}, peer=${queueMessage.peerId || 'unknown'}`);
-  }
-  return userId;
-}
-
-function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
-  const explicitGroupId = resolveOptionalToolTargetId(args, 'group_id', 'target_group_id');
-  if (explicitGroupId === null && queueMessage.chatType !== 'group') {
-    throw new Error('Cannot derive a default group target from a non-group queue payload');
-  }
-  const groupId = explicitGroupId ?? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
-  if (!Number.isFinite(groupId)) {
-    throw new Error(
-      `Invalid group target in queue payload: ${queueMessage.inboundContext.NativeChannelId || queueMessage.peerId || 'unknown'}`
-    );
-  }
-  return groupId;
-}
-
 function buildRetryableSendToolError(
   messageType: 'private' | 'group',
   toolName: string,
@@ -20275,12 +19930,6 @@ function buildRetryableSendToolError(
     xiaoni_os: xiaoniOs,
     pending_share: pendingShare
   };
-}
-
-function buildInternalExplicitSendTargetArgs(messageType: 'private' | 'group', queueMessage: QueueMessageRecord['payload']) {
-  return messageType === 'private'
-    ? { user_id: resolvePrivateTargetUserId(queueMessage) }
-    : { group_id: resolveGroupTargetId(queueMessage) };
 }
 
 function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {

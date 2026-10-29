@@ -1,15 +1,14 @@
-// xiaoni_os 改写:她写的每一段 xiaoni_os,进上下文之前由「填充 fork」重写一遍。
+// xiaoni_os 润色:她写的每一段 xiaoni_os,进上下文之前交给一个独立的润色小请求过一遍。
 //
-// 目的(用户 2026-10-03):去掉偷懒的念头,改成往前走的版本,事实留着。fork 克隆主请求(看得到她全部
-// 上下文、骑同一份热缓存),尾部加她的原话 + 重写提醒;收尾段(这一轮以文字结束)用收尾版提醒,中途段用填充版。
+// 目的(用户 2026-10-04):去掉消极、拖延、想收工的念头,换成能接着干下去的说法,事实原样留着。
+// 润色只需要这一段原文,所以不克隆主请求:system = xiaoni_os_polish_system.md(编辑的角度),user = 原文。
+// (之前是克隆主请求的填充 fork + 字数卡原文:短原文补一句「下一步」必超,70% 的段落连发 3 次再被截断。)
 //
 // 规矩:
-//   - 字数:提醒里直接给原文字数 N,「写在 N 字以内」。上限只有这一个,跟着原文走。
+//   - 字数:上限 = max(原文字数, XIAONI_OS_REWRITE_MIN_CHAR_LIMIT)。长段不许扩写,短段留出写下一步的地方。
 //   - 不许失败:超字数 / 没按 <xiaoni_os> 块交 / 只剩填充句 → 带着一句反馈重写(最多 XIAONI_OS_REWRITE_MAX_ATTEMPTS 次);
-//     最后一版仍超字数 → 在 N 字内按句子截断。只有 fork 请求本身次次都挂(provider 不可用)才保留原文。
+//     最后一版仍超字数 → 在上限内按句子截断。只有请求本身次次都挂(provider 不可用)才保留原文。
 //   - 决定在 turn 末、这段话进入任何请求之前冻结进共享 outputItems ref,live 与 replay 是同一份字节。
-//
-// 以前的分类 / 润色 / 小请求改写 / evicted 分支都已删除。
 
 export type XiaoniOsRewriteOutcome = 'kept' | 'rewritten' | 'failed_open';
 
@@ -20,7 +19,7 @@ export interface XiaoniOsFillResult {
   forkRunId: string | null;
 }
 
-// 一次 fork 调用的要求:字数上限 + (重写时)上一次的反馈。
+// 一次润色请求的要求:字数上限 + (重写时)上一次的反馈。
 export interface XiaoniOsFillRequest {
   charLimit: number;
   retry: { kind: 'over_length'; chars: number } | { kind: 'no_block' } | null;
@@ -28,6 +27,8 @@ export interface XiaoniOsFillRequest {
 export type XiaoniOsFetchFill = (request: XiaoniOsFillRequest) => Promise<XiaoniOsFillResult | null>;
 
 export const XIAONI_OS_REWRITE_MAX_ATTEMPTS = 3;
+// 和主 prompt 里「xiaoni_os 写在 100 字以内」对齐。
+export const XIAONI_OS_REWRITE_MIN_CHAR_LIMIT = 100;
 
 export interface XiaoniOsRewriteLegResult {
   outcome: XiaoniOsRewriteOutcome;
@@ -46,6 +47,12 @@ export interface XiaoniOsRewriteLegResult {
 // 字数按字符(码点)数,和她看到的「多少字」一致。
 export function countXiaoniOsChars(text: string): number {
   return Array.from((text || '').trim()).length;
+}
+
+// 只差空白和标点(全角 / 半角、有没有句末标点)的两段,算同一段话。
+export function isSameXiaoniOsText(a: string, b: string): boolean {
+  const normalize = (text: string) => (text || '').replace(/[\s，,。.！!？?；;：:、…~～「」“”"'‘’（）()]/gu, '');
+  return normalize(a) === normalize(b);
 }
 
 // 截到 limit 字以内:优先停在最后一个句末标点后面;一个完整句子都放不下就硬截。
@@ -136,11 +143,11 @@ export function extractAssistantItemText(item: unknown): string {
   return typeof record.text === 'string' ? record.text : '';
 }
 
-// fork 输出清洗:只认 <xiaoni_os>…</xiaoni_os> 块(块外的字是它的解释,不要);去围栏、去成对引号。
+// 润色输出清洗:只认 <xiaoni_os>…</xiaoni_os> 块(块外的字是它的解释,不要);去围栏、去成对引号。
 // 没有块 / 空 → null。字数不在这里管,由 runXiaoniOsRewriteLeg 按原文字数处理。
 export function normalizeXiaoniOsFillText(raw: string): string | null {
   const source = (raw || '').trim();
-  // 尾部提醒经 formatSystemReminderBlock 转义成 &lt;xiaoni_os&gt;;模型一般输出裸标签,两种都认。
+  // 模型偶尔输出转义的 &lt;xiaoni_os&gt;,两种都认。
   const match = source.match(/(?:<|&lt;)xiaoni_os(?:>|&gt;)\s*([\s\S]*?)\s*(?:<|&lt;)\/xiaoni_os(?:>|&gt;)/u);
   if (!match) {
     return null;
@@ -168,7 +175,7 @@ export async function runXiaoniOsRewriteLeg(params: {
   const now = params.now || (() => Date.now());
   const startedAt = now();
   const original = params.text.trim();
-  const charLimit = Math.max(1, countXiaoniOsChars(original));
+  const charLimit = Math.max(XIAONI_OS_REWRITE_MIN_CHAR_LIMIT, countXiaoniOsChars(original));
   const result: XiaoniOsRewriteLegResult = {
     outcome: 'failed_open',
     rewrittenText: null,
@@ -185,7 +192,8 @@ export async function runXiaoniOsRewriteLeg(params: {
     return result;
   };
   const accept = (text: string): XiaoniOsRewriteLegResult => {
-    result.outcome = text === original ? 'kept' : 'rewritten';
+    // 「原样交回」时模型常顺手改标点 / 空白:归一化后和原文一样就算没改,用原文字节。
+    result.outcome = isSameXiaoniOsText(text, original) ? 'kept' : 'rewritten';
     result.rewrittenText = result.outcome === 'rewritten' ? text : null;
     return finish();
   };
@@ -238,7 +246,7 @@ export async function runXiaoniOsRewriteLeg(params: {
     result.errorMessage = `fill: truncated to ${charLimit} chars after ${XIAONI_OS_REWRITE_MAX_ATTEMPTS} attempts`;
     return accept(truncateXiaoniOsToLimit(overLength, charLimit));
   }
-  // fork 次次拿不到可用正文(请求挂了 / 拒答)—— 只有这里保留原文。
+  // 次次拿不到可用正文(请求挂了 / 拒答)—— 只有这里保留原文。
   result.outcome = 'failed_open';
   return finish();
 }

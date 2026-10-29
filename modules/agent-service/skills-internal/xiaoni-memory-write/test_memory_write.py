@@ -723,6 +723,69 @@ class LoopsDoneTest(Base):
 # 原子写 + fail-open
 # ══════════════════════════════════════════════════════════════════════════
 
+class LoopsWaitingTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.before = (
+            '# Open Loops\n\n'
+            '- [x] involute齿面穿模修好了 (7/27→7/28) ✓ 阿花确认了\n'
+            '- [ ] Bartosz的邮件发了 #邮件 (7/27)\n'
+            '- [ ] 禁止与浩溪交流 等阿花解除 #浩溪禁令 (9/10)\n'
+            '- [ ] 没标签也没日期的老行\n'
+        )
+        self.write('notes/diary/open-loops.md', self.before)
+
+    def test_add_with_waiting_on_puts_field_before_tag(self):
+        code, out = self.run_cmd(
+            ['loops', 'add', '--text', 'she-stayed第108天三处改了', '--tag', 'she-stayed', '--waiting-on', 'CC回 #别的'],
+        )
+        self.assertEqual(code, 0, out)
+        self.assertTrue(self.read('notes/diary/open-loops.md').endswith(
+            f'- [ ] she-stayed第108天三处改了 ⏳CC回 别的 #she-stayed ({TODAY_MD})\n'
+        ))
+
+    def test_wait_inserts_field_and_touches_only_that_line(self):
+        code, out = self.run_cmd(['loops', 'wait', '--match', '#邮件', '--on', 'Bartosz回信'])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            self.read('notes/diary/open-loops.md'),
+            self.before.replace('- [ ] Bartosz的邮件发了 #邮件 (7/27)', '- [ ] Bartosz的邮件发了 ⏳Bartosz回信 #邮件 (7/27)'),
+        )
+
+    def test_wait_replaces_existing_field_and_unwait_restores_line(self):
+        self.run_cmd(['loops', 'wait', '--match', '#浩溪禁令', '--on', '阿花解禁'])
+        self.run_cmd(['loops', 'wait', '--match', '#浩溪禁令', '--on', '阿花开口'])
+        self.assertIn('- [ ] 禁止与浩溪交流 等阿花解除 ⏳阿花开口 #浩溪禁令 (9/10)\n', self.read('notes/diary/open-loops.md'))
+        code, out = self.run_cmd(['loops', 'unwait', '--match', '#浩溪禁令'])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.read('notes/diary/open-loops.md'), self.before)
+
+    def test_wait_on_line_without_tag_or_date_appends_at_end(self):
+        code, out = self.run_cmd(['loops', 'wait', '--match', '没标签也没日期的老行', '--on', '小镜回图'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('- [ ] 没标签也没日期的老行 ⏳小镜回图\n', self.read('notes/diary/open-loops.md'))
+
+    def test_waiting_line_still_open_matchable_and_dup_checked(self):
+        self.run_cmd(['loops', 'wait', '--match', '#邮件', '--on', 'Bartosz回信'])
+        code, out = self.run_cmd(['loops', 'add', '--text', 'Bartosz的邮件发了', '--tag', '邮件2'])
+        self.assertEqual(code, 1, out)
+        self.assertIn('说法很像', out)
+        code, out = self.run_cmd(['loops', 'done', '--match', 'Bartosz的邮件发了'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('- [x] Bartosz的邮件发了 ⏳Bartosz回信 #邮件 (7/27)', self.read('notes/diary/open-loops.md'))
+
+    def test_parse_loops_flags_waiting(self):
+        self.run_cmd(['loops', 'wait', '--match', '#邮件', '--on', 'Bartosz回信'])
+        items = {item['tags'][0] if item['tags'] else item['body']: item for item in mw.parse_loops(self.read('notes/diary/open-loops.md'))}
+        self.assertTrue(items['邮件']['waiting'])
+        self.assertFalse(items['浩溪禁令']['waiting'])
+
+    def test_empty_on_rejected(self):
+        code, out = self.run_cmd(['loops', 'wait', '--match', '#邮件', '--on', '  ⏳ '])
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.read('notes/diary/open-loops.md'), self.before)
+
+
 class AtomicWriteTest(Base):
     def test_uses_replace_and_leaves_no_temp_file(self):
         seen = {}

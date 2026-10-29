@@ -133,6 +133,12 @@ PEOPLE_ID_RESERVED = frozenset({'index', 'index-past'})
 # 欠账正文里她可能顺手带上的尾巴日期 `(7/27)` / `(7/27起)` / `(7/28-8/4)`——脚本自己会加
 # 日期,带了就剥掉,免得写成 `(7/27) (7/28)`。
 TRAILING_DATE_RE = re.compile(r'\s*[（(]\s*\d{1,2}\s*/\s*\d{1,2}[^)）]*[)）]\s*$')
+# 欠账「在等」字段:`- [ ] 正文 ⏳在等谁/等什么 #标签 (日期)`。标记仍是 `[ ]`(所有解析器照旧当它开着),
+# 字段从 ⏳ 起,到下一个 ` #标签`、尾巴日期或行尾为止。续跑点名时跳过带这个字段的行。
+WAITING_MARK = '⏳'
+WAITING_FIELD_RE = re.compile(r'\s*⏳[^#]*?(?=\s+#[^\s#()（）]|\s*[（(]\s*\d{1,2}\s*/\s*\d{1,2}|\s*$)')
+# 行尾的「标签 + 尾巴日期」块:在等字段插在它前面。
+LOOP_SUFFIX_RE = re.compile(r'(?:\s+#[^\s#()（）]+)*(?:\s*[（(]\s*\d{1,2}\s*/\s*\d{1,2}[^)）]*[)）])?\s*$')
 
 BEIJING = timezone(timedelta(hours=8))
 
@@ -656,7 +662,8 @@ def extract_tags(body: str):
 def norm_loop_body(body: str) -> str:
     """查重/匹配用的行文:剥标签、剥尾巴日期、折叠空白、忽略大小写。
     「加了个标签」「改了个日期」不该让同一条看起来像两条。"""
-    stripped = TAG_IN_LINE_RE.sub(' ', body or '')
+    stripped = WAITING_FIELD_RE.sub(' ', body or '')
+    stripped = TAG_IN_LINE_RE.sub(' ', stripped)
     stripped = TRAILING_DATE_RE.sub(' ', collapse(stripped))
     return collapse(stripped).casefold().replace(' ', '')
 
@@ -671,6 +678,7 @@ def parse_loops(text: str):
         items.append({
             'index': index,
             'open': matched.group('mark') not in CLOSED_MARKS,
+            'waiting': WAITING_MARK in body,
             'body': body,
             'norm': norm_loop_body(body),
             'tags': [tag.casefold() for tag in extract_tags(body)],
@@ -715,6 +723,7 @@ def clean_loop_text(raw: str, tag: str) -> str:
     if matched:
         text = matched.group('body').strip()
     text = TRAILING_DATE_RE.sub('', text).strip()
+    text = WAITING_FIELD_RE.sub(' ', text).strip()  # 在等字段走 --waiting-on,正文里手写的剥掉
     # 只剥和 --tag 同名的那个标签(她可能已经写在正文里了),别人的标签原样留着
     text = re.sub(
         r'(?:^|\s)#' + re.escape(tag) + r'(?![\w-])',
@@ -757,7 +766,9 @@ def cmd_loops_add(args) -> int:
     tag = validate_tag(args.tag)
     text = clean_loop_text(args.text, tag)
     day = resolve_date(args.date)
-    line = f'- [ ] {text} #{tag} ({md_stamp(day)})'
+    waiting = clean_waiting_on(args.waiting_on) if args.waiting_on is not None else ''
+    waiting_field = f' {WAITING_MARK}{waiting}' if waiting else ''
+    line = f'- [ ] {text}{waiting_field} #{tag} ({md_stamp(day)})'
     check_single_line('欠账', line)
 
     path = rel(OPEN_LOOPS_REL)
@@ -882,6 +893,83 @@ def cmd_loops_done(args) -> int:
     return 0
 
 
+def clean_waiting_on(raw) -> str:
+    """在等字段:在等谁、等什么。折叠空白,去掉 ⏳ 和 `#`(`#` 会被当成标签)。"""
+    waiting = collapse((raw or '').replace(WAITING_MARK, ' ').replace('#', ' '))
+    if not waiting:
+        raise Reject('--on / --waiting-on 是空的。写在等谁、等什么,比如「阿花回避难所指哪个」。')
+    return waiting
+
+
+def set_waiting_field(body: str, waiting: str) -> str:
+    """去掉旧的在等字段;waiting 非空时插在行尾「标签 + 日期」块前面。"""
+    base = collapse(WAITING_FIELD_RE.sub(' ', body))
+    if not waiting:
+        return base
+    suffix = LOOP_SUFFIX_RE.search(base)
+    cut = suffix.start() if suffix else len(base)
+    return f'{base[:cut].rstrip()} {WAITING_MARK}{waiting}{base[cut:]}'
+
+
+def pick_one_open_loop(path, items, needle):
+    """--match 对上唯一一条开着的行 → 那一条;否则打印候选并返回 None。"""
+    open_items = [item for item in items if item['open']]
+    if not open_items:
+        raise Reject(f'{path} 里现在一条开着的行都没有。')
+    try:
+        hits = match_open_loops(items, needle)
+    except Exception:
+        hits = []
+    if not hits:
+        print(f'REJECT: 没有哪条开着的行对得上 `{needle}`。现在开着的是:')
+        for item in open_items[:LIST_LIMIT]:
+            print(f'  {item["line"]}')
+        if len(open_items) > LIST_LIMIT:
+            print(f'  …还有 {len(open_items) - LIST_LIMIT} 条')
+        print('  → 挑一条,把它里面的几个字抄进 --match,或者用 `--match "#标签"`。')
+        return None
+    if len(hits) > 1:
+        print(f'REJECT: `{needle}` 对上了 {len(hits)} 条,不知道是哪条,没动文件:')
+        for item in hits[:LIST_LIMIT]:
+            print(f'  {item["line"]}')
+        print('  → --match 写长一点、写到只剩一条的那几个字,或者用那条独有的 `#标签`。')
+        return None
+    return hits[0]
+
+
+def rewrite_loop_body(args, waiting: str, verb: str) -> int:
+    needle = collapse(args.match)
+    if not needle:
+        raise Reject('--match 是空的。写那条行里的几个字,或者写 `#标签`。')
+    path = rel(OPEN_LOOPS_REL)
+    existing = load_for_edit(path)
+    if existing is None:
+        raise Reject(f'{path} 还不存在。')
+    lines = split_lines(existing)
+    hit = pick_one_open_loop(path, parse_loops(existing), needle)
+    if hit is None:
+        return 1
+    matched = ITEM_RE.match(lines[hit['index']])
+    new_body = set_waiting_field(matched.group('body'), waiting)
+    new_line = f'{matched.group("head")}{matched.group("mark")}{matched.group("mid")}{new_body}'
+    check_single_line('欠账', new_line)
+    if new_line == lines[hit['index']].rstrip():
+        print(f'OK: {path} — 没变:{new_line}')
+        return 0
+    new_lines = lines[:hit['index']] + [new_line] + lines[hit['index'] + 1:]
+    atomic_write_text(path, join_lines(new_lines))
+    print(f'OK: {path} — {verb}:{new_line}')
+    return 0
+
+
+def cmd_loops_wait(args) -> int:
+    return rewrite_loop_body(args, clean_waiting_on(args.on), '标成在等')
+
+
+def cmd_loops_unwait(args) -> int:
+    return rewrite_loop_body(args, '', '不再等,回到能推的事')
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # CLI
 # ════════════════════════════════════════════════════════════════════════════
@@ -922,6 +1010,10 @@ def build_parser() -> argparse.ArgumentParser:
     loops_add.add_argument('--tag', required=True, help='这件事的名字,同一件事一直用同一个')
     loops_add.add_argument('--date', default=None, help='YYYY-MM-DD,默认今天(北京日期)')
     loops_add.add_argument(
+        '--waiting-on', default=None,
+        help='这件事卡在等别人:在等谁、等什么。带上它,续跑点名时就不会叫你去做这条',
+    )
+    loops_add.add_argument(
         '--confirm-new', action='store_true',
         help='查重拦下来了、但确认真的是另一件事时加上它',
     )
@@ -934,6 +1026,15 @@ def build_parser() -> argparse.ArgumentParser:
         '--give-up', action='store_true', help='不做了 → 划成 `- [-]` 而不是 `- [x]`'
     )
     loops_done.set_defaults(func=cmd_loops_done)
+
+    loops_wait = loops.add_parser('wait', help='把一条开着的欠账标成在等别人')
+    loops_wait.add_argument('--match', required=True, help='那条行里的几个字,或 `#标签`')
+    loops_wait.add_argument('--on', required=True, help='在等谁、等什么')
+    loops_wait.set_defaults(func=cmd_loops_wait)
+
+    loops_unwait = loops.add_parser('unwait', help='等到了 / 不用等了,去掉在等标记')
+    loops_unwait.add_argument('--match', required=True, help='那条行里的几个字,或 `#标签`')
+    loops_unwait.set_defaults(func=cmd_loops_unwait)
 
     return parser
 
