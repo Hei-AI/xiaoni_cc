@@ -1691,6 +1691,29 @@ exports.Prisma.FailureReviewForkSliceScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.ImageVisionForkRunScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  fork_run_id: 'fork_run_id',
+  created_at: 'created_at',
+  status: 'status'
+};
+
+exports.Prisma.ImageVisionForkItemScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  fork_run_id: 'fork_run_id',
+  created_at: 'created_at'
+};
+
+exports.Prisma.ImageVisionForkSliceScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  fork_run_id: 'fork_run_id',
+  created_at: 'created_at',
+  status: 'status'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1797,7 +1820,10 @@ exports.Prisma.ModelName = {
   XiaoniRecallCue: 'XiaoniRecallCue',
   XiaoniRecallShadowLog: 'XiaoniRecallShadowLog',
   XiaoniDeepDive: 'XiaoniDeepDive',
-  FailureReviewForkSlice: 'FailureReviewForkSlice'
+  FailureReviewForkSlice: 'FailureReviewForkSlice',
+  ImageVisionForkRun: 'ImageVisionForkRun',
+  ImageVisionForkItem: 'ImageVisionForkItem',
+  ImageVisionForkSlice: 'ImageVisionForkSlice'
 };
 
 /**

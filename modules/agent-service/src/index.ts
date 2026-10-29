@@ -1,6 +1,6 @@
 import express from 'express';
 import { getAgentRuntimeControl, promotePendingMainAgentCacheKeySettings, seedMainAgentCacheKeySettings, triggerPostCompressionRuntimePause } from '@qq-bot/persistence';
-import { agentConfig, databaseConfig, serverConfig } from './config';
+import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentPromptService } from './services/agent-prompt-service';
@@ -722,6 +722,30 @@ async function runOpenLoopsNotifyLoop() {
   }
 }
 
+// 观测层载荷保留期:按主会话 read_cutoff 删掉已驱逐出上下文的请求快照。纯观测层,
+// 不进 replay、不碰栈,失败只 warn,下个 tick 再来。
+async function runLlmPayloadRetentionLoop() {
+  while (!stopping) {
+    try {
+      const cutoffState = await store.getSessionReadCutoffState(getGlobalPromptContextSessionKey());
+      const readCutoffAfterStackIndex = cutoffState?.readCutoffAfterStackIndex ?? null;
+      if (readCutoffAfterStackIndex !== null) {
+        const result = await store.pruneLlmPayloadsBeforeReadCutoff({ readCutoffAfterStackIndex });
+        if (result.total > 0) {
+          moduleLogger.info('Pruned LLM payload snapshots evicted from context', result);
+        }
+      }
+    } catch (error) {
+      moduleLogger.warn('LLM payload retention tick failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    if (!stopping) {
+      await wait(agentConfig.llmPayloadRetentionIntervalMs);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -808,6 +832,9 @@ async function start() {
   }
   void wait(1700).then(() => runOpenLoopsNotifyLoop());
   void wait(1900).then(() => runRecallJudgeWarmLoop());
+  if (agentConfig.llmPayloadRetentionEnabled) {
+    void wait(60_000).then(() => runLlmPayloadRetentionLoop());
+  }
 }
 
 process.on('SIGINT', () => {

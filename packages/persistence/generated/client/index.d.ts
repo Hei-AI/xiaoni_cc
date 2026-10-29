@@ -388,6 +388,21 @@ export type XiaoniDeepDive = $Result.DefaultSelection<Prisma.$XiaoniDeepDivePayl
  * 
  */
 export type FailureReviewForkSlice = $Result.DefaultSelection<Prisma.$FailureReviewForkSlicePayload>
+/**
+ * Model ImageVisionForkRun
+ * 
+ */
+export type ImageVisionForkRun = $Result.DefaultSelection<Prisma.$ImageVisionForkRunPayload>
+/**
+ * Model ImageVisionForkItem
+ * 
+ */
+export type ImageVisionForkItem = $Result.DefaultSelection<Prisma.$ImageVisionForkItemPayload>
+/**
+ * Model ImageVisionForkSlice
+ * 
+ */
+export type ImageVisionForkSlice = $Result.DefaultSelection<Prisma.$ImageVisionForkSlicePayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -1256,6 +1271,36 @@ export class PrismaClient<
     * ```
     */
   get failureReviewForkSlice(): Prisma.FailureReviewForkSliceDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.imageVisionForkRun`: Exposes CRUD operations for the **ImageVisionForkRun** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ImageVisionForkRuns
+    * const imageVisionForkRuns = await prisma.imageVisionForkRun.findMany()
+    * ```
+    */
+  get imageVisionForkRun(): Prisma.ImageVisionForkRunDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.imageVisionForkItem`: Exposes CRUD operations for the **ImageVisionForkItem** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ImageVisionForkItems
+    * const imageVisionForkItems = await prisma.imageVisionForkItem.findMany()
+    * ```
+    */
+  get imageVisionForkItem(): Prisma.ImageVisionForkItemDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.imageVisionForkSlice`: Exposes CRUD operations for the **ImageVisionForkSlice** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ImageVisionForkSlices
+    * const imageVisionForkSlices = await prisma.imageVisionForkSlice.findMany()
+    * ```
+    */
+  get imageVisionForkSlice(): Prisma.ImageVisionForkSliceDelegate<ExtArgs, ClientOptions>;
 }
 
 export namespace Prisma {
@@ -1771,7 +1816,10 @@ export namespace Prisma {
     XiaoniRecallCue: 'XiaoniRecallCue',
     XiaoniRecallShadowLog: 'XiaoniRecallShadowLog',
     XiaoniDeepDive: 'XiaoniDeepDive',
-    FailureReviewForkSlice: 'FailureReviewForkSlice'
+    FailureReviewForkSlice: 'FailureReviewForkSlice',
+    ImageVisionForkRun: 'ImageVisionForkRun',
+    ImageVisionForkItem: 'ImageVisionForkItem',
+    ImageVisionForkSlice: 'ImageVisionForkSlice'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -1790,7 +1838,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "providerUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniDeepDive" | "failureReviewForkSlice"
+      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "providerUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniDeepDive" | "failureReviewForkSlice" | "imageVisionForkRun" | "imageVisionForkItem" | "imageVisionForkSlice"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -7344,6 +7392,228 @@ export namespace Prisma {
           }
         }
       }
+      ImageVisionForkRun: {
+        payload: Prisma.$ImageVisionForkRunPayload<ExtArgs>
+        fields: Prisma.ImageVisionForkRunFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ImageVisionForkRunFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ImageVisionForkRunFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>
+          }
+          findFirst: {
+            args: Prisma.ImageVisionForkRunFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ImageVisionForkRunFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>
+          }
+          findMany: {
+            args: Prisma.ImageVisionForkRunFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>[]
+          }
+          create: {
+            args: Prisma.ImageVisionForkRunCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>
+          }
+          createMany: {
+            args: Prisma.ImageVisionForkRunCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ImageVisionForkRunCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>[]
+          }
+          delete: {
+            args: Prisma.ImageVisionForkRunDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>
+          }
+          update: {
+            args: Prisma.ImageVisionForkRunUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>
+          }
+          deleteMany: {
+            args: Prisma.ImageVisionForkRunDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ImageVisionForkRunUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ImageVisionForkRunUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>[]
+          }
+          upsert: {
+            args: Prisma.ImageVisionForkRunUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkRunPayload>
+          }
+          aggregate: {
+            args: Prisma.ImageVisionForkRunAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateImageVisionForkRun>
+          }
+          groupBy: {
+            args: Prisma.ImageVisionForkRunGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ImageVisionForkRunGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ImageVisionForkRunCountArgs<ExtArgs>
+            result: $Utils.Optional<ImageVisionForkRunCountAggregateOutputType> | number
+          }
+        }
+      }
+      ImageVisionForkItem: {
+        payload: Prisma.$ImageVisionForkItemPayload<ExtArgs>
+        fields: Prisma.ImageVisionForkItemFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ImageVisionForkItemFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ImageVisionForkItemFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>
+          }
+          findFirst: {
+            args: Prisma.ImageVisionForkItemFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ImageVisionForkItemFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>
+          }
+          findMany: {
+            args: Prisma.ImageVisionForkItemFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>[]
+          }
+          create: {
+            args: Prisma.ImageVisionForkItemCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>
+          }
+          createMany: {
+            args: Prisma.ImageVisionForkItemCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ImageVisionForkItemCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>[]
+          }
+          delete: {
+            args: Prisma.ImageVisionForkItemDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>
+          }
+          update: {
+            args: Prisma.ImageVisionForkItemUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>
+          }
+          deleteMany: {
+            args: Prisma.ImageVisionForkItemDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ImageVisionForkItemUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ImageVisionForkItemUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>[]
+          }
+          upsert: {
+            args: Prisma.ImageVisionForkItemUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkItemPayload>
+          }
+          aggregate: {
+            args: Prisma.ImageVisionForkItemAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateImageVisionForkItem>
+          }
+          groupBy: {
+            args: Prisma.ImageVisionForkItemGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ImageVisionForkItemGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ImageVisionForkItemCountArgs<ExtArgs>
+            result: $Utils.Optional<ImageVisionForkItemCountAggregateOutputType> | number
+          }
+        }
+      }
+      ImageVisionForkSlice: {
+        payload: Prisma.$ImageVisionForkSlicePayload<ExtArgs>
+        fields: Prisma.ImageVisionForkSliceFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ImageVisionForkSliceFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ImageVisionForkSliceFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>
+          }
+          findFirst: {
+            args: Prisma.ImageVisionForkSliceFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ImageVisionForkSliceFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>
+          }
+          findMany: {
+            args: Prisma.ImageVisionForkSliceFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>[]
+          }
+          create: {
+            args: Prisma.ImageVisionForkSliceCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>
+          }
+          createMany: {
+            args: Prisma.ImageVisionForkSliceCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ImageVisionForkSliceCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>[]
+          }
+          delete: {
+            args: Prisma.ImageVisionForkSliceDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>
+          }
+          update: {
+            args: Prisma.ImageVisionForkSliceUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>
+          }
+          deleteMany: {
+            args: Prisma.ImageVisionForkSliceDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ImageVisionForkSliceUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ImageVisionForkSliceUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>[]
+          }
+          upsert: {
+            args: Prisma.ImageVisionForkSliceUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageVisionForkSlicePayload>
+          }
+          aggregate: {
+            args: Prisma.ImageVisionForkSliceAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateImageVisionForkSlice>
+          }
+          groupBy: {
+            args: Prisma.ImageVisionForkSliceGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ImageVisionForkSliceGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ImageVisionForkSliceCountArgs<ExtArgs>
+            result: $Utils.Optional<ImageVisionForkSliceCountAggregateOutputType> | number
+          }
+        }
+      }
     }
   } & {
     other: {
@@ -7515,6 +7785,9 @@ export namespace Prisma {
     xiaoniRecallShadowLog?: XiaoniRecallShadowLogOmit
     xiaoniDeepDive?: XiaoniDeepDiveOmit
     failureReviewForkSlice?: FailureReviewForkSliceOmit
+    imageVisionForkRun?: ImageVisionForkRunOmit
+    imageVisionForkItem?: ImageVisionForkItemOmit
+    imageVisionForkSlice?: ImageVisionForkSliceOmit
   }
 
   /* Types for Logging */
@@ -98430,6 +98703,3080 @@ export namespace Prisma {
 
 
   /**
+   * Model ImageVisionForkRun
+   */
+
+  export type AggregateImageVisionForkRun = {
+    _count: ImageVisionForkRunCountAggregateOutputType | null
+    _avg: ImageVisionForkRunAvgAggregateOutputType | null
+    _sum: ImageVisionForkRunSumAggregateOutputType | null
+    _min: ImageVisionForkRunMinAggregateOutputType | null
+    _max: ImageVisionForkRunMaxAggregateOutputType | null
+  }
+
+  export type ImageVisionForkRunAvgAggregateOutputType = {
+    id: number | null
+  }
+
+  export type ImageVisionForkRunSumAggregateOutputType = {
+    id: bigint | null
+  }
+
+  export type ImageVisionForkRunMinAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fork_run_id: string | null
+    created_at: Date | null
+    status: string | null
+  }
+
+  export type ImageVisionForkRunMaxAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fork_run_id: string | null
+    created_at: Date | null
+    status: string | null
+  }
+
+  export type ImageVisionForkRunCountAggregateOutputType = {
+    id: number
+    identity_key: number
+    fork_run_id: number
+    created_at: number
+    status: number
+    _all: number
+  }
+
+
+  export type ImageVisionForkRunAvgAggregateInputType = {
+    id?: true
+  }
+
+  export type ImageVisionForkRunSumAggregateInputType = {
+    id?: true
+  }
+
+  export type ImageVisionForkRunMinAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    status?: true
+  }
+
+  export type ImageVisionForkRunMaxAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    status?: true
+  }
+
+  export type ImageVisionForkRunCountAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    status?: true
+    _all?: true
+  }
+
+  export type ImageVisionForkRunAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageVisionForkRun to aggregate.
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkRuns to fetch.
+     */
+    orderBy?: ImageVisionForkRunOrderByWithRelationInput | ImageVisionForkRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ImageVisionForkRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ImageVisionForkRuns
+    **/
+    _count?: true | ImageVisionForkRunCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: ImageVisionForkRunAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ImageVisionForkRunSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ImageVisionForkRunMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ImageVisionForkRunMaxAggregateInputType
+  }
+
+  export type GetImageVisionForkRunAggregateType<T extends ImageVisionForkRunAggregateArgs> = {
+        [P in keyof T & keyof AggregateImageVisionForkRun]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateImageVisionForkRun[P]>
+      : GetScalarType<T[P], AggregateImageVisionForkRun[P]>
+  }
+
+
+
+
+  export type ImageVisionForkRunGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ImageVisionForkRunWhereInput
+    orderBy?: ImageVisionForkRunOrderByWithAggregationInput | ImageVisionForkRunOrderByWithAggregationInput[]
+    by: ImageVisionForkRunScalarFieldEnum[] | ImageVisionForkRunScalarFieldEnum
+    having?: ImageVisionForkRunScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ImageVisionForkRunCountAggregateInputType | true
+    _avg?: ImageVisionForkRunAvgAggregateInputType
+    _sum?: ImageVisionForkRunSumAggregateInputType
+    _min?: ImageVisionForkRunMinAggregateInputType
+    _max?: ImageVisionForkRunMaxAggregateInputType
+  }
+
+  export type ImageVisionForkRunGroupByOutputType = {
+    id: bigint
+    identity_key: string
+    fork_run_id: string
+    created_at: Date
+    status: string
+    _count: ImageVisionForkRunCountAggregateOutputType | null
+    _avg: ImageVisionForkRunAvgAggregateOutputType | null
+    _sum: ImageVisionForkRunSumAggregateOutputType | null
+    _min: ImageVisionForkRunMinAggregateOutputType | null
+    _max: ImageVisionForkRunMaxAggregateOutputType | null
+  }
+
+  type GetImageVisionForkRunGroupByPayload<T extends ImageVisionForkRunGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ImageVisionForkRunGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ImageVisionForkRunGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ImageVisionForkRunGroupByOutputType[P]>
+            : GetScalarType<T[P], ImageVisionForkRunGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ImageVisionForkRunSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }, ExtArgs["result"]["imageVisionForkRun"]>
+
+  export type ImageVisionForkRunSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }, ExtArgs["result"]["imageVisionForkRun"]>
+
+  export type ImageVisionForkRunSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }, ExtArgs["result"]["imageVisionForkRun"]>
+
+  export type ImageVisionForkRunSelectScalar = {
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }
+
+  export type ImageVisionForkRunOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fork_run_id" | "created_at" | "status", ExtArgs["result"]["imageVisionForkRun"]>
+
+  export type $ImageVisionForkRunPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ImageVisionForkRun"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      identity_key: string
+      fork_run_id: string
+      created_at: Date
+      status: string
+    }, ExtArgs["result"]["imageVisionForkRun"]>
+    composites: {}
+  }
+
+  type ImageVisionForkRunGetPayload<S extends boolean | null | undefined | ImageVisionForkRunDefaultArgs> = $Result.GetResult<Prisma.$ImageVisionForkRunPayload, S>
+
+  type ImageVisionForkRunCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ImageVisionForkRunFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ImageVisionForkRunCountAggregateInputType | true
+    }
+
+  export interface ImageVisionForkRunDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ImageVisionForkRun'], meta: { name: 'ImageVisionForkRun' } }
+    /**
+     * Find zero or one ImageVisionForkRun that matches the filter.
+     * @param {ImageVisionForkRunFindUniqueArgs} args - Arguments to find a ImageVisionForkRun
+     * @example
+     * // Get one ImageVisionForkRun
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ImageVisionForkRunFindUniqueArgs>(args: SelectSubset<T, ImageVisionForkRunFindUniqueArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ImageVisionForkRun that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ImageVisionForkRunFindUniqueOrThrowArgs} args - Arguments to find a ImageVisionForkRun
+     * @example
+     * // Get one ImageVisionForkRun
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ImageVisionForkRunFindUniqueOrThrowArgs>(args: SelectSubset<T, ImageVisionForkRunFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageVisionForkRun that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunFindFirstArgs} args - Arguments to find a ImageVisionForkRun
+     * @example
+     * // Get one ImageVisionForkRun
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ImageVisionForkRunFindFirstArgs>(args?: SelectSubset<T, ImageVisionForkRunFindFirstArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageVisionForkRun that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunFindFirstOrThrowArgs} args - Arguments to find a ImageVisionForkRun
+     * @example
+     * // Get one ImageVisionForkRun
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ImageVisionForkRunFindFirstOrThrowArgs>(args?: SelectSubset<T, ImageVisionForkRunFindFirstOrThrowArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ImageVisionForkRuns that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ImageVisionForkRuns
+     * const imageVisionForkRuns = await prisma.imageVisionForkRun.findMany()
+     * 
+     * // Get first 10 ImageVisionForkRuns
+     * const imageVisionForkRuns = await prisma.imageVisionForkRun.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const imageVisionForkRunWithIdOnly = await prisma.imageVisionForkRun.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ImageVisionForkRunFindManyArgs>(args?: SelectSubset<T, ImageVisionForkRunFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ImageVisionForkRun.
+     * @param {ImageVisionForkRunCreateArgs} args - Arguments to create a ImageVisionForkRun.
+     * @example
+     * // Create one ImageVisionForkRun
+     * const ImageVisionForkRun = await prisma.imageVisionForkRun.create({
+     *   data: {
+     *     // ... data to create a ImageVisionForkRun
+     *   }
+     * })
+     * 
+     */
+    create<T extends ImageVisionForkRunCreateArgs>(args: SelectSubset<T, ImageVisionForkRunCreateArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ImageVisionForkRuns.
+     * @param {ImageVisionForkRunCreateManyArgs} args - Arguments to create many ImageVisionForkRuns.
+     * @example
+     * // Create many ImageVisionForkRuns
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ImageVisionForkRunCreateManyArgs>(args?: SelectSubset<T, ImageVisionForkRunCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ImageVisionForkRuns and returns the data saved in the database.
+     * @param {ImageVisionForkRunCreateManyAndReturnArgs} args - Arguments to create many ImageVisionForkRuns.
+     * @example
+     * // Create many ImageVisionForkRuns
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ImageVisionForkRuns and only return the `id`
+     * const imageVisionForkRunWithIdOnly = await prisma.imageVisionForkRun.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ImageVisionForkRunCreateManyAndReturnArgs>(args?: SelectSubset<T, ImageVisionForkRunCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ImageVisionForkRun.
+     * @param {ImageVisionForkRunDeleteArgs} args - Arguments to delete one ImageVisionForkRun.
+     * @example
+     * // Delete one ImageVisionForkRun
+     * const ImageVisionForkRun = await prisma.imageVisionForkRun.delete({
+     *   where: {
+     *     // ... filter to delete one ImageVisionForkRun
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ImageVisionForkRunDeleteArgs>(args: SelectSubset<T, ImageVisionForkRunDeleteArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ImageVisionForkRun.
+     * @param {ImageVisionForkRunUpdateArgs} args - Arguments to update one ImageVisionForkRun.
+     * @example
+     * // Update one ImageVisionForkRun
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ImageVisionForkRunUpdateArgs>(args: SelectSubset<T, ImageVisionForkRunUpdateArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ImageVisionForkRuns.
+     * @param {ImageVisionForkRunDeleteManyArgs} args - Arguments to filter ImageVisionForkRuns to delete.
+     * @example
+     * // Delete a few ImageVisionForkRuns
+     * const { count } = await prisma.imageVisionForkRun.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ImageVisionForkRunDeleteManyArgs>(args?: SelectSubset<T, ImageVisionForkRunDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageVisionForkRuns.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ImageVisionForkRuns
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ImageVisionForkRunUpdateManyArgs>(args: SelectSubset<T, ImageVisionForkRunUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageVisionForkRuns and returns the data updated in the database.
+     * @param {ImageVisionForkRunUpdateManyAndReturnArgs} args - Arguments to update many ImageVisionForkRuns.
+     * @example
+     * // Update many ImageVisionForkRuns
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ImageVisionForkRuns and only return the `id`
+     * const imageVisionForkRunWithIdOnly = await prisma.imageVisionForkRun.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ImageVisionForkRunUpdateManyAndReturnArgs>(args: SelectSubset<T, ImageVisionForkRunUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ImageVisionForkRun.
+     * @param {ImageVisionForkRunUpsertArgs} args - Arguments to update or create a ImageVisionForkRun.
+     * @example
+     * // Update or create a ImageVisionForkRun
+     * const imageVisionForkRun = await prisma.imageVisionForkRun.upsert({
+     *   create: {
+     *     // ... data to create a ImageVisionForkRun
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ImageVisionForkRun we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ImageVisionForkRunUpsertArgs>(args: SelectSubset<T, ImageVisionForkRunUpsertArgs<ExtArgs>>): Prisma__ImageVisionForkRunClient<$Result.GetResult<Prisma.$ImageVisionForkRunPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ImageVisionForkRuns.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunCountArgs} args - Arguments to filter ImageVisionForkRuns to count.
+     * @example
+     * // Count the number of ImageVisionForkRuns
+     * const count = await prisma.imageVisionForkRun.count({
+     *   where: {
+     *     // ... the filter for the ImageVisionForkRuns we want to count
+     *   }
+     * })
+    **/
+    count<T extends ImageVisionForkRunCountArgs>(
+      args?: Subset<T, ImageVisionForkRunCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ImageVisionForkRunCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ImageVisionForkRun.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ImageVisionForkRunAggregateArgs>(args: Subset<T, ImageVisionForkRunAggregateArgs>): Prisma.PrismaPromise<GetImageVisionForkRunAggregateType<T>>
+
+    /**
+     * Group by ImageVisionForkRun.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkRunGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ImageVisionForkRunGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ImageVisionForkRunGroupByArgs['orderBy'] }
+        : { orderBy?: ImageVisionForkRunGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ImageVisionForkRunGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetImageVisionForkRunGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ImageVisionForkRun model
+   */
+  readonly fields: ImageVisionForkRunFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ImageVisionForkRun.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ImageVisionForkRunClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ImageVisionForkRun model
+   */
+  interface ImageVisionForkRunFieldRefs {
+    readonly id: FieldRef<"ImageVisionForkRun", 'BigInt'>
+    readonly identity_key: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly fork_run_id: FieldRef<"ImageVisionForkRun", 'String'>
+    readonly created_at: FieldRef<"ImageVisionForkRun", 'DateTime'>
+    readonly status: FieldRef<"ImageVisionForkRun", 'String'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ImageVisionForkRun findUnique
+   */
+  export type ImageVisionForkRunFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkRun to fetch.
+     */
+    where: ImageVisionForkRunWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkRun findUniqueOrThrow
+   */
+  export type ImageVisionForkRunFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkRun to fetch.
+     */
+    where: ImageVisionForkRunWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkRun findFirst
+   */
+  export type ImageVisionForkRunFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkRun to fetch.
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkRuns to fetch.
+     */
+    orderBy?: ImageVisionForkRunOrderByWithRelationInput | ImageVisionForkRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageVisionForkRuns.
+     */
+    cursor?: ImageVisionForkRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageVisionForkRuns.
+     */
+    distinct?: ImageVisionForkRunScalarFieldEnum | ImageVisionForkRunScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkRun findFirstOrThrow
+   */
+  export type ImageVisionForkRunFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkRun to fetch.
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkRuns to fetch.
+     */
+    orderBy?: ImageVisionForkRunOrderByWithRelationInput | ImageVisionForkRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageVisionForkRuns.
+     */
+    cursor?: ImageVisionForkRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageVisionForkRuns.
+     */
+    distinct?: ImageVisionForkRunScalarFieldEnum | ImageVisionForkRunScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkRun findMany
+   */
+  export type ImageVisionForkRunFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkRuns to fetch.
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkRuns to fetch.
+     */
+    orderBy?: ImageVisionForkRunOrderByWithRelationInput | ImageVisionForkRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ImageVisionForkRuns.
+     */
+    cursor?: ImageVisionForkRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkRuns.
+     */
+    skip?: number
+    distinct?: ImageVisionForkRunScalarFieldEnum | ImageVisionForkRunScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkRun create
+   */
+  export type ImageVisionForkRunCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * The data needed to create a ImageVisionForkRun.
+     */
+    data: XOR<ImageVisionForkRunCreateInput, ImageVisionForkRunUncheckedCreateInput>
+  }
+
+  /**
+   * ImageVisionForkRun createMany
+   */
+  export type ImageVisionForkRunCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ImageVisionForkRuns.
+     */
+    data: ImageVisionForkRunCreateManyInput | ImageVisionForkRunCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageVisionForkRun createManyAndReturn
+   */
+  export type ImageVisionForkRunCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * The data used to create many ImageVisionForkRuns.
+     */
+    data: ImageVisionForkRunCreateManyInput | ImageVisionForkRunCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageVisionForkRun update
+   */
+  export type ImageVisionForkRunUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * The data needed to update a ImageVisionForkRun.
+     */
+    data: XOR<ImageVisionForkRunUpdateInput, ImageVisionForkRunUncheckedUpdateInput>
+    /**
+     * Choose, which ImageVisionForkRun to update.
+     */
+    where: ImageVisionForkRunWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkRun updateMany
+   */
+  export type ImageVisionForkRunUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ImageVisionForkRuns.
+     */
+    data: XOR<ImageVisionForkRunUpdateManyMutationInput, ImageVisionForkRunUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageVisionForkRuns to update
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * Limit how many ImageVisionForkRuns to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkRun updateManyAndReturn
+   */
+  export type ImageVisionForkRunUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * The data used to update ImageVisionForkRuns.
+     */
+    data: XOR<ImageVisionForkRunUpdateManyMutationInput, ImageVisionForkRunUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageVisionForkRuns to update
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * Limit how many ImageVisionForkRuns to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkRun upsert
+   */
+  export type ImageVisionForkRunUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * The filter to search for the ImageVisionForkRun to update in case it exists.
+     */
+    where: ImageVisionForkRunWhereUniqueInput
+    /**
+     * In case the ImageVisionForkRun found by the `where` argument doesn't exist, create a new ImageVisionForkRun with this data.
+     */
+    create: XOR<ImageVisionForkRunCreateInput, ImageVisionForkRunUncheckedCreateInput>
+    /**
+     * In case the ImageVisionForkRun was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ImageVisionForkRunUpdateInput, ImageVisionForkRunUncheckedUpdateInput>
+  }
+
+  /**
+   * ImageVisionForkRun delete
+   */
+  export type ImageVisionForkRunDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+    /**
+     * Filter which ImageVisionForkRun to delete.
+     */
+    where: ImageVisionForkRunWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkRun deleteMany
+   */
+  export type ImageVisionForkRunDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageVisionForkRuns to delete
+     */
+    where?: ImageVisionForkRunWhereInput
+    /**
+     * Limit how many ImageVisionForkRuns to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkRun without action
+   */
+  export type ImageVisionForkRunDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkRun
+     */
+    select?: ImageVisionForkRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkRun
+     */
+    omit?: ImageVisionForkRunOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model ImageVisionForkItem
+   */
+
+  export type AggregateImageVisionForkItem = {
+    _count: ImageVisionForkItemCountAggregateOutputType | null
+    _avg: ImageVisionForkItemAvgAggregateOutputType | null
+    _sum: ImageVisionForkItemSumAggregateOutputType | null
+    _min: ImageVisionForkItemMinAggregateOutputType | null
+    _max: ImageVisionForkItemMaxAggregateOutputType | null
+  }
+
+  export type ImageVisionForkItemAvgAggregateOutputType = {
+    id: number | null
+  }
+
+  export type ImageVisionForkItemSumAggregateOutputType = {
+    id: bigint | null
+  }
+
+  export type ImageVisionForkItemMinAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fork_run_id: string | null
+    created_at: Date | null
+  }
+
+  export type ImageVisionForkItemMaxAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fork_run_id: string | null
+    created_at: Date | null
+  }
+
+  export type ImageVisionForkItemCountAggregateOutputType = {
+    id: number
+    identity_key: number
+    fork_run_id: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type ImageVisionForkItemAvgAggregateInputType = {
+    id?: true
+  }
+
+  export type ImageVisionForkItemSumAggregateInputType = {
+    id?: true
+  }
+
+  export type ImageVisionForkItemMinAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+  }
+
+  export type ImageVisionForkItemMaxAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+  }
+
+  export type ImageVisionForkItemCountAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type ImageVisionForkItemAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageVisionForkItem to aggregate.
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkItems to fetch.
+     */
+    orderBy?: ImageVisionForkItemOrderByWithRelationInput | ImageVisionForkItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ImageVisionForkItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ImageVisionForkItems
+    **/
+    _count?: true | ImageVisionForkItemCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: ImageVisionForkItemAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ImageVisionForkItemSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ImageVisionForkItemMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ImageVisionForkItemMaxAggregateInputType
+  }
+
+  export type GetImageVisionForkItemAggregateType<T extends ImageVisionForkItemAggregateArgs> = {
+        [P in keyof T & keyof AggregateImageVisionForkItem]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateImageVisionForkItem[P]>
+      : GetScalarType<T[P], AggregateImageVisionForkItem[P]>
+  }
+
+
+
+
+  export type ImageVisionForkItemGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ImageVisionForkItemWhereInput
+    orderBy?: ImageVisionForkItemOrderByWithAggregationInput | ImageVisionForkItemOrderByWithAggregationInput[]
+    by: ImageVisionForkItemScalarFieldEnum[] | ImageVisionForkItemScalarFieldEnum
+    having?: ImageVisionForkItemScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ImageVisionForkItemCountAggregateInputType | true
+    _avg?: ImageVisionForkItemAvgAggregateInputType
+    _sum?: ImageVisionForkItemSumAggregateInputType
+    _min?: ImageVisionForkItemMinAggregateInputType
+    _max?: ImageVisionForkItemMaxAggregateInputType
+  }
+
+  export type ImageVisionForkItemGroupByOutputType = {
+    id: bigint
+    identity_key: string
+    fork_run_id: string
+    created_at: Date
+    _count: ImageVisionForkItemCountAggregateOutputType | null
+    _avg: ImageVisionForkItemAvgAggregateOutputType | null
+    _sum: ImageVisionForkItemSumAggregateOutputType | null
+    _min: ImageVisionForkItemMinAggregateOutputType | null
+    _max: ImageVisionForkItemMaxAggregateOutputType | null
+  }
+
+  type GetImageVisionForkItemGroupByPayload<T extends ImageVisionForkItemGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ImageVisionForkItemGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ImageVisionForkItemGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ImageVisionForkItemGroupByOutputType[P]>
+            : GetScalarType<T[P], ImageVisionForkItemGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ImageVisionForkItemSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["imageVisionForkItem"]>
+
+  export type ImageVisionForkItemSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["imageVisionForkItem"]>
+
+  export type ImageVisionForkItemSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["imageVisionForkItem"]>
+
+  export type ImageVisionForkItemSelectScalar = {
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+  }
+
+  export type ImageVisionForkItemOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fork_run_id" | "created_at", ExtArgs["result"]["imageVisionForkItem"]>
+
+  export type $ImageVisionForkItemPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ImageVisionForkItem"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      identity_key: string
+      fork_run_id: string
+      created_at: Date
+    }, ExtArgs["result"]["imageVisionForkItem"]>
+    composites: {}
+  }
+
+  type ImageVisionForkItemGetPayload<S extends boolean | null | undefined | ImageVisionForkItemDefaultArgs> = $Result.GetResult<Prisma.$ImageVisionForkItemPayload, S>
+
+  type ImageVisionForkItemCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ImageVisionForkItemFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ImageVisionForkItemCountAggregateInputType | true
+    }
+
+  export interface ImageVisionForkItemDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ImageVisionForkItem'], meta: { name: 'ImageVisionForkItem' } }
+    /**
+     * Find zero or one ImageVisionForkItem that matches the filter.
+     * @param {ImageVisionForkItemFindUniqueArgs} args - Arguments to find a ImageVisionForkItem
+     * @example
+     * // Get one ImageVisionForkItem
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ImageVisionForkItemFindUniqueArgs>(args: SelectSubset<T, ImageVisionForkItemFindUniqueArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ImageVisionForkItem that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ImageVisionForkItemFindUniqueOrThrowArgs} args - Arguments to find a ImageVisionForkItem
+     * @example
+     * // Get one ImageVisionForkItem
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ImageVisionForkItemFindUniqueOrThrowArgs>(args: SelectSubset<T, ImageVisionForkItemFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageVisionForkItem that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemFindFirstArgs} args - Arguments to find a ImageVisionForkItem
+     * @example
+     * // Get one ImageVisionForkItem
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ImageVisionForkItemFindFirstArgs>(args?: SelectSubset<T, ImageVisionForkItemFindFirstArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageVisionForkItem that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemFindFirstOrThrowArgs} args - Arguments to find a ImageVisionForkItem
+     * @example
+     * // Get one ImageVisionForkItem
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ImageVisionForkItemFindFirstOrThrowArgs>(args?: SelectSubset<T, ImageVisionForkItemFindFirstOrThrowArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ImageVisionForkItems that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ImageVisionForkItems
+     * const imageVisionForkItems = await prisma.imageVisionForkItem.findMany()
+     * 
+     * // Get first 10 ImageVisionForkItems
+     * const imageVisionForkItems = await prisma.imageVisionForkItem.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const imageVisionForkItemWithIdOnly = await prisma.imageVisionForkItem.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ImageVisionForkItemFindManyArgs>(args?: SelectSubset<T, ImageVisionForkItemFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ImageVisionForkItem.
+     * @param {ImageVisionForkItemCreateArgs} args - Arguments to create a ImageVisionForkItem.
+     * @example
+     * // Create one ImageVisionForkItem
+     * const ImageVisionForkItem = await prisma.imageVisionForkItem.create({
+     *   data: {
+     *     // ... data to create a ImageVisionForkItem
+     *   }
+     * })
+     * 
+     */
+    create<T extends ImageVisionForkItemCreateArgs>(args: SelectSubset<T, ImageVisionForkItemCreateArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ImageVisionForkItems.
+     * @param {ImageVisionForkItemCreateManyArgs} args - Arguments to create many ImageVisionForkItems.
+     * @example
+     * // Create many ImageVisionForkItems
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ImageVisionForkItemCreateManyArgs>(args?: SelectSubset<T, ImageVisionForkItemCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ImageVisionForkItems and returns the data saved in the database.
+     * @param {ImageVisionForkItemCreateManyAndReturnArgs} args - Arguments to create many ImageVisionForkItems.
+     * @example
+     * // Create many ImageVisionForkItems
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ImageVisionForkItems and only return the `id`
+     * const imageVisionForkItemWithIdOnly = await prisma.imageVisionForkItem.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ImageVisionForkItemCreateManyAndReturnArgs>(args?: SelectSubset<T, ImageVisionForkItemCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ImageVisionForkItem.
+     * @param {ImageVisionForkItemDeleteArgs} args - Arguments to delete one ImageVisionForkItem.
+     * @example
+     * // Delete one ImageVisionForkItem
+     * const ImageVisionForkItem = await prisma.imageVisionForkItem.delete({
+     *   where: {
+     *     // ... filter to delete one ImageVisionForkItem
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ImageVisionForkItemDeleteArgs>(args: SelectSubset<T, ImageVisionForkItemDeleteArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ImageVisionForkItem.
+     * @param {ImageVisionForkItemUpdateArgs} args - Arguments to update one ImageVisionForkItem.
+     * @example
+     * // Update one ImageVisionForkItem
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ImageVisionForkItemUpdateArgs>(args: SelectSubset<T, ImageVisionForkItemUpdateArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ImageVisionForkItems.
+     * @param {ImageVisionForkItemDeleteManyArgs} args - Arguments to filter ImageVisionForkItems to delete.
+     * @example
+     * // Delete a few ImageVisionForkItems
+     * const { count } = await prisma.imageVisionForkItem.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ImageVisionForkItemDeleteManyArgs>(args?: SelectSubset<T, ImageVisionForkItemDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageVisionForkItems.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ImageVisionForkItems
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ImageVisionForkItemUpdateManyArgs>(args: SelectSubset<T, ImageVisionForkItemUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageVisionForkItems and returns the data updated in the database.
+     * @param {ImageVisionForkItemUpdateManyAndReturnArgs} args - Arguments to update many ImageVisionForkItems.
+     * @example
+     * // Update many ImageVisionForkItems
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ImageVisionForkItems and only return the `id`
+     * const imageVisionForkItemWithIdOnly = await prisma.imageVisionForkItem.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ImageVisionForkItemUpdateManyAndReturnArgs>(args: SelectSubset<T, ImageVisionForkItemUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ImageVisionForkItem.
+     * @param {ImageVisionForkItemUpsertArgs} args - Arguments to update or create a ImageVisionForkItem.
+     * @example
+     * // Update or create a ImageVisionForkItem
+     * const imageVisionForkItem = await prisma.imageVisionForkItem.upsert({
+     *   create: {
+     *     // ... data to create a ImageVisionForkItem
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ImageVisionForkItem we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ImageVisionForkItemUpsertArgs>(args: SelectSubset<T, ImageVisionForkItemUpsertArgs<ExtArgs>>): Prisma__ImageVisionForkItemClient<$Result.GetResult<Prisma.$ImageVisionForkItemPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ImageVisionForkItems.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemCountArgs} args - Arguments to filter ImageVisionForkItems to count.
+     * @example
+     * // Count the number of ImageVisionForkItems
+     * const count = await prisma.imageVisionForkItem.count({
+     *   where: {
+     *     // ... the filter for the ImageVisionForkItems we want to count
+     *   }
+     * })
+    **/
+    count<T extends ImageVisionForkItemCountArgs>(
+      args?: Subset<T, ImageVisionForkItemCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ImageVisionForkItemCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ImageVisionForkItem.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ImageVisionForkItemAggregateArgs>(args: Subset<T, ImageVisionForkItemAggregateArgs>): Prisma.PrismaPromise<GetImageVisionForkItemAggregateType<T>>
+
+    /**
+     * Group by ImageVisionForkItem.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkItemGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ImageVisionForkItemGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ImageVisionForkItemGroupByArgs['orderBy'] }
+        : { orderBy?: ImageVisionForkItemGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ImageVisionForkItemGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetImageVisionForkItemGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ImageVisionForkItem model
+   */
+  readonly fields: ImageVisionForkItemFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ImageVisionForkItem.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ImageVisionForkItemClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ImageVisionForkItem model
+   */
+  interface ImageVisionForkItemFieldRefs {
+    readonly id: FieldRef<"ImageVisionForkItem", 'BigInt'>
+    readonly identity_key: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly fork_run_id: FieldRef<"ImageVisionForkItem", 'String'>
+    readonly created_at: FieldRef<"ImageVisionForkItem", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ImageVisionForkItem findUnique
+   */
+  export type ImageVisionForkItemFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkItem to fetch.
+     */
+    where: ImageVisionForkItemWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkItem findUniqueOrThrow
+   */
+  export type ImageVisionForkItemFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkItem to fetch.
+     */
+    where: ImageVisionForkItemWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkItem findFirst
+   */
+  export type ImageVisionForkItemFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkItem to fetch.
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkItems to fetch.
+     */
+    orderBy?: ImageVisionForkItemOrderByWithRelationInput | ImageVisionForkItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageVisionForkItems.
+     */
+    cursor?: ImageVisionForkItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageVisionForkItems.
+     */
+    distinct?: ImageVisionForkItemScalarFieldEnum | ImageVisionForkItemScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkItem findFirstOrThrow
+   */
+  export type ImageVisionForkItemFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkItem to fetch.
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkItems to fetch.
+     */
+    orderBy?: ImageVisionForkItemOrderByWithRelationInput | ImageVisionForkItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageVisionForkItems.
+     */
+    cursor?: ImageVisionForkItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageVisionForkItems.
+     */
+    distinct?: ImageVisionForkItemScalarFieldEnum | ImageVisionForkItemScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkItem findMany
+   */
+  export type ImageVisionForkItemFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkItems to fetch.
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkItems to fetch.
+     */
+    orderBy?: ImageVisionForkItemOrderByWithRelationInput | ImageVisionForkItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ImageVisionForkItems.
+     */
+    cursor?: ImageVisionForkItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkItems.
+     */
+    skip?: number
+    distinct?: ImageVisionForkItemScalarFieldEnum | ImageVisionForkItemScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkItem create
+   */
+  export type ImageVisionForkItemCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * The data needed to create a ImageVisionForkItem.
+     */
+    data: XOR<ImageVisionForkItemCreateInput, ImageVisionForkItemUncheckedCreateInput>
+  }
+
+  /**
+   * ImageVisionForkItem createMany
+   */
+  export type ImageVisionForkItemCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ImageVisionForkItems.
+     */
+    data: ImageVisionForkItemCreateManyInput | ImageVisionForkItemCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageVisionForkItem createManyAndReturn
+   */
+  export type ImageVisionForkItemCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * The data used to create many ImageVisionForkItems.
+     */
+    data: ImageVisionForkItemCreateManyInput | ImageVisionForkItemCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageVisionForkItem update
+   */
+  export type ImageVisionForkItemUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * The data needed to update a ImageVisionForkItem.
+     */
+    data: XOR<ImageVisionForkItemUpdateInput, ImageVisionForkItemUncheckedUpdateInput>
+    /**
+     * Choose, which ImageVisionForkItem to update.
+     */
+    where: ImageVisionForkItemWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkItem updateMany
+   */
+  export type ImageVisionForkItemUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ImageVisionForkItems.
+     */
+    data: XOR<ImageVisionForkItemUpdateManyMutationInput, ImageVisionForkItemUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageVisionForkItems to update
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * Limit how many ImageVisionForkItems to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkItem updateManyAndReturn
+   */
+  export type ImageVisionForkItemUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * The data used to update ImageVisionForkItems.
+     */
+    data: XOR<ImageVisionForkItemUpdateManyMutationInput, ImageVisionForkItemUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageVisionForkItems to update
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * Limit how many ImageVisionForkItems to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkItem upsert
+   */
+  export type ImageVisionForkItemUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * The filter to search for the ImageVisionForkItem to update in case it exists.
+     */
+    where: ImageVisionForkItemWhereUniqueInput
+    /**
+     * In case the ImageVisionForkItem found by the `where` argument doesn't exist, create a new ImageVisionForkItem with this data.
+     */
+    create: XOR<ImageVisionForkItemCreateInput, ImageVisionForkItemUncheckedCreateInput>
+    /**
+     * In case the ImageVisionForkItem was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ImageVisionForkItemUpdateInput, ImageVisionForkItemUncheckedUpdateInput>
+  }
+
+  /**
+   * ImageVisionForkItem delete
+   */
+  export type ImageVisionForkItemDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+    /**
+     * Filter which ImageVisionForkItem to delete.
+     */
+    where: ImageVisionForkItemWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkItem deleteMany
+   */
+  export type ImageVisionForkItemDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageVisionForkItems to delete
+     */
+    where?: ImageVisionForkItemWhereInput
+    /**
+     * Limit how many ImageVisionForkItems to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkItem without action
+   */
+  export type ImageVisionForkItemDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkItem
+     */
+    select?: ImageVisionForkItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkItem
+     */
+    omit?: ImageVisionForkItemOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model ImageVisionForkSlice
+   */
+
+  export type AggregateImageVisionForkSlice = {
+    _count: ImageVisionForkSliceCountAggregateOutputType | null
+    _avg: ImageVisionForkSliceAvgAggregateOutputType | null
+    _sum: ImageVisionForkSliceSumAggregateOutputType | null
+    _min: ImageVisionForkSliceMinAggregateOutputType | null
+    _max: ImageVisionForkSliceMaxAggregateOutputType | null
+  }
+
+  export type ImageVisionForkSliceAvgAggregateOutputType = {
+    id: number | null
+  }
+
+  export type ImageVisionForkSliceSumAggregateOutputType = {
+    id: bigint | null
+  }
+
+  export type ImageVisionForkSliceMinAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fork_run_id: string | null
+    created_at: Date | null
+    status: string | null
+  }
+
+  export type ImageVisionForkSliceMaxAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fork_run_id: string | null
+    created_at: Date | null
+    status: string | null
+  }
+
+  export type ImageVisionForkSliceCountAggregateOutputType = {
+    id: number
+    identity_key: number
+    fork_run_id: number
+    created_at: number
+    status: number
+    _all: number
+  }
+
+
+  export type ImageVisionForkSliceAvgAggregateInputType = {
+    id?: true
+  }
+
+  export type ImageVisionForkSliceSumAggregateInputType = {
+    id?: true
+  }
+
+  export type ImageVisionForkSliceMinAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    status?: true
+  }
+
+  export type ImageVisionForkSliceMaxAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    status?: true
+  }
+
+  export type ImageVisionForkSliceCountAggregateInputType = {
+    id?: true
+    identity_key?: true
+    fork_run_id?: true
+    created_at?: true
+    status?: true
+    _all?: true
+  }
+
+  export type ImageVisionForkSliceAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageVisionForkSlice to aggregate.
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkSlices to fetch.
+     */
+    orderBy?: ImageVisionForkSliceOrderByWithRelationInput | ImageVisionForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ImageVisionForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkSlices.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ImageVisionForkSlices
+    **/
+    _count?: true | ImageVisionForkSliceCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: ImageVisionForkSliceAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ImageVisionForkSliceSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ImageVisionForkSliceMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ImageVisionForkSliceMaxAggregateInputType
+  }
+
+  export type GetImageVisionForkSliceAggregateType<T extends ImageVisionForkSliceAggregateArgs> = {
+        [P in keyof T & keyof AggregateImageVisionForkSlice]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateImageVisionForkSlice[P]>
+      : GetScalarType<T[P], AggregateImageVisionForkSlice[P]>
+  }
+
+
+
+
+  export type ImageVisionForkSliceGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ImageVisionForkSliceWhereInput
+    orderBy?: ImageVisionForkSliceOrderByWithAggregationInput | ImageVisionForkSliceOrderByWithAggregationInput[]
+    by: ImageVisionForkSliceScalarFieldEnum[] | ImageVisionForkSliceScalarFieldEnum
+    having?: ImageVisionForkSliceScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ImageVisionForkSliceCountAggregateInputType | true
+    _avg?: ImageVisionForkSliceAvgAggregateInputType
+    _sum?: ImageVisionForkSliceSumAggregateInputType
+    _min?: ImageVisionForkSliceMinAggregateInputType
+    _max?: ImageVisionForkSliceMaxAggregateInputType
+  }
+
+  export type ImageVisionForkSliceGroupByOutputType = {
+    id: bigint
+    identity_key: string
+    fork_run_id: string
+    created_at: Date
+    status: string
+    _count: ImageVisionForkSliceCountAggregateOutputType | null
+    _avg: ImageVisionForkSliceAvgAggregateOutputType | null
+    _sum: ImageVisionForkSliceSumAggregateOutputType | null
+    _min: ImageVisionForkSliceMinAggregateOutputType | null
+    _max: ImageVisionForkSliceMaxAggregateOutputType | null
+  }
+
+  type GetImageVisionForkSliceGroupByPayload<T extends ImageVisionForkSliceGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ImageVisionForkSliceGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ImageVisionForkSliceGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ImageVisionForkSliceGroupByOutputType[P]>
+            : GetScalarType<T[P], ImageVisionForkSliceGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ImageVisionForkSliceSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }, ExtArgs["result"]["imageVisionForkSlice"]>
+
+  export type ImageVisionForkSliceSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }, ExtArgs["result"]["imageVisionForkSlice"]>
+
+  export type ImageVisionForkSliceSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }, ExtArgs["result"]["imageVisionForkSlice"]>
+
+  export type ImageVisionForkSliceSelectScalar = {
+    id?: boolean
+    identity_key?: boolean
+    fork_run_id?: boolean
+    created_at?: boolean
+    status?: boolean
+  }
+
+  export type ImageVisionForkSliceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fork_run_id" | "created_at" | "status", ExtArgs["result"]["imageVisionForkSlice"]>
+
+  export type $ImageVisionForkSlicePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ImageVisionForkSlice"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      identity_key: string
+      fork_run_id: string
+      created_at: Date
+      status: string
+    }, ExtArgs["result"]["imageVisionForkSlice"]>
+    composites: {}
+  }
+
+  type ImageVisionForkSliceGetPayload<S extends boolean | null | undefined | ImageVisionForkSliceDefaultArgs> = $Result.GetResult<Prisma.$ImageVisionForkSlicePayload, S>
+
+  type ImageVisionForkSliceCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ImageVisionForkSliceFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ImageVisionForkSliceCountAggregateInputType | true
+    }
+
+  export interface ImageVisionForkSliceDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ImageVisionForkSlice'], meta: { name: 'ImageVisionForkSlice' } }
+    /**
+     * Find zero or one ImageVisionForkSlice that matches the filter.
+     * @param {ImageVisionForkSliceFindUniqueArgs} args - Arguments to find a ImageVisionForkSlice
+     * @example
+     * // Get one ImageVisionForkSlice
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ImageVisionForkSliceFindUniqueArgs>(args: SelectSubset<T, ImageVisionForkSliceFindUniqueArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ImageVisionForkSlice that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ImageVisionForkSliceFindUniqueOrThrowArgs} args - Arguments to find a ImageVisionForkSlice
+     * @example
+     * // Get one ImageVisionForkSlice
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ImageVisionForkSliceFindUniqueOrThrowArgs>(args: SelectSubset<T, ImageVisionForkSliceFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageVisionForkSlice that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceFindFirstArgs} args - Arguments to find a ImageVisionForkSlice
+     * @example
+     * // Get one ImageVisionForkSlice
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ImageVisionForkSliceFindFirstArgs>(args?: SelectSubset<T, ImageVisionForkSliceFindFirstArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageVisionForkSlice that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceFindFirstOrThrowArgs} args - Arguments to find a ImageVisionForkSlice
+     * @example
+     * // Get one ImageVisionForkSlice
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ImageVisionForkSliceFindFirstOrThrowArgs>(args?: SelectSubset<T, ImageVisionForkSliceFindFirstOrThrowArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ImageVisionForkSlices that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ImageVisionForkSlices
+     * const imageVisionForkSlices = await prisma.imageVisionForkSlice.findMany()
+     * 
+     * // Get first 10 ImageVisionForkSlices
+     * const imageVisionForkSlices = await prisma.imageVisionForkSlice.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const imageVisionForkSliceWithIdOnly = await prisma.imageVisionForkSlice.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ImageVisionForkSliceFindManyArgs>(args?: SelectSubset<T, ImageVisionForkSliceFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ImageVisionForkSlice.
+     * @param {ImageVisionForkSliceCreateArgs} args - Arguments to create a ImageVisionForkSlice.
+     * @example
+     * // Create one ImageVisionForkSlice
+     * const ImageVisionForkSlice = await prisma.imageVisionForkSlice.create({
+     *   data: {
+     *     // ... data to create a ImageVisionForkSlice
+     *   }
+     * })
+     * 
+     */
+    create<T extends ImageVisionForkSliceCreateArgs>(args: SelectSubset<T, ImageVisionForkSliceCreateArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ImageVisionForkSlices.
+     * @param {ImageVisionForkSliceCreateManyArgs} args - Arguments to create many ImageVisionForkSlices.
+     * @example
+     * // Create many ImageVisionForkSlices
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ImageVisionForkSliceCreateManyArgs>(args?: SelectSubset<T, ImageVisionForkSliceCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ImageVisionForkSlices and returns the data saved in the database.
+     * @param {ImageVisionForkSliceCreateManyAndReturnArgs} args - Arguments to create many ImageVisionForkSlices.
+     * @example
+     * // Create many ImageVisionForkSlices
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ImageVisionForkSlices and only return the `id`
+     * const imageVisionForkSliceWithIdOnly = await prisma.imageVisionForkSlice.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ImageVisionForkSliceCreateManyAndReturnArgs>(args?: SelectSubset<T, ImageVisionForkSliceCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ImageVisionForkSlice.
+     * @param {ImageVisionForkSliceDeleteArgs} args - Arguments to delete one ImageVisionForkSlice.
+     * @example
+     * // Delete one ImageVisionForkSlice
+     * const ImageVisionForkSlice = await prisma.imageVisionForkSlice.delete({
+     *   where: {
+     *     // ... filter to delete one ImageVisionForkSlice
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ImageVisionForkSliceDeleteArgs>(args: SelectSubset<T, ImageVisionForkSliceDeleteArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ImageVisionForkSlice.
+     * @param {ImageVisionForkSliceUpdateArgs} args - Arguments to update one ImageVisionForkSlice.
+     * @example
+     * // Update one ImageVisionForkSlice
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ImageVisionForkSliceUpdateArgs>(args: SelectSubset<T, ImageVisionForkSliceUpdateArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ImageVisionForkSlices.
+     * @param {ImageVisionForkSliceDeleteManyArgs} args - Arguments to filter ImageVisionForkSlices to delete.
+     * @example
+     * // Delete a few ImageVisionForkSlices
+     * const { count } = await prisma.imageVisionForkSlice.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ImageVisionForkSliceDeleteManyArgs>(args?: SelectSubset<T, ImageVisionForkSliceDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageVisionForkSlices.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ImageVisionForkSlices
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ImageVisionForkSliceUpdateManyArgs>(args: SelectSubset<T, ImageVisionForkSliceUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageVisionForkSlices and returns the data updated in the database.
+     * @param {ImageVisionForkSliceUpdateManyAndReturnArgs} args - Arguments to update many ImageVisionForkSlices.
+     * @example
+     * // Update many ImageVisionForkSlices
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ImageVisionForkSlices and only return the `id`
+     * const imageVisionForkSliceWithIdOnly = await prisma.imageVisionForkSlice.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ImageVisionForkSliceUpdateManyAndReturnArgs>(args: SelectSubset<T, ImageVisionForkSliceUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ImageVisionForkSlice.
+     * @param {ImageVisionForkSliceUpsertArgs} args - Arguments to update or create a ImageVisionForkSlice.
+     * @example
+     * // Update or create a ImageVisionForkSlice
+     * const imageVisionForkSlice = await prisma.imageVisionForkSlice.upsert({
+     *   create: {
+     *     // ... data to create a ImageVisionForkSlice
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ImageVisionForkSlice we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ImageVisionForkSliceUpsertArgs>(args: SelectSubset<T, ImageVisionForkSliceUpsertArgs<ExtArgs>>): Prisma__ImageVisionForkSliceClient<$Result.GetResult<Prisma.$ImageVisionForkSlicePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ImageVisionForkSlices.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceCountArgs} args - Arguments to filter ImageVisionForkSlices to count.
+     * @example
+     * // Count the number of ImageVisionForkSlices
+     * const count = await prisma.imageVisionForkSlice.count({
+     *   where: {
+     *     // ... the filter for the ImageVisionForkSlices we want to count
+     *   }
+     * })
+    **/
+    count<T extends ImageVisionForkSliceCountArgs>(
+      args?: Subset<T, ImageVisionForkSliceCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ImageVisionForkSliceCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ImageVisionForkSlice.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ImageVisionForkSliceAggregateArgs>(args: Subset<T, ImageVisionForkSliceAggregateArgs>): Prisma.PrismaPromise<GetImageVisionForkSliceAggregateType<T>>
+
+    /**
+     * Group by ImageVisionForkSlice.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageVisionForkSliceGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ImageVisionForkSliceGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ImageVisionForkSliceGroupByArgs['orderBy'] }
+        : { orderBy?: ImageVisionForkSliceGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ImageVisionForkSliceGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetImageVisionForkSliceGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ImageVisionForkSlice model
+   */
+  readonly fields: ImageVisionForkSliceFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ImageVisionForkSlice.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ImageVisionForkSliceClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ImageVisionForkSlice model
+   */
+  interface ImageVisionForkSliceFieldRefs {
+    readonly id: FieldRef<"ImageVisionForkSlice", 'BigInt'>
+    readonly identity_key: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly fork_run_id: FieldRef<"ImageVisionForkSlice", 'String'>
+    readonly created_at: FieldRef<"ImageVisionForkSlice", 'DateTime'>
+    readonly status: FieldRef<"ImageVisionForkSlice", 'String'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ImageVisionForkSlice findUnique
+   */
+  export type ImageVisionForkSliceFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkSlice to fetch.
+     */
+    where: ImageVisionForkSliceWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkSlice findUniqueOrThrow
+   */
+  export type ImageVisionForkSliceFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkSlice to fetch.
+     */
+    where: ImageVisionForkSliceWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkSlice findFirst
+   */
+  export type ImageVisionForkSliceFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkSlice to fetch.
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkSlices to fetch.
+     */
+    orderBy?: ImageVisionForkSliceOrderByWithRelationInput | ImageVisionForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageVisionForkSlices.
+     */
+    cursor?: ImageVisionForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkSlices.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageVisionForkSlices.
+     */
+    distinct?: ImageVisionForkSliceScalarFieldEnum | ImageVisionForkSliceScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkSlice findFirstOrThrow
+   */
+  export type ImageVisionForkSliceFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkSlice to fetch.
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkSlices to fetch.
+     */
+    orderBy?: ImageVisionForkSliceOrderByWithRelationInput | ImageVisionForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageVisionForkSlices.
+     */
+    cursor?: ImageVisionForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkSlices.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageVisionForkSlices.
+     */
+    distinct?: ImageVisionForkSliceScalarFieldEnum | ImageVisionForkSliceScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkSlice findMany
+   */
+  export type ImageVisionForkSliceFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which ImageVisionForkSlices to fetch.
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageVisionForkSlices to fetch.
+     */
+    orderBy?: ImageVisionForkSliceOrderByWithRelationInput | ImageVisionForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ImageVisionForkSlices.
+     */
+    cursor?: ImageVisionForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageVisionForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageVisionForkSlices.
+     */
+    skip?: number
+    distinct?: ImageVisionForkSliceScalarFieldEnum | ImageVisionForkSliceScalarFieldEnum[]
+  }
+
+  /**
+   * ImageVisionForkSlice create
+   */
+  export type ImageVisionForkSliceCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * The data needed to create a ImageVisionForkSlice.
+     */
+    data: XOR<ImageVisionForkSliceCreateInput, ImageVisionForkSliceUncheckedCreateInput>
+  }
+
+  /**
+   * ImageVisionForkSlice createMany
+   */
+  export type ImageVisionForkSliceCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ImageVisionForkSlices.
+     */
+    data: ImageVisionForkSliceCreateManyInput | ImageVisionForkSliceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageVisionForkSlice createManyAndReturn
+   */
+  export type ImageVisionForkSliceCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * The data used to create many ImageVisionForkSlices.
+     */
+    data: ImageVisionForkSliceCreateManyInput | ImageVisionForkSliceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageVisionForkSlice update
+   */
+  export type ImageVisionForkSliceUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * The data needed to update a ImageVisionForkSlice.
+     */
+    data: XOR<ImageVisionForkSliceUpdateInput, ImageVisionForkSliceUncheckedUpdateInput>
+    /**
+     * Choose, which ImageVisionForkSlice to update.
+     */
+    where: ImageVisionForkSliceWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkSlice updateMany
+   */
+  export type ImageVisionForkSliceUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ImageVisionForkSlices.
+     */
+    data: XOR<ImageVisionForkSliceUpdateManyMutationInput, ImageVisionForkSliceUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageVisionForkSlices to update
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * Limit how many ImageVisionForkSlices to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkSlice updateManyAndReturn
+   */
+  export type ImageVisionForkSliceUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * The data used to update ImageVisionForkSlices.
+     */
+    data: XOR<ImageVisionForkSliceUpdateManyMutationInput, ImageVisionForkSliceUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageVisionForkSlices to update
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * Limit how many ImageVisionForkSlices to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkSlice upsert
+   */
+  export type ImageVisionForkSliceUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * The filter to search for the ImageVisionForkSlice to update in case it exists.
+     */
+    where: ImageVisionForkSliceWhereUniqueInput
+    /**
+     * In case the ImageVisionForkSlice found by the `where` argument doesn't exist, create a new ImageVisionForkSlice with this data.
+     */
+    create: XOR<ImageVisionForkSliceCreateInput, ImageVisionForkSliceUncheckedCreateInput>
+    /**
+     * In case the ImageVisionForkSlice was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ImageVisionForkSliceUpdateInput, ImageVisionForkSliceUncheckedUpdateInput>
+  }
+
+  /**
+   * ImageVisionForkSlice delete
+   */
+  export type ImageVisionForkSliceDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter which ImageVisionForkSlice to delete.
+     */
+    where: ImageVisionForkSliceWhereUniqueInput
+  }
+
+  /**
+   * ImageVisionForkSlice deleteMany
+   */
+  export type ImageVisionForkSliceDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageVisionForkSlices to delete
+     */
+    where?: ImageVisionForkSliceWhereInput
+    /**
+     * Limit how many ImageVisionForkSlices to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageVisionForkSlice without action
+   */
+  export type ImageVisionForkSliceDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageVisionForkSlice
+     */
+    select?: ImageVisionForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageVisionForkSlice
+     */
+    omit?: ImageVisionForkSliceOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -100236,6 +103583,38 @@ export namespace Prisma {
   };
 
   export type FailureReviewForkSliceScalarFieldEnum = (typeof FailureReviewForkSliceScalarFieldEnum)[keyof typeof FailureReviewForkSliceScalarFieldEnum]
+
+
+  export const ImageVisionForkRunScalarFieldEnum: {
+    id: 'id',
+    identity_key: 'identity_key',
+    fork_run_id: 'fork_run_id',
+    created_at: 'created_at',
+    status: 'status'
+  };
+
+  export type ImageVisionForkRunScalarFieldEnum = (typeof ImageVisionForkRunScalarFieldEnum)[keyof typeof ImageVisionForkRunScalarFieldEnum]
+
+
+  export const ImageVisionForkItemScalarFieldEnum: {
+    id: 'id',
+    identity_key: 'identity_key',
+    fork_run_id: 'fork_run_id',
+    created_at: 'created_at'
+  };
+
+  export type ImageVisionForkItemScalarFieldEnum = (typeof ImageVisionForkItemScalarFieldEnum)[keyof typeof ImageVisionForkItemScalarFieldEnum]
+
+
+  export const ImageVisionForkSliceScalarFieldEnum: {
+    id: 'id',
+    identity_key: 'identity_key',
+    fork_run_id: 'fork_run_id',
+    created_at: 'created_at',
+    status: 'status'
+  };
+
+  export type ImageVisionForkSliceScalarFieldEnum = (typeof ImageVisionForkSliceScalarFieldEnum)[keyof typeof ImageVisionForkSliceScalarFieldEnum]
 
 
   export const SortOrder: {
@@ -109346,6 +112725,163 @@ export namespace Prisma {
     created_at?: DateTimeWithAggregatesFilter<"FailureReviewForkSlice"> | Date | string
     completed_at?: DateTimeNullableWithAggregatesFilter<"FailureReviewForkSlice"> | Date | string | null
     updated_at?: DateTimeWithAggregatesFilter<"FailureReviewForkSlice"> | Date | string
+  }
+
+  export type ImageVisionForkRunWhereInput = {
+    AND?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
+    OR?: ImageVisionForkRunWhereInput[]
+    NOT?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
+    id?: BigIntFilter<"ImageVisionForkRun"> | bigint | number
+    identity_key?: StringFilter<"ImageVisionForkRun"> | string
+    fork_run_id?: StringFilter<"ImageVisionForkRun"> | string
+    created_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    status?: StringFilter<"ImageVisionForkRun"> | string
+  }
+
+  export type ImageVisionForkRunOrderByWithRelationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkRunWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
+    OR?: ImageVisionForkRunWhereInput[]
+    NOT?: ImageVisionForkRunWhereInput | ImageVisionForkRunWhereInput[]
+    identity_key?: StringFilter<"ImageVisionForkRun"> | string
+    fork_run_id?: StringFilter<"ImageVisionForkRun"> | string
+    created_at?: DateTimeFilter<"ImageVisionForkRun"> | Date | string
+    status?: StringFilter<"ImageVisionForkRun"> | string
+  }, "id">
+
+  export type ImageVisionForkRunOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+    _count?: ImageVisionForkRunCountOrderByAggregateInput
+    _avg?: ImageVisionForkRunAvgOrderByAggregateInput
+    _max?: ImageVisionForkRunMaxOrderByAggregateInput
+    _min?: ImageVisionForkRunMinOrderByAggregateInput
+    _sum?: ImageVisionForkRunSumOrderByAggregateInput
+  }
+
+  export type ImageVisionForkRunScalarWhereWithAggregatesInput = {
+    AND?: ImageVisionForkRunScalarWhereWithAggregatesInput | ImageVisionForkRunScalarWhereWithAggregatesInput[]
+    OR?: ImageVisionForkRunScalarWhereWithAggregatesInput[]
+    NOT?: ImageVisionForkRunScalarWhereWithAggregatesInput | ImageVisionForkRunScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"ImageVisionForkRun"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
+    fork_run_id?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
+    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkRun"> | Date | string
+    status?: StringWithAggregatesFilter<"ImageVisionForkRun"> | string
+  }
+
+  export type ImageVisionForkItemWhereInput = {
+    AND?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
+    OR?: ImageVisionForkItemWhereInput[]
+    NOT?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
+    id?: BigIntFilter<"ImageVisionForkItem"> | bigint | number
+    identity_key?: StringFilter<"ImageVisionForkItem"> | string
+    fork_run_id?: StringFilter<"ImageVisionForkItem"> | string
+    created_at?: DateTimeFilter<"ImageVisionForkItem"> | Date | string
+  }
+
+  export type ImageVisionForkItemOrderByWithRelationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageVisionForkItemWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
+    OR?: ImageVisionForkItemWhereInput[]
+    NOT?: ImageVisionForkItemWhereInput | ImageVisionForkItemWhereInput[]
+    identity_key?: StringFilter<"ImageVisionForkItem"> | string
+    fork_run_id?: StringFilter<"ImageVisionForkItem"> | string
+    created_at?: DateTimeFilter<"ImageVisionForkItem"> | Date | string
+  }, "id">
+
+  export type ImageVisionForkItemOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    _count?: ImageVisionForkItemCountOrderByAggregateInput
+    _avg?: ImageVisionForkItemAvgOrderByAggregateInput
+    _max?: ImageVisionForkItemMaxOrderByAggregateInput
+    _min?: ImageVisionForkItemMinOrderByAggregateInput
+    _sum?: ImageVisionForkItemSumOrderByAggregateInput
+  }
+
+  export type ImageVisionForkItemScalarWhereWithAggregatesInput = {
+    AND?: ImageVisionForkItemScalarWhereWithAggregatesInput | ImageVisionForkItemScalarWhereWithAggregatesInput[]
+    OR?: ImageVisionForkItemScalarWhereWithAggregatesInput[]
+    NOT?: ImageVisionForkItemScalarWhereWithAggregatesInput | ImageVisionForkItemScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"ImageVisionForkItem"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    fork_run_id?: StringWithAggregatesFilter<"ImageVisionForkItem"> | string
+    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkItem"> | Date | string
+  }
+
+  export type ImageVisionForkSliceWhereInput = {
+    AND?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
+    OR?: ImageVisionForkSliceWhereInput[]
+    NOT?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
+    id?: BigIntFilter<"ImageVisionForkSlice"> | bigint | number
+    identity_key?: StringFilter<"ImageVisionForkSlice"> | string
+    fork_run_id?: StringFilter<"ImageVisionForkSlice"> | string
+    created_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+    status?: StringFilter<"ImageVisionForkSlice"> | string
+  }
+
+  export type ImageVisionForkSliceOrderByWithRelationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkSliceWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
+    OR?: ImageVisionForkSliceWhereInput[]
+    NOT?: ImageVisionForkSliceWhereInput | ImageVisionForkSliceWhereInput[]
+    identity_key?: StringFilter<"ImageVisionForkSlice"> | string
+    fork_run_id?: StringFilter<"ImageVisionForkSlice"> | string
+    created_at?: DateTimeFilter<"ImageVisionForkSlice"> | Date | string
+    status?: StringFilter<"ImageVisionForkSlice"> | string
+  }, "id">
+
+  export type ImageVisionForkSliceOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+    _count?: ImageVisionForkSliceCountOrderByAggregateInput
+    _avg?: ImageVisionForkSliceAvgOrderByAggregateInput
+    _max?: ImageVisionForkSliceMaxOrderByAggregateInput
+    _min?: ImageVisionForkSliceMinOrderByAggregateInput
+    _sum?: ImageVisionForkSliceSumOrderByAggregateInput
+  }
+
+  export type ImageVisionForkSliceScalarWhereWithAggregatesInput = {
+    AND?: ImageVisionForkSliceScalarWhereWithAggregatesInput | ImageVisionForkSliceScalarWhereWithAggregatesInput[]
+    OR?: ImageVisionForkSliceScalarWhereWithAggregatesInput[]
+    NOT?: ImageVisionForkSliceScalarWhereWithAggregatesInput | ImageVisionForkSliceScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"ImageVisionForkSlice"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
+    fork_run_id?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
+    created_at?: DateTimeWithAggregatesFilter<"ImageVisionForkSlice"> | Date | string
+    status?: StringWithAggregatesFilter<"ImageVisionForkSlice"> | string
   }
 
   export type AgentQueueMessageCreateInput = {
@@ -120356,6 +123892,167 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type ImageVisionForkRunCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+    status: string
+  }
+
+  export type ImageVisionForkRunUncheckedCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+    status: string
+  }
+
+  export type ImageVisionForkRunUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkRunUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkRunCreateManyInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+    status: string
+  }
+
+  export type ImageVisionForkRunUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkRunUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkItemCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+  }
+
+  export type ImageVisionForkItemUncheckedCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+  }
+
+  export type ImageVisionForkItemUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageVisionForkItemUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageVisionForkItemCreateManyInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+  }
+
+  export type ImageVisionForkItemUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageVisionForkItemUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageVisionForkSliceCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+    status: string
+  }
+
+  export type ImageVisionForkSliceUncheckedCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+    status: string
+  }
+
+  export type ImageVisionForkSliceUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkSliceUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkSliceCreateManyInput = {
+    id?: bigint | number
+    identity_key?: string
+    fork_run_id: string
+    created_at?: Date | string
+    status: string
+  }
+
+  export type ImageVisionForkSliceUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type ImageVisionForkSliceUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: StringFieldUpdateOperationsInput | string
+  }
+
   export type BigIntFilter<$PrismaModel = never> = {
     equals?: bigint | number | BigIntFieldRefInput<$PrismaModel>
     in?: bigint[] | number[] | ListBigIntFieldRefInput<$PrismaModel>
@@ -126225,6 +129922,99 @@ export namespace Prisma {
     output_end_index?: SortOrder
     agent_turn?: SortOrder
     processing_time_ms?: SortOrder
+  }
+
+  export type ImageVisionForkRunCountOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkRunAvgOrderByAggregateInput = {
+    id?: SortOrder
+  }
+
+  export type ImageVisionForkRunMaxOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkRunMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkRunSumOrderByAggregateInput = {
+    id?: SortOrder
+  }
+
+  export type ImageVisionForkItemCountOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageVisionForkItemAvgOrderByAggregateInput = {
+    id?: SortOrder
+  }
+
+  export type ImageVisionForkItemMaxOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageVisionForkItemMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageVisionForkItemSumOrderByAggregateInput = {
+    id?: SortOrder
+  }
+
+  export type ImageVisionForkSliceCountOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkSliceAvgOrderByAggregateInput = {
+    id?: SortOrder
+  }
+
+  export type ImageVisionForkSliceMaxOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkSliceMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fork_run_id?: SortOrder
+    created_at?: SortOrder
+    status?: SortOrder
+  }
+
+  export type ImageVisionForkSliceSumOrderByAggregateInput = {
+    id?: SortOrder
   }
 
   export type BigIntFieldUpdateOperationsInput = {

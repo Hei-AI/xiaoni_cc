@@ -543,6 +543,7 @@ const agentRecoverySessionPersistence = createAgentRecoverySessionPersistence({
 });
 
 const xiaoniAgentStackPersistence = createXiaoniAgentStackPersistence({
+  getPrismaClient,
   createSqlAdapter
 });
 

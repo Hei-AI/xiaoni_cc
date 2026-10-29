@@ -33,6 +33,7 @@ import {
   getAgentStackHead as getAgentStackHeadPersistence,
   appendAgentStackItems as appendAgentStackItemsPersistence,
   voidAgentStackRunSegment as voidAgentStackRunSegmentPersistence,
+  pruneLlmPayloadsBeforeReadCutoff as pruneLlmPayloadsBeforeReadCutoffPersistence,
   listAgentStackItems as listAgentStackItemsPersistence,
   updateLlmRequestSliceStackLinks as updateLlmRequestSliceStackLinksPersistence,
   recordToolExecution as recordToolExecutionPersistence,
@@ -2292,6 +2293,20 @@ export class RuntimeStore {
       identityKey: params.identityKey || 'xiaoni',
       traceId: params.traceId || null,
       runIds: params.runIds,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  // 观测层载荷保留期:删掉已被 read_cutoff 驱逐出上下文的请求快照(栈本身不动)。
+  async pruneLlmPayloadsBeforeReadCutoff(params: {
+    identityKey?: string;
+    readCutoffAfterStackIndex: number;
+    batchSize?: number;
+  }) {
+    return pruneLlmPayloadsBeforeReadCutoffPersistence({
+      identityKey: params.identityKey || 'xiaoni',
+      readCutoffAfterStackIndex: params.readCutoffAfterStackIndex,
+      batchSize: params.batchSize,
       sqlAdapter: this.sql
     }, databaseConfig);
   }

@@ -1208,7 +1208,7 @@ function buildToolExecutionId(input) {
     || `tool:${firstString(input.runId, input.run_id, 'run')}:${firstString(input.toolCallId, input.tool_call_id, randomUUID().slice(0, 8))}`;
 }
 
-function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}) {
+function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter, getPrismaClient } = {}) {
   function createSql(input = {}, config = {}) {
     if (input?.sqlAdapter) {
       return { sql: input.sqlAdapter, shouldClose: false };
@@ -2849,6 +2849,73 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       }
       return voidWithExecutor(sql);
     });
+  }
+
+  // Only observation payloads are pruned. Durable stack, summaries and tool executions stay intact.
+  // Prisma expresses the nullable index bounds explicitly (Postgres GREATEST ignores nulls).
+  async function pruneLlmPayloadsBeforeReadCutoff(input = {}, config = {}) {
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+    const readCutoff = Number(input.readCutoffAfterStackIndex ?? input.read_cutoff_after_stack_index);
+    if (!Number.isSafeInteger(readCutoff) || readCutoff <= 0) {
+      return { pruned: false, reason: 'no_read_cutoff', deleted: {}, total: 0 };
+    }
+    const prisma = input.prisma || getPrismaClient?.(config);
+    if (!prisma) throw new Error('LLM payload retention requires a Prisma client');
+    const batchSize = Math.max(1, Math.min(5000, Number.parseInt(String(input.batchSize ?? 100), 10) || 100));
+    const boundary = await prisma.agentStackItem.findFirst({
+      where: { identity_key: identityKey, stack_index: { gt: BigInt(readCutoff) } },
+      orderBy: { stack_index: 'asc' }, select: { created_at: true }
+    });
+    const contextStartedAt = boundary?.created_at ?? null;
+    const deleted = {};
+    async function prune(model, table, where) {
+      let count = 0;
+      for (;;) {
+        const rows = await model.findMany({ where, select: { id: true }, orderBy: { id: 'asc' }, take: batchSize });
+        if (!rows.length) break;
+        // Recheck eligibility at deletion time, so a status change cannot make a selected row unsafe.
+        const result = await model.deleteMany({ where: { AND: [where, { id: { in: rows.map(row => row.id) } }] } });
+        count += result.count;
+        if (rows.length < batchSize || result.count === 0) break;
+      }
+      deleted[table] = count;
+    }
+    const cutoff = BigInt(readCutoff);
+    const expired = [{ AND: [
+      { OR: [{ input_end_index: null }, { input_end_index: { lte: cutoff } }] },
+      { OR: [{ output_end_index: null }, { output_end_index: { lte: cutoff } }] },
+      { OR: [{ input_end_index: { not: null } }, { output_end_index: { not: null } }] }
+    ] }];
+    if (contextStartedAt) expired.push({ input_end_index: null, output_end_index: null, created_at: { lt: contextStartedAt } });
+    await prune(prisma.llmRequestSlice, 'llm_request_slices', {
+      identity_key: identityKey, status: { not: 'running' }, OR: expired
+    });
+    if (contextStartedAt) {
+      for (const [prefix, table] of [
+        ['subconsciousAgentFork', 'subconscious_agent_fork'],
+        ['coreMemoryCompressionFork', 'core_memory_compression_fork'],
+        ['imageVisionFork', 'image_vision_fork']
+      ]) {
+        const activeRuns = await prisma[`${prefix}Run`].findMany({
+          where: { identity_key: identityKey, status: 'running' }, select: { fork_run_id: true }
+        });
+        const where = { identity_key: identityKey, created_at: { lt: contextStartedAt },
+          fork_run_id: { notIn: activeRuns.map(row => row.fork_run_id) } };
+        await prune(prisma[`${prefix}Slice`], `${table}_slices`, { ...where, status: { not: 'running' } });
+        await prune(prisma[`${prefix}Item`], `${table}_items`, where);
+      }
+      for (const [model, table] of [
+        ['failureReviewForkSlice', 'failure_review_fork_slices'],
+        ['psychAssessmentForkSlice', 'psych_assessment_fork_slices'],
+        ['providerUsageEvent', 'provider_usage_events']
+      ]) {
+        await prune(prisma[model], table, { identity_key: identityKey,
+          created_at: { lt: contextStartedAt }, status: { not: 'running' } });
+      }
+    }
+    const total = Object.values(deleted).reduce((sum, count) => sum + count, 0);
+    return { pruned: total > 0, readCutoffAfterStackIndex: readCutoff,
+      contextStartedAt: contextStartedAt?.toISOString() ?? null, deleted, total };
   }
 
   async function recordLlmRequestSlice(input = {}, config = {}) {
@@ -5283,6 +5350,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendAgentStackItem,
     appendAgentStackItems,
     voidAgentStackRunSegment,
+    pruneLlmPayloadsBeforeReadCutoff,
     recordLlmRequestSlice,
     recordProviderUsageEvent,
     updateLlmRequestSliceStackLinks,
